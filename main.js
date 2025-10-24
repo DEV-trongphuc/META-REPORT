@@ -1,9 +1,10 @@
 let startDate, endDate;
-const BATCH_SIZE = 40; // Giới hạn của Meta là 50
 let VIEW_GOAL; // Dùng cho chart breakdown
+const CACHE = new Map();
+const BATCH_SIZE = 40; // max 50 theo FB
+const CONCURRENCY_LIMIT = 5; // max batch song song
 const API_VERSION = "v24.0";
 const BASE_URL = `https://graph.facebook.com/${API_VERSION}`;
-
 const goalMapping = {
   "Lead Form": ["LEAD_GENERATION", "QUALITY_LEAD"],
   Awareness: ["REACH", "AD_RECALL_LIFT", "IMPRESSIONS"],
@@ -75,6 +76,26 @@ function getAction(actions, type) {
  * - Xử lý 'item' từ breakdown (có actions là object)
  * - Ưu tiên goal từ VIEW_GOAL nếu có
  */
+async function runBatchesWithLimit(tasks, limit = CONCURRENCY_LIMIT) {
+  const results = [];
+  let i = 0;
+
+  async function worker() {
+    while (i < tasks.length) {
+      const idx = i++;
+      try {
+        results[idx] = await tasks[idx]();
+      } catch (err) {
+        console.warn(`⚠️ Batch ${idx} failed:`, err.message);
+        results[idx] = null;
+      }
+    }
+  }
+
+  const pool = Array.from({ length: limit }, worker);
+  await Promise.all(pool);
+  return results;
+}
 function getResults(item, goal) {
   if (!item) return 0; // 1. Tìm data insights (cho ad/adset) hoặc item (cho breakdown)
 
@@ -122,38 +143,33 @@ function getResults(item, goal) {
 }
 // ===================== UTILS =====================
 async function fetchJSON(url, options = {}) {
+  const key = url + JSON.stringify(options);
+  if (CACHE.has(key)) return CACHE.get(key);
+
   try {
     const res = await fetch(url, options);
+    const text = await res.text();
+
     if (!res.ok) {
+      let msg = `HTTP ${res.status} - ${res.statusText}`;
       try {
-        const errData = await res.json();
-        if (errData.error) {
-          throw new Error(
-            `Meta API Error: ${errData.error.message} (Code: ${errData.error.code})`
-          );
-        }
-      } catch (e) {}
-      throw new Error(`HTTP ${res.status} - ${res.statusText}`);
+        const errData = JSON.parse(text);
+        if (errData.error)
+          msg = `Meta API Error: ${errData.error.message} (Code: ${errData.error.code})`;
+      } catch {}
+      throw new Error(msg);
     }
-    const data = await res.json();
-    // Xử lý lỗi riêng lẻ trong batch
-    if (options.method === "POST" && Array.isArray(data)) {
-      data.forEach((item, index) => {
-        if (item && item.code !== 200) {
-          console.warn(
-            `Batch item ${index} failed (Code: ${item.code}):`,
-            item.body
-          );
-        }
-      });
-    } else if (data.error) {
+
+    const data = JSON.parse(text);
+    if (data.error)
       throw new Error(
         `Meta API Error: ${data.error.message} (Code: ${data.error.code})`
       );
-    }
+
+    CACHE.set(key, data);
     return data;
   } catch (err) {
-    console.error(`Fetch failed for ${url}:`, err);
+    console.error(`❌ Fetch failed: ${url}`, err);
     throw err;
   }
 }
@@ -166,25 +182,24 @@ function chunkArray(arr, size) {
 }
 
 async function fetchAdsets() {
-  const apiUrl = `${BASE_URL}/act_${ACCOUNT_ID}/insights?level=adset&fields=adset_id,adset_name,campaign_id,campaign_name,spend,optimization_goal&filtering=[{"field":"spend","operator":"GREATER_THAN","value":0}]&time_range={"since":"${startDate}","until":"${endDate}"}&limit=500&access_token=${META_TOKEN}`;
+  const url = `${BASE_URL}/act_${ACCOUNT_ID}/insights?level=adset&fields=adset_id,adset_name,campaign_id,campaign_name,spend,optimization_goal&filtering=[{"field":"spend","operator":"GREATER_THAN","value":0}]&time_range={"since":"${startDate}","until":"${endDate}"}&limit=500&access_token=${META_TOKEN}`;
 
-  const data = await fetchJSON(apiUrl);
-  console.log(data.data);
-
+  const data = await fetchJSON(url);
+  console.log("✅ Adset fetched:", data.data?.length || 0);
   return data.data || [];
 }
 
 async function fetchAdsAndInsights(adsetIds, onBatchProcessedCallback) {
   if (!Array.isArray(adsetIds) || !adsetIds.length) return [];
 
-  const batches = chunkArray(adsetIds, BATCH_SIZE);
+  const adsetChunks = chunkArray(adsetIds, BATCH_SIZE);
 
-  const allAdsLists = await Promise.all(
-    batches.map(async (batch) => {
-      // --- 1️⃣ Fetch ads song song ---
+  const allAdsLists = await runBatchesWithLimit(
+    adsetChunks.map((batch) => async () => {
+      // 1️⃣ Lấy danh sách ads
       const fbBatch1 = batch.map((adsetId) => ({
         method: "GET",
-        relative_url: `${adsetId}/ads?fields=id,name,effective_status,adset_id,adset{end_time},creative{effective_object_story_id,thumbnail_url,instagram_permalink_url}`,
+        relative_url: `${adsetId}/ads?fields=id,name,effective_status,adset_id,adset{end_time,daily_budget,lifetime_budget},creative{effective_object_story_id,thumbnail_url,instagram_permalink_url}`,
       }));
 
       const adsResp = await fetchJSON(BASE_URL, {
@@ -207,7 +222,6 @@ async function fetchAdsAndInsights(adsetIds, onBatchProcessedCallback) {
             : null;
           const isEnded = endTime && endTime < now;
 
-          // 🔹 Nếu adset hết hạn thì tự chuyển thành COMPLETED
           let effectiveStatus = ad.effective_status;
           if (isEnded) effectiveStatus = "COMPLETED";
 
@@ -218,16 +232,14 @@ async function fetchAdsAndInsights(adsetIds, onBatchProcessedCallback) {
             effective_status: effectiveStatus,
             adset: {
               status: ad.adset?.status || null,
-              start_time: ad.adset?.start_time || null,
+              daily_budget: ad.adset?.daily_budget || null,
+              lifetime_budget: ad.adset?.lifetime_budget || null,
               end_time: ad.adset?.end_time || null,
             },
             creative: {
-              body: ad.creative?.body || null,
-              title: ad.creative?.title || null,
               thumbnail_url: ad.creative?.thumbnail_url || null,
               instagram_permalink_url:
                 ad.creative?.instagram_permalink_url || null,
-              object_story_id: ad.creative?.effective_object_story_id || null,
               facebook_post_url: ad.creative?.effective_object_story_id
                 ? `https://facebook.com/${ad.creative.effective_object_story_id}`
                 : null,
@@ -238,18 +250,15 @@ async function fetchAdsAndInsights(adsetIds, onBatchProcessedCallback) {
 
       if (!adsList.length) return [];
 
-      // --- 2️⃣ Fetch insights song song ---
-      const adIdChunks = chunkArray(
+      // 2️⃣ Lấy insights cho từng ad
+      const adChunks = chunkArray(
         adsList.map((a) => a.id),
         BATCH_SIZE
       );
-
-      const insightPromises = adIdChunks.map((chunk) => {
+      const insightTasks = adChunks.map((chunk) => async () => {
         const fbBatch2 = chunk.map((adId) => ({
           method: "GET",
-          relative_url: `${adId}/insights?fields=spend,impressions,reach,actions,optimization_goal&time_range[since]=${encodeURIComponent(
-            startDate
-          )}&time_range[until]=${encodeURIComponent(endDate)}`,
+          relative_url: `${adId}/insights?fields=spend,impressions,reach,actions,optimization_goal&time_range[since]=${startDate}&time_range[until]=${endDate}`,
         }));
 
         return fetchJSON(BASE_URL, {
@@ -259,123 +268,70 @@ async function fetchAdsAndInsights(adsetIds, onBatchProcessedCallback) {
         });
       });
 
-      const insightResponses = await Promise.allSettled(insightPromises);
-
-      // --- 3️⃣ Map insights ---
+      const insightResponses = await runBatchesWithLimit(insightTasks, 5);
       const insightsMap = new Map();
-      insightResponses.forEach((settled, batchIndex) => {
-        if (settled.status !== "fulfilled") return;
-        const resp2 = settled.value;
-        const chunk = adIdChunks[batchIndex];
-        for (let i = 0; i < resp2.length; i++) {
-          const r = resp2[i];
+
+      insightResponses.forEach((resp, batchIdx) => {
+        if (!resp) return;
+        const chunk = adChunks[batchIdx];
+        for (let i = 0; i < resp.length; i++) {
+          const r = resp[i];
           const adId = chunk[i];
-          if (r?.code === 200 && r?.body) {
-            try {
+          try {
+            if (r?.code === 200 && r?.body) {
               const body = JSON.parse(r.body);
-              insightsMap.set(adId, body?.data?.[0] || null);
-            } catch {
-              insightsMap.set(adId, null);
-            }
-          } else {
+              insightsMap.set(adId, body.data?.[0] || null);
+            } else insightsMap.set(adId, null);
+          } catch {
             insightsMap.set(adId, null);
           }
         }
       });
 
-      // --- 4️⃣ Merge insights ---
-      const processedAdsBatch = adsList.map((ad) => {
-        const insight = insightsMap.get(ad.id) || {
+      // 3️⃣ Gộp data lại
+      const processedBatch = adsList.map((ad) => ({
+        ad_id: ad.id,
+        ad_name: ad.name,
+        adset_id: ad.adset_id,
+        effective_status: ad.effective_status,
+        adset: ad.adset,
+        creative: ad.creative,
+        insights: insightsMap.get(ad.id) || {
           spend: 0,
           impressions: 0,
           reach: 0,
           actions: [],
-        };
-        const optimizationGoal = insight?.optimization_goal || "UNKNOWN";
+        },
+      }));
 
-        return {
-          ad_id: ad.id,
-          ad_name: ad.name,
-          adset_id: ad.adset_id,
-          effective_status: ad.effective_status,
-          optimization_goal: optimizationGoal, // 🧠 thêm dòng này
-          adset: ad.adset,
-          creative: ad.creative,
-          insights: insight,
-        };
-      });
-
-      onBatchProcessedCallback?.(processedAdsBatch);
-      return processedAdsBatch;
+      onBatchProcessedCallback?.(processedBatch);
+      return processedBatch;
     })
   );
 
   const allAds = allAdsLists.flat();
-  renderGoalChart(allAds);
+
   return allAds;
 }
 
-async function fetchStoryMeta(object_story_ids) {
-  const metaMap = new Map(); // Dùng Map để tra cứu O(1)
-  const uniqueIds = [...new Set(object_story_ids.filter(Boolean))]; // Lọc ID rỗng và trùng
-  const batches = chunkArray(uniqueIds, BATCH_SIZE);
-
-  await Promise.all(
-    batches.map(async (batch) => {
-      const fbBatch = batch.map((id) => ({
-        method: "GET",
-        relative_url: `${id}?fields=full_picture,message,attachments{subattachments,media,url,description}`,
-      }));
-
-      const batchData = await fetchJSON(BASE_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ access_token: META_TOKEN, batch: fbBatch }),
-      });
-
-      batch.forEach((storyId, idx) => {
-        const body =
-          batchData[idx]?.code === 200 && batchData[idx]?.body
-            ? JSON.parse(batchData[idx].body)
-            : null;
-        if (body && !body.error) {
-          metaMap.set(storyId, {
-            full_picture:
-              body.full_picture ||
-              body.attachments?.data?.[0]?.media?.image?.src ||
-              null,
-            message_real: body.message || null,
-            carousel:
-              body.attachments?.data?.[0]?.subattachments?.data?.map((a) => ({
-                url: a.url,
-                media: a.media?.image?.src,
-                desc: a.description,
-              })) || null,
-          });
-        }
-      });
-    })
-  );
-
-  return metaMap;
+async function fetchDailySpendByAccount() {
+  const url = `${BASE_URL}/act_${ACCOUNT_ID}/insights?fields=spend,impressions,reach,actions&time_increment=1&time_range[since]=${startDate}&time_range[until]=${endDate}&access_token=${META_TOKEN}`;
+  const data = await fetchJSON(url);
+  return data.data || [];
 }
 
-async function fetchDailySpendByAccount() {
-  try {
-    if (!ACCOUNT_ID) throw new Error("ACCOUNT_ID is required");
-    const url = `${BASE_URL}/act_${ACCOUNT_ID}/insights?fields=spend,impressions,reach,actions&time_increment=1&time_range[since]=${startDate}&time_range[until]=${endDate}&access_token=${META_TOKEN}`;
-    const data = await fetchJSON(url);
-    const results = data.data || [];
-    console.log(results);
+let DAILY_DATA = [];
 
-    return results;
+async function loadDailyChart() {
+  try {
+    console.log("⚙️ Fetching daily spend data...");
+    DAILY_DATA = await fetchDailySpendByAccount();
+    renderDetailDailyChart2(DAILY_DATA);
+    console.log("✅ Daily chart rendered successfully.");
   } catch (err) {
-    console.error("❌ Error fetching daily spend for account", err);
-    return null;
+    console.error("❌ Error in daily chart flow:", err);
   }
 }
-
-let DAILY_DATA;
 
 async function loadDailyChart() {
   try {
@@ -389,37 +345,31 @@ async function loadDailyChart() {
   }
 }
 function groupByCampaign(adsets) {
-  const campaigns = {};
+  const campaigns = Object.create(null);
 
-  // helper: safe get action value
-  const safeGetActionValue = (actions, type) =>
-    +(actions?.find?.((a) => a.action_type === type)?.value || 0);
+  const safeGetActionValue = (actions, type) => {
+    if (!actions) return 0;
+    for (let i = 0, len = actions.length; i < len; i++) {
+      const a = actions[i];
+      if (a.action_type === type) return +a.value || 0;
+    }
+    return 0;
+  };
 
-  adsets.forEach((rawAs) => {
-    // --- Normalize adset fields (support various shapes) ---
-    const as = { ...rawAs };
-    as.id = as.id ?? as.adset_id ?? as.adsetId ?? null;
-    as.name = as.name ?? as.adset_name ?? as.adsetName ?? null;
-    as.campaign_id = as.campaign_id ?? as.campaignId ?? null;
-    as.campaign_name = as.campaign_name ?? as.campaignName ?? null;
-    as.optimization_goal = as.optimization_goal ?? as.optimizationGoal ?? null;
-    as.ads = Array.isArray(as.ads) ? as.ads : [];
+  for (let i = 0, len = adsets.length; i < len; i++) {
+    const as = adsets[i];
+    if (!as || !Array.isArray(as.ads) || as.ads.length === 0) continue;
 
-    // nếu không có ads thì vẫn có thể tạo adset entry (tuỳ nhu cầu)
-    if (!as.ads.length) return;
+    const asId = as.id || as.adset_id || as.adsetId || null;
+    const campId = as.campaign_id || as.campaignId || "unknown_campaign";
+    const campName = as.campaign_name || as.campaignName || "Unknown";
+    const goal = as.optimization_goal || as.optimizationGoal || null;
 
-    as.ads.forEach((ad) => {
-      // insights có thể là object, array hoặc undefined
-      let ins = ad.insights ?? ad.insights?.data ?? null;
-      if (Array.isArray(ins)) ins = ins[0] ?? null;
-      ins = ins ?? {};
-
-      const campaignId = as.campaign_id ?? "unknown_campaign";
-      const campaignName = as.campaign_name ?? "Unknown";
-
-      const c = (campaigns[campaignId] ??= {
-        id: campaignId,
-        name: campaignName,
+    let c = campaigns[campId];
+    if (!c) {
+      c = campaigns[campId] = {
+        id: campId,
+        name: campName,
         spend: 0,
         result: 0,
         reach: 0,
@@ -428,16 +378,37 @@ function groupByCampaign(adsets) {
         lead: 0,
         message: 0,
         adsets: [],
-      });
+        _adsetMap: Object.create(null), // ⚡ cache lookup
+      };
+    }
 
-      const spend = Number(ins.spend) || 0;
-      const reach = Number(ins.reach) || 0;
-      const impressions = Number(ins.impressions) || 0;
+    const ads = as.ads;
+    for (let j = 0, len2 = ads.length; j < len2; j++) {
+      const ad = ads[j];
+      if (!ad) continue;
+
+      const adsetMeta = ad.adset || {};
+      const end_time = adsetMeta.end_time || as.end_time || null;
+      const daily_budget =
+        adsetMeta.daily_budget || adsetMeta.dailyBudget || as.daily_budget || 0;
+      const lifetime_budget =
+        adsetMeta.lifetime_budget ||
+        adsetMeta.lifetimeBudget ||
+        as.lifetime_budget ||
+        0;
+
+      let ins = ad.insights;
+      if (Array.isArray(ins?.data)) ins = ins.data[0];
+      else if (Array.isArray(ins)) ins = ins[0];
+      ins = ins || {};
+
+      const spend = +ins.spend || 0;
+      const reach = +ins.reach || 0;
+      const impressions = +ins.impressions || 0;
       const result = getResults(ins) || 0;
       const reactions = getReaction(ins) || 0;
 
-      const actions = Array.isArray(ins.actions) ? ins.actions : [];
-
+      const actions = ins.actions;
       const messageCount = safeGetActionValue(
         actions,
         "onsite_conversion.messaging_conversation_started_7d"
@@ -446,7 +417,7 @@ function groupByCampaign(adsets) {
         safeGetActionValue(actions, "lead") +
         safeGetActionValue(actions, "onsite_conversion.lead_grouped");
 
-      // cộng vào campaign-level
+      // Cộng dồn campaign-level
       c.spend += spend;
       c.result += result;
       c.reach += reach;
@@ -455,13 +426,13 @@ function groupByCampaign(adsets) {
       c.lead += leadCount;
       c.message += messageCount;
 
-      // --- find or create adset bucket (normalize id/name there too) ---
-      let adset = c.adsets.find((x) => x.id === as.id);
+      // Cache lookup adset
+      let adset = c._adsetMap[asId];
       if (!adset) {
         adset = {
-          id: as.id,
-          name: as.name,
-          optimization_goal: as.optimization_goal,
+          id: asId,
+          name: as.name || as.adset_name || as.adsetName || "Unnamed Adset",
+          optimization_goal: goal,
           spend: 0,
           result: 0,
           reach: 0,
@@ -470,11 +441,16 @@ function groupByCampaign(adsets) {
           lead: 0,
           message: 0,
           ads: [],
+          end_time,
+          daily_budget,
+          lifetime_budget,
+          status: as.status || null,
         };
+        c._adsetMap[asId] = adset;
         c.adsets.push(adset);
       }
 
-      // cộng vào adset-level
+      // Adset-level
       adset.spend += spend;
       adset.result += result;
       adset.reach += reach;
@@ -483,12 +459,12 @@ function groupByCampaign(adsets) {
       adset.lead += leadCount;
       adset.message += messageCount;
 
-      // push ad summary (safe access)
+      // Push ad summary
       adset.ads.push({
-        id: ad.ad_id ?? ad.id ?? null,
-        name: ad.ad_name ?? ad.name ?? null,
-        status: ad.effective_status ?? ad.status ?? null,
-        optimization_goal: ad.optimization_goal ?? "UNKNOWN",
+        id: ad.ad_id || ad.id || null,
+        name: ad.ad_name || ad.name || null,
+        status: ad.effective_status || ad.status || null,
+        optimization_goal: ad.optimization_goal || "UNKNOWN",
         spend,
         result,
         reach,
@@ -506,49 +482,54 @@ function groupByCampaign(adsets) {
           ad.creative?.instagram_permalink_url ||
           "#",
       });
-    });
-  });
+    }
+  }
 
-  // trả về mảng campaign — có thể sort nếu cần
-  return Object.values(campaigns);
+  // Bỏ map ảo trước khi trả về
+  return Object.values(campaigns).map((c) => {
+    delete c._adsetMap;
+    return c;
+  });
 }
 
 function renderCampaignView(data) {
   const wrap = document.querySelector(".view_campaign_box");
   if (!wrap || !Array.isArray(data)) return;
 
-  const frag = document.createDocumentFragment();
+  const now = Date.now();
+  const activeLower = "active";
 
-  // === 💡 Đếm Active Campaign / Adset ngay đầu ===
   let totalCampaignCount = data.length;
   let activeCampaignCount = 0;
   let totalAdsetCount = 0;
   let activeAdsetCount = 0;
 
-  data.forEach((c) => {
+  // ==== Đếm trạng thái tổng ====
+  for (let i = 0; i < data.length; i++) {
+    const c = data[i];
     let campaignActive = false;
-    (c.adsets || []).forEach((as) => {
-      totalAdsetCount++;
-      const adsetActive = (as.ads || []).some(
-        (ad) => ad.status?.toLowerCase() === "active"
-      );
-      if (adsetActive) {
-        activeAdsetCount++;
-        campaignActive = true;
+    const adsets = c.adsets || [];
+    totalAdsetCount += adsets.length;
+    for (let j = 0; j < adsets.length; j++) {
+      const as = adsets[j];
+      const ads = as.ads || [];
+      for (let k = 0; k < ads.length; k++) {
+        if (ads[k].status?.toLowerCase() === activeLower) {
+          activeAdsetCount++;
+          campaignActive = true;
+          break;
+        }
       }
-    });
+    }
     if (campaignActive) activeCampaignCount++;
-  });
+  }
 
-  // === ⚙️ Update Active Campaign / Adset UI ===
+  // === Cập nhật UI tổng active ===
   const activeCpEls = document.querySelectorAll(".dom_active_cp");
   if (activeCpEls.length >= 2) {
-    // Campaign
     const campEl = activeCpEls[0].querySelector("span:nth-child(2)");
     if (campEl)
       campEl.innerHTML = `<span class="live-dot"></span>${activeCampaignCount}/${totalCampaignCount}`;
-
-    // Adset
     const adsetEl = activeCpEls[1].querySelector("span:nth-child(2)");
     if (adsetEl) {
       const hasActive = activeAdsetCount > 0;
@@ -557,90 +538,121 @@ function renderCampaignView(data) {
     }
   }
 
-  // === 🧠 Ưu tiên Campaign ACTIVE trước khi render ===
+  // === Ưu tiên campaign active ===
   data.sort((a, b) => {
     const aActive = a.adsets.some((as) =>
-      as.ads.some((ad) => ad.status?.toLowerCase() === "active")
+      as.ads.some((ad) => ad.status?.toLowerCase() === activeLower)
     );
     const bActive = b.adsets.some((as) =>
-      as.ads.some((ad) => ad.status?.toLowerCase() === "active")
+      as.ads.some((ad) => ad.status?.toLowerCase() === activeLower)
     );
-    if (aActive !== bActive) return bActive - aActive; // ACTIVE trước
-    return b.spend - a.spend; // sau đó sort theo spend
+    if (aActive !== bActive) return bActive - aActive;
+    return b.spend - a.spend;
   });
 
-  // === 🧱 Render từng Campaign ===
-  data.forEach((c) => {
-    const adsets = [...c.adsets].sort((a, b) => {
-      const aActive = a.ads.some((ad) => ad.status?.toLowerCase() === "active");
-      const bActive = b.ads.some((ad) => ad.status?.toLowerCase() === "active");
-      if (aActive !== bActive) return bActive - aActive;
-      return b.spend - a.spend;
-    });
+  // === Render ===
+  const htmlBuffer = [];
 
-    const activeAdsetsCount = adsets.filter((as) =>
-      as.ads.some((ad) => ad.status?.toLowerCase() === "active")
-    ).length;
+  for (let i = 0; i < data.length; i++) {
+    const c = data[i];
+    const adsets = c.adsets;
+    let activeAdsetCount = 0;
+    for (let j = 0; j < adsets.length; j++) {
+      if (adsets[j].ads?.some((ad) => ad.status?.toLowerCase() === activeLower))
+        activeAdsetCount++;
+    }
 
-    const hasActiveAdset = activeAdsetsCount > 0;
+    const hasActiveAdset = activeAdsetCount > 0;
     const campaignStatusClass = hasActiveAdset ? "active" : "inactive";
     const campaignStatusText = hasActiveAdset
-      ? `${activeAdsetsCount} ACTIVE`
-      : `INACTIVE`;
+      ? `${activeAdsetCount} ACTIVE`
+      : "INACTIVE";
 
-    const firstAdsetGoal = adsets?.[0]?.optimization_goal || "";
-    const iconClass = getCampaignIcon(firstAdsetGoal);
-
+    const firstGoal = adsets?.[0]?.optimization_goal || "";
+    const iconClass = getCampaignIcon(firstGoal);
     const campaignCpr =
       c.result > 0
-        ? firstAdsetGoal === "REACH"
+        ? firstGoal === "REACH"
           ? (c.spend / c.result) * 1000
           : c.spend / c.result
         : 0;
 
-    const div = document.createElement("div");
-    div.className = `campaign_item ${campaignStatusClass}`;
-
-    const iconWrapClass = hasActiveAdset
-      ? "campaign_thumb campaign_icon_wrap"
-      : "campaign_thumb campaign_icon_wrap inactive";
-
-    let html = `
-      <div class="campaign_main">
-        <div class="ads_name">
-          <div class="${iconWrapClass}">
-            <i class="${iconClass}"></i>
+    const campaignHtml = [];
+    campaignHtml.push(`
+      <div class="campaign_item ${campaignStatusClass}">
+        <div class="campaign_main">
+          <div class="ads_name">
+            <div class="campaign_thumb campaign_icon_wrap ${
+              hasActiveAdset ? "" : "inactive"
+            }">
+              <i class="${iconClass}"></i>
+            </div>
+            <p class="ad_name">${c.name}</p>
           </div>
-          <p class="ad_name">${c.name}</p>
-        </div>
-        <div class="ad_status ${campaignStatusClass}">${campaignStatusText}</div>
-        <div class="ad_spent">${formatMoney(c.spend)}</div>
-        <div class="ad_result">${formatNumber(c.result)}</div>
-        <div class="ad_cpr">${formatMoney(campaignCpr)}</div>
-        <div class="ad_cpm">${formatMoney(calcCpm(c.spend, c.reach))}</div>
-        <div class="ad_reach">${formatNumber(c.reach)}</div>
-        <div class="ad_frequency">${calcFrequency(c.impressions, c.reach)}</div>
-        <div class="ad_reaction">${formatNumber(c.reactions)}</div>
-        <div class="campaign_view"><i class="fa-solid fa-angle-down"></i></div>
-      </div>
-    `;
+          <div class="ad_status ${campaignStatusClass}">${campaignStatusText}</div>
+          <div class="ad_spent">${formatMoney(c.spend)}</div>
+          <div class="ad_result">${formatNumber(c.result)}</div>
+          <div class="ad_cpr">${formatMoney(campaignCpr)}</div>
+          <div class="ad_cpm">${formatMoney(calcCpm(c.spend, c.reach))}</div>
+          <div class="ad_reach">${formatNumber(c.reach)}</div>
+          <div class="ad_frequency">${calcFrequency(
+            c.impressions,
+            c.reach
+          )}</div>
+          <div class="ad_reaction">${formatNumber(c.reactions)}</div>
+          <div class="campaign_view"><i class="fa-solid fa-angle-down"></i></div>
+        </div>`);
 
-    // === Render từng Adset & Ad ===
-    adsets.forEach((as) => {
-      const ads = [...as.ads].sort(
-        (a, b) =>
-          (b.status?.toLowerCase() === "active") -
-          (a.status?.toLowerCase() === "active")
-      );
-
-      const adsetIconClass = getCampaignIcon(as.optimization_goal);
+    // === Render adset ===
+    for (let j = 0; j < adsets.length; j++) {
+      const as = adsets[j];
+      const ads = as.ads;
       const activeAdsCount = ads.filter(
-        (ad) => ad.status?.toLowerCase() === "active"
+        (ad) => ad.status?.toLowerCase() === activeLower
       ).length;
-      const adsetStatusClass = activeAdsCount > 0 ? "active" : "inactive";
-      const adsetStatusText =
-        activeAdsCount > 0 ? `${activeAdsCount} ACTIVE` : `INACTIVE`;
 
+      let adsetStatusClass = "inactive";
+      let adsetStatusText = "INACTIVE";
+
+      const endTime = as.end_time ? new Date(as.end_time).getTime() : null;
+      const isEnded = endTime && endTime < now;
+      const dailyBudget = +as.daily_budget || 0;
+      const lifetimeBudget = +as.lifetime_budget || 0;
+      const hasActiveAd = activeAdsCount > 0;
+
+      if (isEnded) {
+        adsetStatusClass = "complete";
+        adsetStatusText = `<span class="status-label">COMPLETE</span>`;
+      } else if (hasActiveAd && dailyBudget > 0) {
+        // ✅ chỉ hiện Daily Budget nếu có ad ACTIVE
+        adsetStatusClass = "active dbudget";
+        adsetStatusText = `
+          <span class="status-label">Daily Budget</span>
+          <span class="status-value">${dailyBudget.toLocaleString(
+            "vi-VN"
+          )}đ</span>`;
+      } else if (hasActiveAd && lifetimeBudget > 0) {
+        // ✅ chỉ hiện Lifetime Budget nếu có ad ACTIVE
+        adsetStatusClass = "active budget";
+        const d = as.end_time ? new Date(as.end_time) : null;
+        const endDate = d
+          ? `${String(d.getDate()).padStart(2, "0")}-${String(
+              d.getMonth() + 1
+            ).padStart(2, "0")}-${d.getFullYear()}`
+          : "";
+        adsetStatusText = `
+          <span class="status-label">Lifetime Budget</span>
+          <span class="status-value">${lifetimeBudget.toLocaleString(
+            "vi-VN"
+          )}đ</span>
+          <span class="status-date">END ${endDate}</span>`;
+      } else if (hasActiveAd) {
+        adsetStatusClass = "active";
+        adsetStatusText = `<span>ACTIVE</span>`;
+      } else {
+        adsetStatusClass = "inactive";
+        adsetStatusText = `<span>INACTIVE</span>`;
+      }
       const adsetCpr =
         as.result > 0
           ? as.optimization_goal === "REACH"
@@ -648,64 +660,70 @@ function renderCampaignView(data) {
             : as.spend / as.result
           : 0;
 
-      const adsHtml = ads
-        .map((ad) => {
-          const isActiveAd = ad.status?.toLowerCase() === "active";
-          const adCpr =
-            ad.result > 0
-              ? as.optimization_goal === "REACH"
-                ? (ad.spend / ad.result) * 1000
-                : ad.spend / ad.result
-              : 0;
+      // Ads HTML (map nhanh)
+      const adsHtml = new Array(ads.length);
+      for (let k = 0; k < ads.length; k++) {
+        const ad = ads[k];
+        const isActive = ad.status?.toLowerCase() === activeLower;
+        const adCpr =
+          ad.result > 0
+            ? as.optimization_goal === "REACH"
+              ? (ad.spend / ad.result) * 1000
+              : ad.spend / ad.result
+            : 0;
 
-          return `
-            <div class="ad_item ${isActiveAd ? "active" : "inactive"}">
-              <div class="ads_name">
-                <a href="${ad.post_url}" target="_blank">
-                  <img src="${ad.thumbnail}" data-ad-id-img="${ad.id}" />
-                  <p class="ad_name">ID: ${ad.id}</p>
-                </a>
-              </div>
-              <div class="ad_status ${isActiveAd ? "active" : "inactive"}">${
-            ad.status
-          }</div>
-              <div class="ad_spent">${formatMoney(ad.spend)}</div>
-              <div class="ad_result">${formatNumber(ad.result)}</div>
-              <div class="ad_cpr">${formatMoney(adCpr)}</div>
-              <div class="ad_cpm">${formatMoney(
-                calcCpm(ad.spend, ad.reach)
-              )}</div>
-              <div class="ad_reach">${formatNumber(ad.reach)}</div>
-              <div class="ad_frequency">${calcFrequency(
-                ad.impressions,
-                ad.reach
-              )}</div>
-              <div class="ad_reaction">${formatNumber(ad.reactions)}</div>
-              <div 
-                class="ad_view" 
-                data-ad-id="${ad.id}" 
-                data-name="${as.name}" 
-                data-goal="${as.optimization_goal}" 
-                data-spend="${ad.spend}" 
-                data-result="${ad.result}" 
-                data-cpr="${adCpr}"
-                data-thumb="${ad.thumbnail || ""}"
-                data-post="${ad.post_url || ""}"
-              >
-                <i class="fa-solid fa-magnifying-glass-chart"></i>
-              </div>
-            </div>`;
-        })
-        .join("");
+        adsHtml[k] = `
+          <div class="ad_item ${isActive ? "active" : "inactive"}">
+            <div class="ads_name">
+              <a href="${ad.post_url}" target="_blank">
+                <img src="${ad.thumbnail}" data-ad-id-img="${ad.id}" />
+                <p class="ad_name">ID: ${ad.id}</p>
+              </a>
+            </div>
+            <div class="ad_status ${isActive ? "active" : "inactive"}">${
+          ad.status
+        }</div>
+            <div class="ad_spent">${formatMoney(ad.spend)}</div>
+            <div class="ad_result">${formatNumber(ad.result)}</div>
+            <div class="ad_cpr">${formatMoney(adCpr)}</div>
+            <div class="ad_cpm">${formatMoney(
+              calcCpm(ad.spend, ad.reach)
+            )}</div>
+            <div class="ad_reach">${formatNumber(ad.reach)}</div>
+            <div class="ad_frequency">${calcFrequency(
+              ad.impressions,
+              ad.reach
+            )}</div>
+            <div class="ad_reaction">${formatNumber(ad.reactions)}</div>
+            <div class="ad_view"
+              data-ad-id="${ad.id}"
+              data-name="${as.name}"
+              data-goal="${as.optimization_goal}"
+              data-spend="${ad.spend}"
+              data-result="${ad.result}"
+              data-cpr="${adCpr}"
+              data-thumb="${ad.thumbnail || ""}"
+              data-post="${ad.post_url || ""}">
+              <i class="fa-solid fa-magnifying-glass-chart"></i>
+            </div>
+          </div>`;
+      }
 
-      html += `
+      campaignHtml.push(`
         <div class="adset_item ${adsetStatusClass}">
-          <div class="ads_name"><p class="ad_name">${as.name}</p></div>
+     <div class="ads_name">
+              <a href="javascript:;">
+                <img src="${as.ads?.[0]?.thumbnail}" />
+                <p class="ad_name">${as.name}</p>
+              </a>
+            </div>
           <div class="ad_status ${adsetStatusClass}">${adsetStatusText}</div>
           <div class="ad_spent">${formatMoney(as.spend)}</div>
           <div class="ad_result">${formatNumber(as.result)}</div>
           <div class="ad_cpr">
-            <i class="${adsetIconClass} adset_goal_icon"></i>
+            <i class="${getCampaignIcon(
+              as.optimization_goal
+            )} adset_goal_icon"></i>
             <span>${as.optimization_goal}</span>
           </div>
           <div class="ad_cpm">${formatMoney(calcCpm(as.spend, as.reach))}</div>
@@ -715,25 +733,18 @@ function renderCampaignView(data) {
             as.reach
           )}</div>
           <div class="ad_reaction">${formatNumber(as.reactions)}</div>
-          <div class="adset_view" 
-            data-adset-id="${as.id}" 
-            data-goal="${as.optimization_goal}" 
-            data-spend="${as.spend}" 
-            data-result="${as.result}" 
-            data-cpr="${adsetCpr.toFixed(0)}">
+          <div class="adset_view">
             <div class="campaign_view"><i class="fa-solid fa-angle-down"></i></div>
           </div>
         </div>
-        <div class="ad_item_box">${adsHtml}</div>
-      `;
-    });
+        <div class="ad_item_box">${adsHtml.join("")}</div>`);
+    }
 
-    div.innerHTML = html + "</div>";
-    frag.appendChild(div);
-  });
+    campaignHtml.push(`</div>`);
+    htmlBuffer.push(campaignHtml.join(""));
+  }
 
-  wrap.innerHTML = "";
-  wrap.appendChild(frag);
+  wrap.innerHTML = htmlBuffer.join("");
   addListeners();
 }
 
@@ -899,6 +910,15 @@ async function loadCampaignList() {
     // 🔹 Render UI
     window._ALL_CAMPAIGNS = campaigns;
     renderCampaignView(campaigns);
+    const allAds = campaigns.flatMap((c) =>
+      c.adsets.flatMap((as) =>
+        (as.ads || []).map((ad) => ({
+          optimization_goal: as.optimization_goal,
+          insights: { spend: ad.spend || 0 },
+        }))
+      )
+    );
+    renderGoalChart(allAds);
     // updateSummaryUI(campaigns);
   } catch (err) {
     console.error("❌ Error in Flow 2 (Campaign List):", err);
@@ -1361,11 +1381,25 @@ async function showAdDetail(ad_id) {
   }
 }
 // ================== LỌC THEO TỪ KHÓA ==================
-document.getElementById("filter").addEventListener("input", (e) => {
-  const keyword = e.target.value.trim().toLowerCase();
-  applyCampaignFilter(keyword);
-});
+function debounce(fn, delay = 500) {
+  let timeout;
+  return (...args) => {
+    clearTimeout(timeout);
+    timeout = setTimeout(() => fn(...args), delay);
+  };
+}
 
+// 🎯 Lắng nghe input filter với debounce
+const filterInput = document.getElementById("filter");
+if (filterInput) {
+  filterInput.addEventListener(
+    "input",
+    debounce((e) => {
+      const keyword = e.target.value.trim().toLowerCase();
+      applyCampaignFilter(keyword);
+    }, 500)
+  );
+}
 async function applyCampaignFilter(keyword) {
   if (!window._ALL_CAMPAIGNS || !Array.isArray(window._ALL_CAMPAIGNS)) return;
 
@@ -1448,6 +1482,8 @@ function buildDailyDataFromCampaigns(campaigns) {
 
 // ================== LẤY DAILY SPEND THEO CAMPAIGN ==================
 async function fetchDailySpendByCampaignIDs(campaignIds) {
+  const loading = document.querySelector(".loading");
+  if (loading) loading.classList.add("active");
   try {
     if (!Array.isArray(campaignIds) || campaignIds.length === 0)
       throw new Error("Campaign IDs are required");
@@ -1465,6 +1501,7 @@ async function fetchDailySpendByCampaignIDs(campaignIds) {
     const results = data.data || [];
 
     console.log("📊 Daily spend filtered by campaign IDs:", results);
+    if (loading) loading.classList.remove("active");
     return results;
   } catch (err) {
     console.error("❌ Error fetching daily spend by campaign IDs", err);
@@ -1491,19 +1528,26 @@ function renderTargetingToDOM(targeting) {
   if (!targetBox) return;
 
   // === Age ===
+  let min = 18,
+    max = 65;
+  if (Array.isArray(targeting.age_range) && targeting.age_range.length === 2) {
+    min = targeting.age_range[0];
+    max = targeting.age_range[1];
+  } else {
+    min = targeting.age_min || 18;
+    max = targeting.age_max || 65;
+  }
+
   const ageDivs = targetBox.querySelectorAll(".detail_gender .age_text p");
   if (ageDivs.length >= 2) {
-    ageDivs[0].textContent = targeting.age_min || 18;
-    ageDivs[1].textContent = targeting.age_max || 65;
+    ageDivs[0].textContent = min;
+    ageDivs[1].textContent = max;
   }
 
   const ageBar = targetBox.querySelector(".detail_age_bar");
   if (ageBar) {
-    const min = Number(targeting.age_min || 18);
-    const max = Number(targeting.age_max || 65);
     const fullMin = 18;
     const fullMax = 65;
-
     const leftPercent = ((min - fullMin) / (fullMax - fullMin)) * 100;
     const widthPercent = ((max - min) / (fullMax - fullMin)) * 100;
 
@@ -1537,25 +1581,29 @@ function renderTargetingToDOM(targeting) {
   if (locationWrap) {
     let locations = [];
 
-    if (targeting.geo_locations?.cities) {
-      locations = targeting.geo_locations.cities.map(
-        (c) => `${c.name} (${c.radius}km)`
+    const { geo_locations } = targeting || {};
+
+    if (geo_locations?.cities) {
+      locations = geo_locations.cities.map(
+        (c) => `${c.name} (${c.radius}${c.distance_unit || "km"})`
       );
     }
 
-    if (targeting.geo_locations?.regions) {
+    if (geo_locations?.regions) {
+      locations = locations.concat(geo_locations.regions.map((r) => r.name));
+    }
+
+    if (geo_locations?.custom_locations) {
       locations = locations.concat(
-        targeting.geo_locations.regions.map((r) => r.name)
+        geo_locations.custom_locations.map((r) => r.name)
       );
     }
-    if (targeting.geo_locations?.custom_locations) {
+
+    if (geo_locations?.places) {
       locations = locations.concat(
-        targeting.geo_locations.custom_locations.map((r) => r.name)
-      );
-    }
-    if (targeting.geo_locations?.places) {
-      locations = locations.concat(
-        targeting.geo_locations.places.map((r) => r.name)
+        geo_locations.places.map(
+          (p) => `${p.name} (${p.radius} ${p.distance_unit || "km"})`
+        )
       );
     }
 
@@ -2114,7 +2162,7 @@ function renderChartByDevice(dataByDevice) {
     key = key.toLowerCase();
     if (key.includes("android")) return "Android";
     if (key.includes("iphone")) return "iPhone";
-    if (key.includes("ipad")) return "iPad";
+    if (key.includes("ipad")) return "iPhone";
     if (key.includes("tablet")) return "Tablet";
     if (key.includes("desktop")) return "Desktop";
     return key.charAt(0).toUpperCase() + key.slice(1);
@@ -2510,17 +2558,17 @@ function renderChartByPlatform(allData) {
         return "https://ms.codes/cdn/shop/articles/this-pc-computer-display-windows-11-icon.png?v=1709255180";
     }
     if (groupKey === "byAgeGender") {
-      return "https://i.sstatic.net/l60Hf.png";
+      return "https://raw.githubusercontent.com/DEV-trongphuc/DOM_MISA_IDEAS_CRM/refs/heads/main/DOM_MKT%20(2).png";
     }
     if (groupKey === "byRegion") {
-      return "https://i.sstatic.net/l60Hf.png";
+      return "https://raw.githubusercontent.com/DEV-trongphuc/DOM_MISA_IDEAS_CRM/refs/heads/main/DOM_MKT%20(2).png";
     }
     if (k.includes("facebook"))
       return "https://upload.wikimedia.org/wikipedia/commons/0/05/Facebook_Logo_%282019%29.png";
 
     if (k.includes("instagram"))
       return "https://upload.wikimedia.org/wikipedia/commons/e/e7/Instagram_logo_2016.svg";
-    return "https://i.sstatic.net/l60Hf.png";
+    return "https://raw.githubusercontent.com/DEV-trongphuc/DOM_MISA_IDEAS_CRM/refs/heads/main/DOM_MKT%20(2).png";
   };
 
   let hasData = false;
@@ -2558,10 +2606,10 @@ function renderChartByPlatform(allData) {
 
     // Render từng dòng
     items.forEach((p) => {
-      let color = "rgb(255,169,0)";
-      if (p.cpr === minCPR) color = "rgb(0,133,29)";
-      else if (p.cpr === maxCPR) color = "rgb(240,57,57)";
-      const bg = color.replace("rgb", "rgba").replace(")", ",0.08)");
+      let color = "rgb(213,141,0)";
+      if (p.cpr === minCPR) color = "rgb(2,116,27)";
+      else if (p.cpr === maxCPR) color = "rgb(215,0,0)";
+      const bg = color.replace("rgb", "rgba").replace(")", ",0.05)");
 
       const li = document.createElement("li");
       li.dataset.platform = p.key;
@@ -2629,7 +2677,7 @@ function renderDeepCPR(allData) {
 
     groupItems.forEach((p) => {
       let color = "rgb(255,169,0)";
-      if (p.cpr === minCPR) color = "rgb(0,133,29)";
+      if (p.cpr === minCPR) color = "rgb(2,116,27)";
       else if (p.cpr === maxCPR) color = "rgb(240,57,57)";
       const bg = color.replace("rgb", "rgba").replace(")", ",0.08)");
 
@@ -2887,145 +2935,100 @@ async function fetchPlatformStats(campaignIds = []) {
           ])
         )}`
       : "";
-
-    const url = `${BASE_URL}/act_${ACCOUNT_ID}/insights?fields=spend,impressions,reach,actions&level=ad&time_range={"since":"${startDate}","until":"${endDate}"}${filtering}&access_token=${META_TOKEN}`;
+    const url = `${BASE_URL}/act_${ACCOUNT_ID}/insights?fields=spend,impressions,reach,actions&time_range={"since":"${startDate}","until":"${endDate}"}${filtering}&access_token=${META_TOKEN}`;
 
     const data = await fetchJSON(url);
+    console.log(data.data);
+
     return data.data || [];
   } catch (err) {
     console.error("❌ Error fetching platform stats:", err);
     return [];
   }
 }
-function summarizePlatformStats(data) {
-  const platforms = {};
 
-  data.forEach((item) => {
-    const platform = item.platform_position || "Other";
-    if (!platforms[platform]) {
-      platforms[platform] = {
-        spend: 0,
-        reach: 0,
-        impressions: 0,
-        actions: {},
-      };
-    }
+function updatePlatformSummaryUI(data) {
+  if (!data) return;
 
-    platforms[platform].spend += +item.spend || 0;
-    platforms[platform].reach += +item.reach || 0;
-    platforms[platform].impressions += +item.impressions || 0;
+  // ⚠️ Trường hợp fetchPlatformStats trả về array
+  if (Array.isArray(data)) data = data[0] || {};
 
-    (item.actions || []).forEach((a) => {
-      const key = a.action_type;
-      platforms[platform].actions[key] =
-        (platforms[platform].actions[key] || 0) + (+a.value || 0);
-    });
+  // Chuyển actions[] thành object để dễ truy cập key
+  const act = {};
+  (data.actions || []).forEach(({ action_type, value }) => {
+    act[action_type] = (act[action_type] || 0) + (+value || 0);
   });
 
-  return platforms;
-}
+  const totalSpend = +data.spend || 0;
+  const totalReach = +data.reach || 0;
+  const totalImpression = +data.impressions || 0;
 
-function updatePlatformSummaryUI(platforms) {
-  let totalSpend = 0,
-    totalReach = 0,
-    totalImpression = 0,
-    totalLike = 0,
-    totalReaction = 0,
-    totalFollow = 0,
-    totalComment = 0,
-    totalShare = 0,
-    totalClick = 0,
-    totalView = 0,
-    totalMessage = 0,
-    totalLead = 0;
+  const totalLike = act["like"] || 0;
+  const totalFollow = act["page_follow"] || act["page_like"] || 0;
+  const totalReaction = act["post_reaction"] || 0;
+  const totalComment = act["comment"] || 0;
+  const totalShare = act["post"] || act["share"] || 0;
+  const totalClick = act["link_click"] || 0;
+  const totalView = act["video_view"] || 0;
+  const totalMessage =
+    act["onsite_conversion.messaging_conversation_started_7d"] || 0;
+  const totalLead =
+    act["lead"] ||
+    act["onsite_web_lead"] ||
+    act["onsite_conversion.lead_grouped"] ||
+    0;
 
-  Object.values(platforms).forEach((p) => {
-    totalSpend += p.spend || 0;
-    totalReach += p.reach || 0;
-    totalImpression += p.impressions || 0;
-
-    const act = p.actions || {};
-    totalLike += act["like"] || 0;
-    totalFollow += act["page_follow"] || act["page_like"] || 0;
-    totalReaction += act["post_reaction"] || 0;
-    totalComment += act["comment"] || 0;
-    totalShare += act["post_share"] || act["share"] || 0;
-    totalClick += act["link_click"] || 0;
-    totalView += act["video_view"] || 0;
-    totalMessage +=
-      act["onsite_conversion.messaging_conversation_started_7d"] || 0;
-    totalLead += act["lead"] || 0;
-  });
-
-  // --- Cập nhật các chỉ số tổng ---
+  // --- Render UI ---
   document.querySelector(
     "#spent span"
   ).textContent = `${totalSpend.toLocaleString("vi-VN")}đ`;
-  document.querySelector(
-    "#reach span"
-  ).textContent = `${totalReach.toLocaleString("vi-VN")}`;
-  document.querySelector(
-    "#message span"
-  ).textContent = `${totalMessage.toLocaleString("vi-VN")}`;
-  document.querySelector(
-    "#lead span"
-  ).textContent = `${totalLead.toLocaleString("vi-VN")}`;
+  document.querySelector("#reach span").textContent =
+    totalReach.toLocaleString("vi-VN");
+  document.querySelector("#message span").textContent =
+    totalMessage.toLocaleString("vi-VN");
+  document.querySelector("#lead span").textContent =
+    totalLead.toLocaleString("vi-VN");
 
-  // --- Interaction ---
-  document.querySelector(
-    ".dom_interaction_reaction"
-  ).textContent = `${totalReaction.toLocaleString("vi-VN")}`;
-  document.querySelector(".dom_interaction_like").textContent = `${(
+  document.querySelector(".dom_interaction_reaction").textContent =
+    totalReaction.toLocaleString("vi-VN");
+  document.querySelector(".dom_interaction_like").textContent = (
     totalLike + totalFollow
-  ).toLocaleString("vi-VN")}`;
-  document.querySelector(
-    ".dom_interaction_comment"
-  ).textContent = `${totalComment.toLocaleString("vi-VN")}`;
-  document.querySelector(
-    ".dom_interaction_share"
-  ).textContent = `${totalShare.toLocaleString("vi-VN")}`;
-  document.querySelector(
-    ".dom_interaction_click"
-  ).textContent = `${totalClick.toLocaleString("vi-VN")}`;
-  document.querySelector(
-    ".dom_interaction_view"
-  ).textContent = `${totalView.toLocaleString("vi-VN")}`;
-
-  // --- Frequency ---
+  ).toLocaleString("vi-VN");
+  document.querySelector(".dom_interaction_comment").textContent =
+    totalComment.toLocaleString("vi-VN");
+  document.querySelector(".dom_interaction_share").textContent =
+    totalShare.toLocaleString("vi-VN");
+  document.querySelector(".dom_interaction_click").textContent =
+    totalClick.toLocaleString("vi-VN");
+  document.querySelector(".dom_interaction_view").textContent =
+    totalView.toLocaleString("vi-VN");
   const freqWrap = document.querySelector(".dom_frequency");
-  if (freqWrap) {
-    const frequency = totalReach > 0 ? totalImpression / totalReach : 0;
-    const percent = Math.min((frequency / 3) * 100, 100); // ví dụ 3 lần = full bar
+  if (freqWrap && totalReach > 0) {
+    const frequency = totalImpression / totalReach; // tần suất hiển thị trung bình
+    const percent = Math.min((frequency / 3) * 100, 100); // ví dụ 3 = full bar
 
-    // Cập nhật donut
+    // Cập nhật progress (dạng donut/bar)
     const donut = freqWrap.querySelector(".semi-donut");
     if (donut) donut.style.setProperty("--percentage", percent.toFixed(1));
 
-    // Text chính: % và frequency
+    // Text hiển thị frequency
     const freqNum = freqWrap.querySelector(".frequency_number");
-    if (freqNum) {
-      freqNum.querySelector(
-        "span:nth-child(1)"
-      ).textContent = `${frequency.toFixed(1)}`;
-      // freqNum.querySelector(
-      //   "span:nth-child(2)"
-      // ).textContent = `(${frequency.toFixed(2)})`;
-    }
+    if (freqNum)
+      freqNum.querySelector("span:nth-child(1)").textContent =
+        frequency.toFixed(1);
 
-    // Nhãn Impression & Reach %
+    // Impression & Reach labels
     const impLabel = freqWrap.querySelector(".dom_frequency_label_impression");
     const reachLabel = freqWrap.querySelector(".dom_frequency_label_reach");
     if (impLabel)
-      impLabel.textContent = `${totalImpression.toLocaleString("vi-VN")}`;
-    if (reachLabel)
-      reachLabel.textContent = `${totalReach.toLocaleString("vi-VN")}`;
+      impLabel.textContent = totalImpression.toLocaleString("vi-VN");
+    if (reachLabel) reachLabel.textContent = totalReach.toLocaleString("vi-VN");
   }
 }
 
 async function loadPlatformSummary(campaignIds = []) {
   const data = await fetchPlatformStats(campaignIds);
-  const platforms = summarizePlatformStats(data);
-  updatePlatformSummaryUI(platforms);
+  updatePlatformSummaryUI(data);
 }
 async function fetchSpendByPlatform(campaignIds = []) {
   try {
@@ -3291,3 +3294,27 @@ function reloadDashboard() {
 }
 
 // =================== MAIN INIT ===================
+
+// document.addEventListener("click", (e) => {
+//   const select = e.target.closest(".quick_filter_detail");
+//   const option = e.target.closest(".quick_filter_detail ul li");
+
+//   // ✅ Toggle dropdown khi click vào select
+//   if (select && !option) {
+//     select.classList.toggle("active");
+//   }
+
+//   // ✅ Khi chọn 1 option
+//   if (option) {
+//     const parent = option.closest(".quick_filter_detail");
+//     const imgSrc = option.querySelector("img").src;
+//     const name = option.querySelector("span").textContent.trim();
+//     const filter = option.dataset.filter.trim().toLowerCase();
+
+//     // Update UI
+//     parent.querySelector("img").src = imgSrc;
+//     parent.querySelector(".dom_selected").textContent = name;
+//     parent.classList.remove("active");
+//     applyCampaignFilter(filter);
+//   }
+// });
