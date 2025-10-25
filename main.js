@@ -1,7 +1,7 @@
 let startDate, endDate;
 let VIEW_GOAL; // Dùng cho chart breakdown
 const CACHE = new Map();
-const BATCH_SIZE = 40; // max 50 theo FB
+const BATCH_SIZE = 20; 
 const CONCURRENCY_LIMIT = 2; // max batch song song
 const API_VERSION = "v24.0";
 const BASE_URL = `https://graph.facebook.com/${API_VERSION}`;
@@ -199,7 +199,7 @@ async function fetchAdsAndInsights(adsetIds, onBatchProcessedCallback) {
     "Prefer": "return=minimal",
   };
   const now = Date.now();
-  const CONCURRENCY = 4; // safe zone: tránh throttle Meta
+  // const CONCURRENCY = 4; // 👈 Đã bỏ (hoặc comment)
   const adsetChunks = chunkArray(adsetIds, BATCH_SIZE);
   const results = [];
   let batchCount = 0;
@@ -250,7 +250,6 @@ async function fetchAdsAndInsights(adsetIds, onBatchProcessedCallback) {
 
         const data = body.data;
         if (!Array.isArray(data) || data.length === 0) continue;
-
         for (let j = 0, len = data.length; j < len; j++) {
           const ad = data[j];
           const adset = ad.adset ?? {};
@@ -260,33 +259,32 @@ async function fetchAdsAndInsights(adsetIds, onBatchProcessedCallback) {
           const endTime = adset.end_time ? Date.parse(adset.end_time) : 0;
           const effective_status =
             endTime && endTime < now ? "COMPLETED" : ad.effective_status;
-
-          processed.push({
-            ad_id: ad.id,
-            ad_name: ad.name,
-            adset_id: ad.adset_id,
-            effective_status,
-            adset: {
-              status: adset.status ?? null,
-              daily_budget: adset.daily_budget ?? null,
-              lifetime_budget: adset.lifetime_budget ?? null,
-              end_time: adset.end_time ?? null,
-            },
-            creative: {
-              thumbnail_url: creative.thumbnail_url ?? null,
-              instagram_permalink_url: creative.instagram_permalink_url ?? null,
-              facebook_post_url: creative.effective_object_story_id
-                ? `https://facebook.com/${creative.effective_object_story_id}`
-                : null,
-            },
-            insights: {
-              spend: +insights.spend || 0,
-              impressions: +insights.impressions || 0,
-              reach: +insights.reach || 0,
-              actions: insights.actions || [],
-              optimization_goal: insights.optimization_goal || "",
-            },
-          });
+            processed.push({
+              ad_id: ad.id,
+              ad_name: ad.name,
+              adset_id: ad.adset_id,
+              effective_status,
+              adset: {
+                status: adset.status ?? null,
+                daily_budget: adset.daily_budget != null ? adset.daily_budget : 0, // Kiểm tra null và undefined
+                lifetime_budget: adset.lifetime_budget ?? null,
+                end_time: adset.end_time ?? null,
+              },
+              creative: {
+                thumbnail_url: creative.thumbnail_url ?? null,
+                instagram_permalink_url: creative.instagram_permalink_url ?? null,
+                facebook_post_url: creative.effective_object_story_id
+                  ? `https://facebook.com/${creative.effective_object_story_id}`
+                  : null,
+              },
+              insights: {
+                spend: !isNaN(+insights.spend) ? +insights.spend : 0,
+                impressions: +insights.impressions || 0,
+                reach: +insights.reach || 0,
+                actions: Array.isArray(insights.actions) ? insights.actions : [],
+                optimization_goal: insights.optimization_goal || "",
+              },
+            });
         }
       }
 
@@ -303,14 +301,14 @@ async function fetchAdsAndInsights(adsetIds, onBatchProcessedCallback) {
         `✅ Batch #${batchCount} (${batch.length} adsets) done in ${elapsed}ms`
       );
     }),
-    CONCURRENCY
+    // --- THAY ĐỔI Ở ĐÂY ---
+    CONCURRENCY_LIMIT // ✅ Sử dụng hằng số toàn cục (giá trị là 2)
+    // ---------------------
   );
 
   console.timeEnd("⏱️ Total fetchAdsAndInsights");
   return results;
 }
-
-
 async function fetchDailySpendByAccount() {
   const url = `${BASE_URL}/act_${ACCOUNT_ID}/insights?fields=spend,impressions,reach,actions&time_increment=1&time_range[since]=${startDate}&time_range[until]=${endDate}&access_token=${META_TOKEN}`;
   const data = await fetchJSON(url);
@@ -331,6 +329,7 @@ async function loadDailyChart() {
   }
 }
 function groupByCampaign(adsets) {
+  console.log(adsets);
   if (!Array.isArray(adsets) || adsets.length === 0) return [];
 
   const campaigns = Object.create(null);
@@ -375,6 +374,7 @@ function groupByCampaign(adsets) {
 
     // 🔹 Cache adset trong campaign
     let adset = campaign._adsetMap[asId];
+    console.log(adset);
     if (!adset) {
       adset = {
         id: asId,
@@ -388,9 +388,9 @@ function groupByCampaign(adsets) {
         lead: 0,
         message: 0,
         ads: [],
-        end_time: as.end_time || null,
-        daily_budget: +as.daily_budget || 0,
-        lifetime_budget: +as.lifetime_budget || 0,
+        end_time: as.ads?.[0]?.adset?.end_time || null,  // Adjusted this line to handle array-based access
+        daily_budget: as.ads?.[0]?.adset?.daily_budget || 0,  // Adjusted this line to handle array-based access
+        lifetime_budget: as.ads?.[0]?.adset?.lifetime_budget || 0,  // Adjusted this line to handle array-based access
         status: as.status || null,
       };
       campaign._adsetMap[asId] = adset;
@@ -475,8 +475,8 @@ function groupByCampaign(adsets) {
   });
 }
 
-
 function renderCampaignView(data) {
+  console.log(data);
   const wrap = document.querySelector(".view_campaign_box");
   if (!wrap || !Array.isArray(data)) return;
 
@@ -610,7 +610,7 @@ if (activeCpEls.length >= 2) {
       const dailyBudget = +as.daily_budget || 0;
       const lifetimeBudget = +as.lifetime_budget || 0;
       const hasActiveAd = activeAdsCount > 0;
-
+        console.log(dailyBudget);
       if (isEnded) {
         adsetStatusClass = "complete";
         adsetStatusText = `<span class="status-label">COMPLETE</span>`;
@@ -3658,7 +3658,7 @@ function initDateSelector() {
 
       if (type === "custom_range") {
         const box = item.querySelector(".custom_date");
-        box.classList.toggle("active");
+        box.classList.add("show");
         return;
       }
 
