@@ -57,6 +57,7 @@ body {
 }
 ::-webkit-scrollbar {
   width: 5px;
+  height: 5px;
 }
 
 /* Track */
@@ -3022,13 +3023,14 @@ tbody {
   display: flex;
   justify-content: center;
   align-items: center;
+  /* width: 15rem; */
 }
 
 .campaign_view,
 .adset_view {
   pointer-events: none;
 }
-.ad_view i {
+.campaign_view i, .adset_view i, .ad_view i {
   font-size: 2rem;
   opacity: 0.8;
   transition: 0.3s ease;
@@ -3357,4 +3359,156 @@ tbody {
 .dom_detail.active .dom_row ,
 .dom_container.ad_detail .dom_row.ad_detail {
   display: flex !important ;
+}
+/* .campaign_main .campaign_view, .adset_view, .ad_view {
+  width: 15rem;
+} */
+
+
+@media  (max-width: 800px) {
+ .campaign_item,.view_campaign_header {
+  width: max-content;
+ }
+  .view_campaign {
+    width: 100vw;
+    overflow-x: scroll;
+  }  
+  ::-webkit-scrollbar {
+    width: 5px;
+    height: 5px;
+  }
+ 
+.mbn {
+    display: none;
+  }
+  .dom_sidebar {
+    /* position: fixed;
+    z-index: 999;
+    width: 100%; */
+    /* display: none; */
+    background: white;
+    z-index: 9997;
+    width: 35rem;
+    transition: 0.3s ease-in;
+    transform: translateX(-100%);
+  }
+  .dom_sidebar.active {
+    transform: translateX(0);
+  }
+  .compare_2 {
+    order: 2;
+  }
+  .compare_1 {
+    order: 1;
+  }
+  .compare_trend {
+    order: 0;
+  }
+  .dom_date {
+    display: none;
+  }
+  .compare_scroll_wrap .dom_toplist_wrap {
+    max-height: unset;
+  }
+  .dom_container {
+    margin: 0 auto;
+    width: 100%;
+    padding: 0 2rem;
+    padding-bottom: 20rem !important;
+  }
+  .dom_row {
+    flex-direction: column;
+  }
+  #chart_by_platform .dom_toplist {
+    max-height: 35rem !important;
+  }
+  .dom_search {
+    width: 20rem;
+  }
+  .dom_inner {
+    width: 100% !important;
+  }
+  .dom_detail {
+    width: 90% !important;
+  }
+  .dom_detail_ad,.detail_set {
+    flex-direction: column;
+  }
+  .detail_set > .detail_gender {
+    width: 100% !important;
+  }
+  .detail_set {
+    margin-top: 4rem;
+  }
+  .dom_filter > div:last-child {
+    display: none;
+  }
+  .dom_dashboard.sale_detail_ads,
+  .dom_container .dom_dashboard.sale_detail {
+    width: 100% !important;
+    padding: 2rem !important;
+    padding-top: 10rem !important;
+  }
+  .dom_ai_report {
+    width: 100% !important;
+    max-width: 95vw;
+  }
+  .sale_report_close {
+    top: 10rem;
+    right: 1rem;
+    left: unset;
+  }
+  .dom_logo {
+    display: flex;
+    position: relative;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .dom_logo i {
+    display: block !important;
+    cursor: pointer;
+    opacity: 0.7;
+    font-size: 2.3rem;
+    padding: 2rem;
+    background-color: white;
+    position: absolute;
+    right: -8.1rem;
+    top: 10rem;
+    box-shadow: 0 0 3px rgb(0, 0, 0, 0.3);
+    rotate: 180deg;
+    border-radius: 5px;
+  }
+  .dom_sidebar.active .dom_logo i {
+    rotate: 0deg;
+    position: relative;
+    top: 0;
+    left: 0;
+    box-shadow: unset;
+    padding-right: 0;
+  }
+  .dom_toplist {
+    overflow-x: hidden;
+  }
+  .toplist_header {
+    gap: 10rem;
+    padding-right: 4rem;
+  }
+  .dom_toplist > li {
+    grid-template-columns: 1fr 50px 50px 50px;
+  }
+  .toplist_more i,
+  .toplist_more_ads i {
+    opacity: 0;
+  }
+  .campaign_main > .ads_name {
+    width: 45rem;
+  }
+ 
+  .adset_item > .ads_name {
+    width: 37.2rem;
+  }
+  /* .sidebar.active ~ .dom_overlay {
+    opacity: 1; */
+  .ad_item > .ads_name {
+    width: 29.5rem; }
 }
