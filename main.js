@@ -2459,7 +2459,7 @@ function renderChartByDevice(dataByDevice) {
   const prettyName = (key) => {
     key = key.toLowerCase();
     if (key.includes("android")) return "Android";
-    if (key.includes("iphone") || key.includes("ipad")) return "iPhone";
+    if (key.includes("iphone")) return "iPhone";
     if (key.includes("tablet")) return "Tablet";
     if (key.includes("desktop")) return "Desktop";
     return key.charAt(0).toUpperCase() + key.slice(1);
@@ -2874,7 +2874,7 @@ function renderChartByPlatform(allData) {
   const getLogo = (key, groupKey = "") => {
     const k = key.toLowerCase();
     if (groupKey === "byDevice") {
-      if (k.includes("iphone") || k.includes("ios"))
+      if (k.includes("iphone") || k.includes("ipod") || k.includes("ipad") || k.includes("macbook"))
         return "https://upload.wikimedia.org/wikipedia/commons/f/fa/Apple_logo_black.svg";
       if (k.includes("android") || k.includes("mobile"))
         return "https://upload.wikimedia.org/wikipedia/commons/d/d7/Android_robot.svg";
