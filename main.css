@@ -246,7 +246,9 @@ html {
   justify-content: space-between;
   align-items: center;
 }
-
+.interaction_list .dom_interaction_note:nth-child(5) {
+  background-color: #ffe8bb57;
+}
 .dom_header_time {
   display: flex;
   align-items: center;
@@ -257,6 +259,15 @@ html {
 .dom_header_time i {
   font-size: 1.8rem;
   opacity: 0.8;
+}
+.dom_select.quick_filter {
+  min-width: 18rem;
+  border-radius: 15px;
+  background: white;
+  box-shadow: 0 0 2px rgb(0, 0, 0, 0.2);
+}
+.dom_select.quick_filter .flex {
+  padding: .5rem !important;
 }
 /* .dom_select.quality > i:first-child {
   color: rgb(0, 86, 97);
@@ -562,6 +573,7 @@ html {
 .dom_select.active .dom_select_show {
   opacity: 1;
   pointer-events: all;
+  z-index: 9999999;
 }
 /* .dom_select:hover .dom_select_show {
   opacity: 1;
@@ -892,7 +904,7 @@ tbody {
   display: flex;
   box-shadow: 0 0 5px var(--shadow02);
   border-radius: 15px;
-  background: #f3f3f3;
+  background: #f7f7f7;
   cursor: pointer;
   position: relative;
 }
@@ -932,14 +944,17 @@ tbody {
 .account_item_avatar {
   width: 35px;
   height: 35px;
-  border-radius: 15px;
+  border-radius: 50rem;
 }
 .account_item_info {
   display: flex;
   flex-direction: column;
   justify-content: center;
   gap: 8px;
-  font-size: 1.3rem;
+  font-size: 1.4rem;
+}
+.account_item > i {
+  opacity: .7;
 }
 .account_item_name {
   font-weight: bold;
@@ -949,7 +964,8 @@ tbody {
   max-width: 13rem;
 }
 .account_item_id {
-  font-size: 1.2rem;
+  font-size: 1.1rem;
+  opacity: 0.8;
 }
 .dom_account_view > ul li {
   padding: 1.5rem 1rem;
@@ -990,7 +1006,7 @@ tbody {
   pointer-events: none;
   transition: 0.3s;
 }
-.dom_account_view_block.active ~ ul {
+.dom_account_view.active  ul {
   opacity: 1;
   pointer-events: all;
 }
@@ -1342,12 +1358,8 @@ tbody {
       10px 50px;
   }
 }
-.dom_container > div > .dom_row {
-  display: none;
-}
-.dom_header {
-  display: none;
-}
+
+
 .dom_container.dashboard > div.dom_dashboard .dom_row {
   display: flex;
 }
@@ -2359,7 +2371,7 @@ tbody {
 .dom_campaign_filter input {
   border: unset;
   outline: unset;
-  padding: 1.5rem;
+  padding: 1.3rem;
   width: 100%;
   height: 100%;
   transition: 0.3s;
@@ -2473,6 +2485,8 @@ tbody {
 }
 .interaction_list {
   display: flex;
+  justify-content: center;
+  align-items: center;
   gap: 1rem;
   flex-wrap: wrap;
 }
@@ -2987,10 +3001,7 @@ tbody {
 }
 .view_campaign > h2 {
   font-size: 1.8rem;
-  margin-top: 3rem;
   color: #555;
-  border-top: 1px solid rgb(0, 0, 0, 0.05);
-  padding-top: 4rem;
 }
 .campaign_view,
 .adset_view,
@@ -3013,7 +3024,7 @@ tbody {
 .ad_view i::after {
   content: "";
   position: absolute;
-  width: 80%;
+  width: 100%;
   height: 100%;
   top: 0;
   right: 0;
@@ -3101,11 +3112,12 @@ tbody {
 .detail_set > .detail_gender img {
   width: 5rem;
 }
-
+.detail_gender {
+  height: 40rem;
+  overflow-y: auto;
+}
 .detail_gender .frequency_tag {
   justify-content: flex-start;
-  max-height: 25rem;
-  overflow: auto;
 }
 .detail_gender_bar {
   display: flex;
@@ -3325,4 +3337,14 @@ tbody {
   gap: 2rem;
   align-items: flex-start;
   justify-content: flex-start;
+}
+.dom_row.ad_detail {
+  display: none !important;
+}
+.dom_container.ad_detail .dom_row {
+  display: none !important;
+}
+.dom_detail.active .dom_row ,
+.dom_container.ad_detail .dom_row.ad_detail {
+  display: flex !important ;
 }
