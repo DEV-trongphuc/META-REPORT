@@ -1,7 +1,7 @@
 let startDate, endDate;
 let VIEW_GOAL; // Dùng cho chart breakdown
 const CACHE = new Map();
-const BATCH_SIZE = 20; // max 50 theo FB
+const BATCH_SIZE = 40; // max 50 theo FB
 const CONCURRENCY_LIMIT = 2; // max batch song song
 const API_VERSION = "v24.0";
 const BASE_URL = `https://graph.facebook.com/${API_VERSION}`;
@@ -194,7 +194,10 @@ async function fetchAdsAndInsights(adsetIds, onBatchProcessedCallback) {
   if (!Array.isArray(adsetIds) || adsetIds.length === 0) return [];
 
   // ===== ⚙️ Config =====
-  const headers = { "Content-Type": "application/json" };
+  const headers = {
+    "Content-Type": "application/json",
+    "Prefer": "return=minimal",
+  };
   const now = Date.now();
   const CONCURRENCY = 4; // safe zone: tránh throttle Meta
   const adsetChunks = chunkArray(adsetIds, BATCH_SIZE);
@@ -328,29 +331,34 @@ async function loadDailyChart() {
   }
 }
 function groupByCampaign(adsets) {
+  if (!Array.isArray(adsets) || adsets.length === 0) return [];
+
   const campaigns = Object.create(null);
 
+  // ⚙️ Dùng map cache hành động -> tránh gọi find nhiều lần
   const safeGetActionValue = (actions, type) => {
-    if (!actions) return 0;
-    for (let i = 0, len = actions.length; i < len; i++) {
+    if (!Array.isArray(actions) || !actions.length) return 0;
+    for (let i = 0; i < actions.length; i++) {
       const a = actions[i];
       if (a.action_type === type) return +a.value || 0;
     }
     return 0;
   };
 
-  for (let i = 0, len = adsets.length; i < len; i++) {
+  // ⚡ Duyệt qua tất cả adsets (1 vòng chính)
+  for (let i = 0; i < adsets.length; i++) {
     const as = adsets[i];
-    if (!as || !Array.isArray(as.ads) || as.ads.length === 0) continue;
+    if (!as?.ads?.length) continue;
 
-    const asId = as.id || as.adset_id || as.adsetId || null;
     const campId = as.campaign_id || as.campaignId || "unknown_campaign";
     const campName = as.campaign_name || as.campaignName || "Unknown";
-    const goal = as.optimization_goal || as.optimizationGoal || null;
+    const goal = as.optimization_goal || as.optimizationGoal || "UNKNOWN";
+    const asId = as.id || as.adset_id || as.adsetId || `adset_${i}`;
 
-    let c = campaigns[campId];
-    if (!c) {
-      c = campaigns[campId] = {
+    // 🧱 Tạo campaign nếu chưa có
+    let campaign = campaigns[campId];
+    if (!campaign) {
+      campaign = campaigns[campId] = {
         id: campId,
         name: campName,
         spend: 0,
@@ -361,29 +369,45 @@ function groupByCampaign(adsets) {
         lead: 0,
         message: 0,
         adsets: [],
-        _adsetMap: Object.create(null), // ⚡ cache lookup
+        _adsetMap: Object.create(null),
       };
     }
 
+    // 🔹 Cache adset trong campaign
+    let adset = campaign._adsetMap[asId];
+    if (!adset) {
+      adset = {
+        id: asId,
+        name: as.name || as.adset_name || as.adsetName || "Unnamed Adset",
+        optimization_goal: goal,
+        spend: 0,
+        result: 0,
+        reach: 0,
+        impressions: 0,
+        reactions: 0,
+        lead: 0,
+        message: 0,
+        ads: [],
+        end_time: as.end_time || null,
+        daily_budget: +as.daily_budget || 0,
+        lifetime_budget: +as.lifetime_budget || 0,
+        status: as.status || null,
+      };
+      campaign._adsetMap[asId] = adset;
+      campaign.adsets.push(adset);
+    }
+
+    // 🔁 Lặp nhanh qua ads
     const ads = as.ads;
-    for (let j = 0, len2 = ads.length; j < len2; j++) {
+    for (let j = 0; j < ads.length; j++) {
       const ad = ads[j];
       if (!ad) continue;
 
-      const adsetMeta = ad.adset || {};
-      const end_time = adsetMeta.end_time || as.end_time || null;
-      const daily_budget =
-        adsetMeta.daily_budget || adsetMeta.dailyBudget || as.daily_budget || 0;
-      const lifetime_budget =
-        adsetMeta.lifetime_budget ||
-        adsetMeta.lifetimeBudget ||
-        as.lifetime_budget ||
-        0;
-
-      let ins = ad.insights;
-      if (Array.isArray(ins?.data)) ins = ins.data[0];
-      else if (Array.isArray(ins)) ins = ins[0];
-      ins = ins || {};
+      const ins = Array.isArray(ad.insights?.data)
+        ? ad.insights.data[0]
+        : Array.isArray(ad.insights)
+        ? ad.insights[0]
+        : ad.insights || {};
 
       const spend = +ins.spend || 0;
       const reach = +ins.reach || 0;
@@ -400,40 +424,7 @@ function groupByCampaign(adsets) {
         safeGetActionValue(actions, "lead") +
         safeGetActionValue(actions, "onsite_conversion.lead_grouped");
 
-      // Cộng dồn campaign-level
-      c.spend += spend;
-      c.result += result;
-      c.reach += reach;
-      c.impressions += impressions;
-      c.reactions += reactions;
-      c.lead += leadCount;
-      c.message += messageCount;
-
-      // Cache lookup adset
-      let adset = c._adsetMap[asId];
-      if (!adset) {
-        adset = {
-          id: asId,
-          name: as.name || as.adset_name || as.adsetName || "Unnamed Adset",
-          optimization_goal: goal,
-          spend: 0,
-          result: 0,
-          reach: 0,
-          impressions: 0,
-          reactions: 0,
-          lead: 0,
-          message: 0,
-          ads: [],
-          end_time,
-          daily_budget,
-          lifetime_budget,
-          status: as.status || null,
-        };
-        c._adsetMap[asId] = adset;
-        c.adsets.push(adset);
-      }
-
-      // Adset-level
+      // ✅ Cộng dồn adset-level
       adset.spend += spend;
       adset.result += result;
       adset.reach += reach;
@@ -442,12 +433,21 @@ function groupByCampaign(adsets) {
       adset.lead += leadCount;
       adset.message += messageCount;
 
-      // Push ad summary
+      // ✅ Cộng dồn campaign-level
+      campaign.spend += spend;
+      campaign.result += result;
+      campaign.reach += reach;
+      campaign.impressions += impressions;
+      campaign.reactions += reactions;
+      campaign.lead += leadCount;
+      campaign.message += messageCount;
+
+      // 🖼️ Add ad summary
       adset.ads.push({
         id: ad.ad_id || ad.id || null,
-        name: ad.ad_name || ad.name || null,
-        status: ad.effective_status || ad.status || null,
-        optimization_goal: ad.optimization_goal || "UNKNOWN",
+        name: ad.ad_name || ad.name || "Unnamed Ad",
+        status: ad.effective_status?.toUpperCase() || ad.status || "UNKNOWN",
+        optimization_goal: ad.optimization_goal || goal || "UNKNOWN",
         spend,
         result,
         reach,
@@ -468,12 +468,13 @@ function groupByCampaign(adsets) {
     }
   }
 
-  // Bỏ map ảo trước khi trả về
+  // 🧹 Xoá map nội bộ, convert sang array
   return Object.values(campaigns).map((c) => {
     delete c._adsetMap;
     return c;
   });
 }
+
 
 function renderCampaignView(data) {
   const wrap = document.querySelector(".view_campaign_box");
@@ -509,17 +510,24 @@ function renderCampaignView(data) {
 
   // === Cập nhật UI tổng active ===
   const activeCpEls = document.querySelectorAll(".dom_active_cp");
-  if (activeCpEls.length >= 2) {
-    const campEl = activeCpEls[0].querySelector("span:nth-child(2)");
-    if (campEl)
-      campEl.innerHTML = `<span class="live-dot"></span>${activeCampaignCount}/${totalCampaignCount}`;
-    const adsetEl = activeCpEls[1].querySelector("span:nth-child(2)");
-    if (adsetEl) {
-      const hasActive = activeAdsetCount > 0;
-      adsetEl.classList.toggle("inactive", !hasActive);
-      adsetEl.innerHTML = `<span class="live-dot"></span>${activeAdsetCount}/${totalAdsetCount}`;
-    }
+if (activeCpEls.length >= 2) {
+  // Xử lý Campaign
+  const campEl = activeCpEls[0].querySelector("span:nth-child(2)");
+  if (campEl) {
+    const hasActiveCampaign = activeCampaignCount > 0; // Kiểm tra nếu campaign có hoạt động
+    campEl.classList.toggle("inactive", !hasActiveCampaign); // Thêm class inactive nếu không có active campaign
+    campEl.innerHTML = `<span class="live-dot"></span>${activeCampaignCount}/${totalCampaignCount}`;
   }
+
+  // Xử lý Adset
+  const adsetEl = activeCpEls[1].querySelector("span:nth-child(2)");
+  if (adsetEl) {
+    const hasActiveAdset = activeAdsetCount > 0; // Kiểm tra nếu adset có hoạt động
+    adsetEl.classList.toggle("inactive", !hasActiveAdset); // Thêm class inactive nếu không có active adset
+    adsetEl.innerHTML = `<span class="live-dot"></span>${activeAdsetCount}/${totalAdsetCount}`;
+  }
+}
+
 
   // === Ưu tiên campaign active ===
   data.sort((a, b) => {
@@ -954,7 +962,7 @@ async function main() {
   await loadDashboardData(); // load data lần đầu
 }
 
-
+main()
 const formatMoney = (v) =>
   v && !isNaN(v) ? Math.round(v).toLocaleString("vi-VN") + "đ" : "0đ";
 const formatNumber = (v) =>
@@ -1323,6 +1331,11 @@ async function fetchAdDailyInsights(ad_id) {
     return null;
   }
 }
+
+
+
+
+
 
 // ===================== HIỂN THỊ CHI TIẾT AD =====================
 async function showAdDetail(ad_id) {
@@ -1920,7 +1933,7 @@ let currentDetailDailyType = "spend"; // default
 
 function renderDetailDailyChart(dataByDate, type = currentDetailDailyType) {
   if (!dataByDate) return;
-  currentDetailDailyType = type;
+  currentDetailDailyType = type; // Đảm bảo biến toàn cục được cập nhật
 
   const ctx = document.getElementById("detail_spent_chart");
   if (!ctx) return;
@@ -1931,7 +1944,7 @@ function renderDetailDailyChart(dataByDate, type = currentDetailDailyType) {
   const chartData = dates.map((d) => {
     const item = dataByDate[d] || {};
     if (type === "spend") return item.spend || 0;
-    if (type === "lead") return getResults(item);
+    if (type === "lead") return getResults(item); // Giả sử hàm này tồn tại
     if (type === "reach") return item.reach || 0;
     if (type === "message")
       return (
@@ -1940,10 +1953,15 @@ function renderDetailDailyChart(dataByDate, type = currentDetailDailyType) {
     return 0;
   });
 
+  // --- LOGIC MỚI: Tính toán các chỉ số để hiển thị ---
+  // (Sử dụng hàm helper 'calculateIndicesToShow' từ câu trả lời trước)
+  const displayIndices = calculateIndicesToShow(chartData, 5); 
+  // ------------------------------------------------
+
   const maxValue = chartData.length ? Math.max(...chartData) : 0;
   const c2d = ctx.getContext("2d");
 
-  // 🎨 Gradient tone IDEAS
+  // 🎨 Gradient
   const gLine = c2d.createLinearGradient(0, 0, 0, 400);
   if (type === "spend") {
     gLine.addColorStop(0, "rgba(255,169,0,0.2)");
@@ -1963,6 +1981,15 @@ function renderDetailDailyChart(dataByDate, type = currentDetailDailyType) {
       type === "spend" ? "#ffab00" : "#262a53";
     chart.data.datasets[0].backgroundColor = gLine;
     chart.options.scales.y.suggestedMax = maxValue * 1.1;
+
+    // --- LOGIC MỚI: Cập nhật chỉ số hiển thị và tooltip ---
+    chart.options.plugins.datalabels.displayIndices = displayIndices;
+    chart.options.plugins.tooltip.callbacks.label = (c) =>
+      `${c.dataset.label}: ${
+        type === "spend" ? formatMoneyShort(c.raw) : c.raw
+      }`;
+    // ---------------------------------------------------
+
     chart.update("active");
     return;
   }
@@ -2003,40 +2030,61 @@ function renderDetailDailyChart(dataByDate, type = currentDetailDailyType) {
           },
         },
         datalabels: {
+          // --- LOGIC MỚI: Lưu các chỉ số hiển thị ---
+          displayIndices: displayIndices,
+          // --------------------------------------
           anchor: "end",
           align: "end",
           offset: 4,
-          font: { size: 11, weight: "600" },
-          color: "#444",
-          formatter: (v) =>
-            v > 0 ? (type === "spend" ? formatMoneyShort(v) : v) : "",
+          font: { size: 10},
+          color: "#666",
+          // --- LOGIC MỚI: Cập nhật formatter ---
+          formatter: (v, ctx) => {
+            const indices = ctx.chart.options.plugins.datalabels.displayIndices;
+            const index = ctx.dataIndex;
+
+            // Kiểm tra xem index này có trong Set không
+            if (v > 0 && indices.has(index)) {
+              // Dùng 'currentDetailDailyType' để đảm bảo lấy đúng 'type' hiện tại
+              return currentDetailDailyType === "spend"
+                ? formatMoneyShort(v)
+                : v;
+            }
+            return ""; // Ẩn tất cả các nhãn khác
+          },
+          // -------------------------------------
         },
       },
       scales: {
         x: {
           grid: {
-            color: "rgba(0,0,0,0.03)", // ✅ lưới nhẹ
+            color: "rgba(0,0,0,0.03)",
             drawBorder: true,
+            borderColor: "rgba(0,0,0,0.05)",
           },
-          border: { color: "rgba(0,0,0,0.15)" },
-          ticks: { display: false }, // ❌ ẩn label ngày
+          ticks: {
+            color: "#555",
+            font: { size: 10 },
+            autoSkip: true,
+            maxRotation: 0,
+            minRotation: 0,
+          },
         },
         y: {
           grid: {
-            color: "rgba(0,0,0,0.03)", // ✅ lưới nhẹ
+            color: "rgba(0,0,0,0.03)",
             drawBorder: true,
           },
           border: { color: "rgba(0,0,0,0.15)" },
           beginAtZero: true,
-          suggestedMax: maxValue * 1.1, // ✅ scale cao hơn
-          ticks: { display: false }, // ❌ ẩn số tick
+          suggestedMax: maxValue * 1.1,
+          ticks: { display: false },
         },
       },
     },
     plugins: [ChartDataLabels],
   });
 }
-
 // ----------------- xử lý filter -----------------
 function setupDetailDailyFilter2() {
   const qualitySelect = document.querySelector(".dom_select.daily_total");
@@ -2183,6 +2231,74 @@ function renderBarChart(id, data) {
     plugins: [ChartDataLabels],
   });
 }
+/**
+ * Hàm trợ giúp: Lấy các chỉ số rải đều từ một mảng chỉ số ứng viên.
+ */
+function getSpreadIndices(indexArray, numPoints) {
+  const set = new Set();
+  const len = indexArray.length;
+  if (numPoints === 0 || len === 0) return set;
+  if (numPoints >= len) return new Set(indexArray);
+
+  const step = (len - 1) / (numPoints - 1);
+  for (let i = 0; i < numPoints; i++) {
+    const arrayIndex = Math.round(i * step);
+    set.add(indexArray[arrayIndex]);
+  }
+  return set;
+}
+
+/**
+ * Tính toán các chỉ số datalabel (tối đa maxPoints)
+ * Ưu tiên rải đều ở "giữa" và luôn bao gồm điểm cao nhất.
+ */
+function calculateIndicesToShow(data, maxPoints = 5) {
+  const dataLength = data.length;
+  if (dataLength <= 2) return new Set(); 
+
+  const maxData = Math.max(...data);
+  const maxIndex = data.indexOf(maxData);
+
+  const middleIndices = Array.from({ length: dataLength - 2 }, (_, i) => i + 1);
+  const middleLength = middleIndices.length;
+
+  if (middleLength === 0) return new Set();
+  
+  if (middleLength < maxPoints) {
+    const indices = new Set(middleIndices);
+    indices.add(maxIndex); 
+    return indices; 
+  }
+  
+  let pointsToPick = maxPoints;
+  const isMaxInMiddle = (maxIndex > 0 && maxIndex < dataLength - 1);
+  
+  if (!isMaxInMiddle) {
+    pointsToPick = maxPoints - 1;
+  }
+  
+  const indicesToShow = getSpreadIndices(middleIndices, pointsToPick);
+
+  if (isMaxInMiddle && !indicesToShow.has(maxIndex)) {
+    let closestIndex = -1;
+    let minDistance = Infinity;
+    for (const index of indicesToShow) {
+      const distance = Math.abs(index - maxIndex);
+      if (distance < minDistance) {
+        minDistance = distance;
+        closestIndex = index;
+      }
+    }
+    if (closestIndex !== -1) indicesToShow.delete(closestIndex);
+    indicesToShow.add(maxIndex);
+  }
+  
+  if (!isMaxInMiddle) {
+    indicesToShow.add(maxIndex);
+  }
+  
+  return indicesToShow;
+}
 function renderChartByHour(dataByHour) {
   if (!dataByHour) return;
 
@@ -2196,6 +2312,11 @@ function renderChartByHour(dataByHour) {
 
   const spentData = hourKeys.map((h) => dataByHour[h].spend || 0);
   const resultData = hourKeys.map((h) => getResults(dataByHour[h]));
+
+  // --- LOGIC MỚI: TÍNH TOÁN CHỈ SỐ CHO MỖI DATASET ---
+  const spentDisplayIndices = calculateIndicesToShow(spentData, 5);
+  const resultDisplayIndices = calculateIndicesToShow(resultData, 5);
+  // --------------------------------------------------
 
   const maxSpent = Math.max(...spentData) || 1;
   const maxResult = Math.max(...resultData) || 1;
@@ -2259,17 +2380,38 @@ function renderChartByHour(dataByHour) {
           },
         },
         datalabels: {
+          // --- LOGIC MỚI: LƯU CẢ HAI SET CHỈ SỐ ---
+          displayIndicesSpent: spentDisplayIndices,
+          displayIndicesResult: resultDisplayIndices,
+          // ---------------------------------------
           anchor: "end",
           align: "end",
           offset: 4,
           font: { size: 11 },
           color: "#666",
-          formatter: (v, ctx) =>
-            ctx.dataset.label === "Spent"
-              ? formatMoneyShort(v)
-              : v > 0
-              ? v
-              : "",
+          // --- LOGIC MỚI: CẬP NHẬT FORMATTER ---
+          formatter: (v, ctx) => {
+            if (v <= 0) return ""; // Ẩn số 0
+
+            const index = ctx.dataIndex;
+            const datalabelOptions = ctx.chart.options.plugins.datalabels;
+
+            // Kiểm tra xem đang ở dataset "Spent"
+            if (ctx.dataset.label === "Spent") {
+              if (datalabelOptions.displayIndicesSpent.has(index)) {
+                return formatMoneyShort(v);
+              }
+            } 
+            // Kiểm tra xem đang ở dataset "Result"
+            else if (ctx.dataset.label === "Result") {
+              if (datalabelOptions.displayIndicesResult.has(index)) {
+                return v;
+              }
+            }
+            
+            return ""; // Ẩn tất cả các điểm khác
+          },
+          // -----------------------------------
         },
       },
       scales: {
@@ -2289,7 +2431,7 @@ function renderChartByHour(dataByHour) {
           grid: { color: "rgba(0,0,0,0.03)", drawBorder: true },
           border: { color: "rgba(0,0,0,0.15)" },
           beginAtZero: true,
-          suggestedMax: maxSpent * 1.1, // 🔹 tăng nhẹ cho spent
+          suggestedMax: maxSpent * 1.1, 
           ticks: { display: false },
         },
         yResult: {
@@ -2298,7 +2440,7 @@ function renderChartByHour(dataByHour) {
           grid: { drawOnChartArea: false },
           border: { color: "rgba(0,0,0,0.15)" },
           beginAtZero: true,
-          suggestedMax: maxResult * 1.2, // 🔥 nâng riêng result 1.2x
+          suggestedMax: maxResult * 1.2, 
           ticks: { display: false },
         },
       },
@@ -2323,26 +2465,31 @@ function renderChartByDevice(dataByDevice) {
     return key.charAt(0).toUpperCase() + key.slice(1);
   };
 
-  // ✅ Lấy device có result > 0
+  // ✅ Gom data, nếu result = 0 thì fallback sang spend
   const validEntries = Object.entries(dataByDevice)
-    .map(([k, v]) => [prettyName(k), getResults(v) || 0])
+    .map(([k, v]) => {
+      let result = getResults(v);
+      if (!result || result === 0) result = +v.spend || 0;
+      return [prettyName(k), result];
+    })
     .filter(([_, val]) => val > 0);
 
+  // Nếu rỗng thì clear chart
   if (!validEntries.length) {
     if (window.chart_by_device_instance)
       window.chart_by_device_instance.destroy();
     return;
   }
 
-  // 🔹 Sort giảm dần theo result
+  // 🔹 Sort giảm dần
   validEntries.sort((a, b) => b[1] - a[1]);
   const labels = validEntries.map(([k]) => k);
   const resultData = validEntries.map(([_, v]) => v);
 
-  // 🎨 Màu sắc: top 2 nổi bật
+  // 🎨 Màu sắc
   const highlightColors = [
-    "rgba(255,171,0,0.9)", // vàng
-    "rgba(38,42,83,0.9)", // xanh đậm
+    "rgba(255,171,0,0.9)",
+    "rgba(38,42,83,0.9)",
   ];
   const fallbackColors = [
     "rgba(156,163,175,0.7)",
@@ -2354,16 +2501,21 @@ function renderChartByDevice(dataByDevice) {
     i < 2 ? highlightColors[i] : fallbackColors[i - 2] || "#ccc"
   );
 
-  // 🔢 Tính % cao nhất
+  // 🔢 Xác định phần trăm cao nhất
   const total = resultData.reduce((a, b) => a + b, 0);
   const maxIndex = resultData.indexOf(Math.max(...resultData));
   const maxLabel = labels[maxIndex];
   const maxPercent = ((resultData[maxIndex] / total) * 100).toFixed(1);
 
+  // 🧠 Kiểm tra xem toàn bộ đang hiển thị spend hay result
+  const isSpendMode = Object.values(dataByDevice).every(
+    (v) => !getResults(v)
+  );
+
   if (window.chart_by_device_instance)
     window.chart_by_device_instance.destroy();
 
-  // 🎯 Plugin custom: show % giữa lỗ
+  // 🎯 Plugin: hiển thị % giữa chart
   const centerTextPlugin = {
     id: "centerText",
     afterDraw(chart) {
@@ -2373,13 +2525,12 @@ function renderChartByDevice(dataByDevice) {
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
       ctx.fillStyle = "#333";
-  
-      // 🎯 Dịch text lên 10px cho đúng giữa lỗ donut
+
       const centerY = height / 2 - 18;
-  
+
       ctx.font = "bold 18px sans-serif";
       ctx.fillText(`${maxPercent}%`, width / 2, centerY - 4);
-  
+
       ctx.font = "12px sans-serif";
       ctx.fillText(maxLabel, width / 2, centerY + 18);
       ctx.restore();
@@ -2393,7 +2544,7 @@ function renderChartByDevice(dataByDevice) {
       labels,
       datasets: [
         {
-          label: "Results",
+          label: isSpendMode ? "Spend" : "Results",
           data: resultData,
           backgroundColor: colors,
           borderColor: "#fff",
@@ -2403,21 +2554,17 @@ function renderChartByDevice(dataByDevice) {
     },
     options: {
       responsive: true,
-      cutout: "70%", // 💫 tạo lỗ tròn
+      cutout: "70%",
       maintainAspectRatio: false,
       plugins: {
         legend: {
           position: "bottom",
-          labels: {
-            color: "#333",
-            boxWidth: 14,
-            padding: 10,
-          },
+          labels: { color: "#333", boxWidth: 14, padding: 10 },
         },
         tooltip: {
           callbacks: {
             label: (ctx) =>
-              `${ctx.label}: ${formatNumber(ctx.raw)} (${(
+              `${ctx.label}: ${isSpendMode ? formatMoney(ctx.raw) : formatNumber(ctx.raw)} (${(
                 (ctx.raw / total) *
                 100
               ).toFixed(1)}%)`,
@@ -2430,6 +2577,7 @@ function renderChartByDevice(dataByDevice) {
     plugins: [centerTextPlugin],
   });
 }
+
 
 function renderChartByRegion(dataByRegion) {
   if (!dataByRegion) return;
@@ -2599,7 +2747,14 @@ function renderChartByAgeGender(dataByAgeGender) {
       .toUpperCase();
 
     if (!ageGroups[age]) ageGroups[age] = { male: 0, female: 0, unknown: 0 };
-    ageGroups[age][gender] = getResults(val) || 0;
+
+    // ⚙️ Lấy result trước, nếu không có thì fallback sang spend
+    let result = getResults(val);
+    if (!result || result === 0) {
+      result = +val.spend || 0;
+    }
+
+    ageGroups[age][gender] = result;
   }
 
   const ages = Object.keys(ageGroups);
@@ -2622,6 +2777,13 @@ function renderChartByAgeGender(dataByAgeGender) {
   const gradientUnknown = c2d.createLinearGradient(0, 0, 0, 300);
   gradientUnknown.addColorStop(0, "rgba(180,180,180,1)");
   gradientUnknown.addColorStop(1, "rgba(150,150,150,0.8)");
+
+  // 🧠 Kiểm tra xem toàn bộ có phải đang render spend không
+  const totalResult = [...maleData, ...femaleData, ...unknownData].reduce(
+    (a, b) => a + b,
+    0
+  );
+  const isSpendMode = totalResult > 0 && Object.values(dataByAgeGender).every((v) => !getResults(v));
 
   window.chart_by_age_gender_instance = new Chart(c2d, {
     type: "bar",
@@ -2655,14 +2817,18 @@ function renderChartByAgeGender(dataByAgeGender) {
       responsive: true,
       maintainAspectRatio: false,
       interaction: { mode: "index", intersect: false },
-      layout: {
-        padding: { left: 10, right: 10 },
-      },
+      layout: { padding: { left: 10, right: 10 } },
       plugins: {
-        legend: { display: false },
+        legend: {
+          display: true,
+          labels: { color: "#444", font: { weight: "600", size: 12 } },
+        },
         tooltip: {
           callbacks: {
-            label: (ctx) => `${ctx.dataset.label}: ${ctx.raw}`,
+            label: (ctx) =>
+              `${ctx.dataset.label}: ${formatMoney(ctx.raw)} ${
+                isSpendMode ? "đ" : ""
+              }`,
           },
         },
         datalabels: {
@@ -2671,17 +2837,15 @@ function renderChartByAgeGender(dataByAgeGender) {
           offset: 2,
           font: { weight: "600", size: 11 },
           color: "#666",
-          formatter: (v) => (v > 0 ? v : ""),
+          formatter: (v) =>
+            v > 0 ? (isSpendMode ? formatMoneyShort(v) : formatNumber(v)) : "",
         },
       },
       scales: {
         x: {
-          display: true, // ✅ giữ label độ tuổi
-          grid: {
-            color: "rgba(0,0,0,0.03)", // ✅ thêm lưới mảnh
-            drawBorder: true, // ✅ hiện trục X
-          },
-          border: { color: "rgba(0,0,0,0.15)" }, // ✅ line trục X rõ nhẹ
+          display: true,
+          grid: { color: "rgba(0,0,0,0.03)", drawBorder: true },
+          border: { color: "rgba(0,0,0,0.15)" },
           ticks: {
             color: "#444",
             font: { weight: "600", size: 11 },
@@ -2690,18 +2854,13 @@ function renderChartByAgeGender(dataByAgeGender) {
           },
         },
         y: {
-          display: true, // ✅ hiện trục & grid
-          grid: {
-            color: "rgba(0,0,0,0.03)", // ✅ lưới mảnh nhẹ
-            drawBorder: true, // ✅ trục Y
-          },
-          border: { color: "rgba(0,0,0,0.15)" }, // ✅ line trục Y
+          display: true,
+          grid: { color: "rgba(0,0,0,0.03)", drawBorder: true },
+          border: { color: "rgba(0,0,0,0.15)" },
           beginAtZero: true,
           suggestedMax:
             Math.max(...maleData, ...femaleData, ...unknownData) * 1.1,
-          ticks: {
-            display: false, // ❌ không hiển thị số
-          },
+          ticks: { display: false },
         },
       },
       animation: { duration: 600, easing: "easeOutQuart" },
@@ -2709,6 +2868,7 @@ function renderChartByAgeGender(dataByAgeGender) {
     plugins: [ChartDataLabels],
   });
 }
+
 
 function renderChartByPlatform(allData) {
   const wrap = document.querySelector("#chart_by_platform .dom_toplist");
@@ -2801,7 +2961,7 @@ function renderChartByPlatform(allData) {
           <img src="${getLogo(p.key, groupKey)}" alt="${p.key}" />
           <span>${formatName(p.key)}</span>
         </p>
-        <p><span class="total_spent"><i class="fa-solid fa-money-bill"></i> ${p.spend.toLocaleString()}đ</span></p>
+        <p><span class="total_spent"><i class="fa-solid fa-money-bill"></i> ${p.spend.toLocaleString("vi-VN")}đ</span></p>
         <p><span class="total_result"><i class="fa-solid fa-bullseye"></i> ${
           p.result > 0 ? formatNumber(p.result) : "—"
         }</span></p>
@@ -2937,7 +3097,101 @@ function getChartValue(item, type) {
 
   return 0;
 }
+/**
+ * Hàm trợ giúp: Lấy các chỉ số rải đều từ một mảng chỉ số ứng viên.
+ * @param {number[]} indexArray - Mảng các chỉ số ứng viên (ví dụ: [1, 2, ... 28])
+ * @param {number} numPoints - Số lượng điểm cần lấy.
+ * @returns {Set<number>}
+ */
+function getSpreadIndices(indexArray, numPoints) {
+  const set = new Set();
+  const len = indexArray.length;
+  if (numPoints === 0 || len === 0) return set;
 
+  // Nếu cần nhiều điểm hơn số lượng hiện có, trả về tất cả
+  if (numPoints >= len) {
+    return new Set(indexArray);
+  }
+
+  // Tính toán bước nhảy để rải đều
+  const step = (len - 1) / (numPoints - 1);
+  for (let i = 0; i < numPoints; i++) {
+    const arrayIndex = Math.round(i * step);
+    set.add(indexArray[arrayIndex]);
+  }
+  return set;
+}
+
+/**
+ * Tính toán các chỉ số datalabel (tối đa maxPoints)
+ * Ưu tiên rải đều ở "giữa" (không lấy điểm đầu/cuối)
+ * Luôn đảm bảo bao gồm điểm cao nhất (maxIndex).
+ * @param {number[]} data - Mảng dữ liệu chart.
+ * @param {number} maxPoints - Số điểm tối đa muốn hiển thị.
+ * @returns {Set<number>}
+ */
+function calculateIndicesToShow(data, maxPoints = 5) {
+  const dataLength = data.length;
+  // Cần ít nhất 3 điểm mới có "điểm giữa"
+  if (dataLength <= 2) return new Set(); 
+
+  // 1. Tìm điểm cao nhất
+  const maxData = Math.max(...data);
+  const maxIndex = data.indexOf(maxData);
+
+  // 2. Định nghĩa các ứng viên "ở giữa" (từ index 1 đến N-2)
+  const middleIndices = Array.from({ length: dataLength - 2 }, (_, i) => i + 1);
+  const middleLength = middleIndices.length;
+
+  // Nếu không có điểm giữa (chỉ có 2 điểm), trả về set rỗng
+  if (middleLength === 0) return new Set();
+  
+  // 3. Nếu số điểm giữa < 5, thì hiển thị hết điểm giữa
+  if (middleLength < maxPoints) {
+    const indices = new Set(middleIndices);
+    indices.add(maxIndex); // Thêm điểm max (dù nó ở đâu)
+    return indices; // Sẽ có <= maxPoints
+  }
+  
+  // 4. Nếu có đủ điểm giữa (>= maxPoints)
+  
+  let pointsToPick = maxPoints;
+  const isMaxInMiddle = (maxIndex > 0 && maxIndex < dataLength - 1);
+  
+  // Nếu max ở đầu/cuối, ta cần (maxPoints - 1) điểm ở giữa
+  if (!isMaxInMiddle) {
+    pointsToPick = maxPoints - 1;
+  }
+  
+  // 5. Lấy các điểm rải đều ở giữa
+  const indicesToShow = getSpreadIndices(middleIndices, pointsToPick);
+
+  // 6. Nếu max ở giữa VÀ không được chọn, thay thế điểm gần nhất
+  if (isMaxInMiddle && !indicesToShow.has(maxIndex)) {
+    let closestIndex = -1;
+    let minDistance = Infinity;
+
+    for (const index of indicesToShow) {
+      const distance = Math.abs(index - maxIndex);
+      if (distance < minDistance) {
+        minDistance = distance;
+        closestIndex = index;
+      }
+    }
+    
+    if (closestIndex !== -1) {
+      indicesToShow.delete(closestIndex);
+    }
+    indicesToShow.add(maxIndex); // Đảm bảo maxIndex nằm trong set
+  }
+  
+  // 7. Nếu max ở đầu/cuối, thêm nó vào (bây giờ set sẽ đủ maxPoints)
+  if (!isMaxInMiddle) {
+    indicesToShow.add(maxIndex);
+  }
+  
+  return indicesToShow;
+}
 // --- Hàm vẽ chart chi tiết ---
 function renderDetailDailyChart2(dataByDate, type = currentDetailDailyType) {
   if (!dataByDate) return;
@@ -2957,8 +3211,13 @@ function renderDetailDailyChart2(dataByDate, type = currentDetailDailyType) {
 
   const chartData = dates.map((d) => {
     const item = dateMap[d] || {};
-    return getChartValue(item, type);
+    return getChartValue(item, type); // Giả sử hàm này tồn tại
   });
+
+  // --- LOGIC MỚI SẼ TỰ ĐỘNG CHẠY Ở ĐÂY ---
+  // Gọi hàm helper đã được cập nhật
+  const displayIndices = calculateIndicesToShow(chartData, 5);
+  // ----------------------------------------
 
   const gLine = ctx.getContext("2d").createLinearGradient(0, 0, 0, 400);
   gLine.addColorStop(0, "rgba(255,169,0,0.25)");
@@ -2970,6 +3229,17 @@ function renderDetailDailyChart2(dataByDate, type = currentDetailDailyType) {
       chart.data.labels = dates;
     }
     chart.data.datasets[0].data = chartData;
+    chart.data.datasets[0].label = type.charAt(0).toUpperCase() + type.slice(1);
+    
+    chart.options.plugins.tooltip.callbacks.label = (c) =>
+      `${c.dataset.label}: ${
+        type === "spend" ? formatMoneyShort(c.raw) : c.raw
+      }`;
+
+    // --- CẬP NHẬT CHỈ SỐ MỚI ---
+    chart.options.plugins.datalabels.displayIndices = displayIndices;
+    // ----------------------------
+
     chart.update({ duration: 500, easing: "easeOutCubic" });
     return;
   }
@@ -3010,17 +3280,31 @@ function renderDetailDailyChart2(dataByDate, type = currentDetailDailyType) {
           },
         },
         datalabels: {
+          // --- LƯU CHỈ SỐ LẦN ĐẦU ---
+          displayIndices: displayIndices, 
+          // --------------------------
           anchor: "end",
           align: "end",
           font: { size: 11 },
           color: "#555",
-          formatter: (v) => (v > 0 ? formatMoneyShort(v) : ""),
+          // --- FORMATTER (KHÔNG ĐỔI) ---
+          formatter: (v, ctx) => {
+            const indices = ctx.chart.options.plugins.datalabels.displayIndices;
+            const index = ctx.dataIndex;
+
+            if (v > 0 && indices.has(index)) {
+              return currentDetailDailyType === "spend" ? formatMoneyShort(v) : v;
+            }
+            
+            return ""; 
+          },
+          // ---------------------------
         },
       },
       scales: {
         x: {
           grid: {
-            color: "rgba(0,0,0,0.03)", // ✅ kẻ nhẹ
+            color: "rgba(0,0,0,0.03)",
             drawBorder: true,
             borderColor: "rgba(0,0,0,0.05)",
           },
@@ -3049,7 +3333,6 @@ function renderDetailDailyChart2(dataByDate, type = currentDetailDailyType) {
     plugins: [ChartDataLabels],
   });
 }
-
 function setupDetailDailyFilter() {
   const qualitySelect = document.querySelector(".dom_select.daily");
   if (!qualitySelect) return;
@@ -3348,8 +3631,6 @@ async function loadAgeGenderSpendChart(campaignIds = []) {
   const data = await fetchSpendByAgeGender(campaignIds);
   renderAgeGenderChart(data);
 }
-
-main();
 
 function initDateSelector() {
   const selectBox = document.querySelector(".dom_select.time");
@@ -3793,7 +4074,6 @@ document.addEventListener("click", (e) => {
     // 🔹 Đóng dropdown
     parent.classList.remove("active");
 
-    // 🔹 Gọi lại main() để reload data
    
     loadDashboardData();
   }
