@@ -4068,3 +4068,34 @@ document.addEventListener("click", (e) => {
       .forEach((el) => el.classList.remove("active"));
   }
 });
+
+document.addEventListener("DOMContentLoaded", () => {
+  const menuItems = document.querySelectorAll(".dom_menu li");
+  const container = document.querySelector(".dom_container");
+  const mobile_menu = document.querySelector("#mobile_menu");
+  const dom_sidebar = document.querySelector(".dom_sidebar");
+  mobile_menu.addEventListener("click", () => {
+    dom_sidebar.classList.toggle("active");
+  });
+  menuItems.forEach((li) => {
+    li.addEventListener("click", () => {
+      // 🟡 Bỏ active cũ
+      menuItems.forEach((item) => item.classList.remove("active"));
+
+      // 🟢 Active cái được chọn
+      li.classList.add("active");
+
+      // 🧹 Xóa tất cả class view cũ trong container
+      container.classList.forEach((cls) => {
+        // chỉ xóa nếu nó trùng với data-view của menu
+        if (["dashboard", "sale", "compare", "won"].includes(cls)) {
+          container.classList.remove(cls);
+        }
+      });
+      dom_sidebar.classList.remove("active");
+      // 🚀 Thêm class mới tương ứng (theo data-view)
+      const view = li.getAttribute("data-view");
+      container.classList.add(view);
+    });
+  });
+});
