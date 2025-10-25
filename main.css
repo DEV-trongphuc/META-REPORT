@@ -2937,6 +2937,9 @@ tbody {
   font-size: 0.9rem;
   left: 0;
 }
+.dbudget {
+  transform: translateY(.5rem);
+}
 .ad_status.dbudget .status-value {
   font-weight: bold;
 }
@@ -3006,6 +3009,7 @@ tbody {
 }
 .ad_result {
   width: 13rem;
+  font-weight: bold;
 }
 .view_campaign > h2 {
   font-size: 1.8rem;
@@ -3181,7 +3185,7 @@ tbody {
   font-size: 1.8rem;
 }
 .detail_thumb {
-  display: flex;
+     display: flex;
   justify-content: space-between;
   flex-direction: column;
   gap: 2rem;
