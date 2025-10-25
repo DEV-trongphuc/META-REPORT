@@ -99,7 +99,7 @@ html {
 /* Laptop nhỏ hơn 1280px */
 @media (max-width: 1280px) {
   html {
-    font-size: 40%; /* 12px */
+    font-size: 38%; /* 12px */
   }
 }
 
@@ -942,8 +942,8 @@ tbody {
   opacity: 0.9;
 }
 .account_item_avatar {
-  width: 35px;
-  height: 35px;
+  width: 3.5rem;
+  height: 3.5rem;
   border-radius: 50rem;
 }
 .account_item_info {
