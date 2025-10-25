@@ -2,7 +2,7 @@ let startDate, endDate;
 let VIEW_GOAL; // Dùng cho chart breakdown
 const CACHE = new Map();
 const BATCH_SIZE = 20; // max 50 theo FB
-const CONCURRENCY_LIMIT = 5; // max batch song song
+const CONCURRENCY_LIMIT = 2; // max batch song song
 const API_VERSION = "v24.0";
 const BASE_URL = `https://graph.facebook.com/${API_VERSION}`;
 const goalMapping = {
@@ -154,18 +154,19 @@ async function fetchJSON(url, options = {}) {
       let msg = `HTTP ${res.status} - ${res.statusText}`;
       try {
         const errData = JSON.parse(text);
-        if (errData.error)
-          msg = `Meta API Error: ${errData.error.message} (Code: ${errData.error.code})`;
+        if (errData.error) msg = `Meta API Error: ${errData.error.message} (Code: ${errData.error.code})`;
+
+        // 🚨 Retry logic cho Code 4
+        if (errData.error?.code === 4) {
+          console.warn("⚠️ Rate limit reached. Waiting 5s then retry...");
+          await new Promise(r => setTimeout(r, 5000));
+          return fetchJSON(url, options);
+        }
       } catch {}
       throw new Error(msg);
     }
 
     const data = JSON.parse(text);
-    if (data.error)
-      throw new Error(
-        `Meta API Error: ${data.error.message} (Code: ${data.error.code})`
-      );
-
     CACHE.set(key, data);
     return data;
   } catch (err) {
