@@ -1,7 +1,7 @@
 let startDate, endDate;
 let VIEW_GOAL; // Dùng cho chart breakdown
 const CACHE = new Map();
-const BATCH_SIZE = 40; // max 50 theo FB
+const BATCH_SIZE = 20; // max 50 theo FB
 const CONCURRENCY_LIMIT = 5; // max batch song song
 const API_VERSION = "v24.0";
 const BASE_URL = `https://graph.facebook.com/${API_VERSION}`;
@@ -182,7 +182,7 @@ function chunkArray(arr, size) {
 }
 
 async function fetchAdsets() {
-  const url = `${BASE_URL}/act_${ACCOUNT_ID}/insights?level=adset&fields=adset_id,adset_name,campaign_id,campaign_name,spend,optimization_goal&filtering=[{"field":"spend","operator":"GREATER_THAN","value":0}]&time_range={"since":"${startDate}","until":"${endDate}"}&limit=500&access_token=${META_TOKEN}`;
+  const url = `${BASE_URL}/act_${ACCOUNT_ID}/insights?level=adset&fields=adset_id,adset_name,campaign_id,campaign_name,optimization_goal&filtering=[{"field":"spend","operator":"GREATER_THAN","value":0}]&time_range={"since":"${startDate}","until":"${endDate}"}&access_token=${META_TOKEN}`;
 
   const data = await fetchJSON(url);
   console.log("✅ Adset fetched:", data.data?.length || 0);
@@ -190,129 +190,122 @@ async function fetchAdsets() {
 }
 
 async function fetchAdsAndInsights(adsetIds, onBatchProcessedCallback) {
-  if (!Array.isArray(adsetIds) || !adsetIds.length) return [];
+  if (!Array.isArray(adsetIds) || adsetIds.length === 0) return [];
 
+  // ===== ⚙️ Config =====
+  const headers = { "Content-Type": "application/json" };
+  const now = Date.now();
+  const CONCURRENCY = 4; // safe zone: tránh throttle Meta
   const adsetChunks = chunkArray(adsetIds, BATCH_SIZE);
+  const results = [];
+  let batchCount = 0;
 
-  const allAdsLists = await runBatchesWithLimit(
+  console.time("⏱️ Total fetchAdsAndInsights");
+
+  // ===== ⚡ Main Process =====
+  await runBatchesWithLimit(
     adsetChunks.map((batch) => async () => {
-      // 1️⃣ Lấy danh sách ads
-      const fbBatch1 = batch.map((adsetId) => ({
-        method: "GET",
-        relative_url: `${adsetId}/ads?fields=id,name,effective_status,adset_id,adset{end_time,daily_budget,lifetime_budget},creative{effective_object_story_id,thumbnail_url,instagram_permalink_url}`,
-      }));
+      const startTime = performance.now();
 
-      const adsResp = await fetchJSON(BASE_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ access_token: META_TOKEN, batch: fbBatch1 }),
-      });
-
-      const adsList = [];
-      const now = new Date();
-
-      for (const item of adsResp) {
-        if (item?.code !== 200 || !item?.body) continue;
-        const body = JSON.parse(item.body);
-        if (!Array.isArray(body.data)) continue;
-
-        body.data.forEach((ad) => {
-          const endTime = ad.adset?.end_time
-            ? new Date(ad.adset.end_time)
-            : null;
-          const isEnded = endTime && endTime < now;
-
-          let effectiveStatus = ad.effective_status;
-          if (isEnded) effectiveStatus = "COMPLETED";
-
-          adsList.push({
-            id: ad.id,
-            name: ad.name,
-            adset_id: ad.adset_id,
-            effective_status: effectiveStatus,
-            adset: {
-              status: ad.adset?.status || null,
-              daily_budget: ad.adset?.daily_budget || null,
-              lifetime_budget: ad.adset?.lifetime_budget || null,
-              end_time: ad.adset?.end_time || null,
-            },
-            creative: {
-              thumbnail_url: ad.creative?.thumbnail_url || null,
-              instagram_permalink_url:
-                ad.creative?.instagram_permalink_url || null,
-              facebook_post_url: ad.creative?.effective_object_story_id
-                ? `https://facebook.com/${ad.creative.effective_object_story_id}`
-                : null,
-            },
-          });
-        });
+      // === Build batch (gọn, không format string thừa) ===
+      const fbBatch = new Array(batch.length);
+      for (let i = 0; i < batch.length; i++) {
+        const adsetId = batch[i];
+        fbBatch[i] = {
+          method: "GET",
+          relative_url:
+            `${adsetId}/ads?fields=id,name,effective_status,adset_id,` +
+            `adset{end_time,daily_budget,lifetime_budget},` +
+            `creative{thumbnail_url,instagram_permalink_url,effective_object_story_id},` +
+            `insights.time_range({since:'${startDate}',until:'${endDate}'})` +
+            `{spend,impressions,reach,actions,optimization_goal}`,
+        };
       }
 
-      if (!adsList.length) return [];
-
-      // 2️⃣ Lấy insights cho từng ad
-      const adChunks = chunkArray(
-        adsList.map((a) => a.id),
-        BATCH_SIZE
-      );
-      const insightTasks = adChunks.map((chunk) => async () => {
-        const fbBatch2 = chunk.map((adId) => ({
-          method: "GET",
-          relative_url: `${adId}/insights?fields=spend,impressions,reach,actions,optimization_goal&time_range[since]=${startDate}&time_range[until]=${endDate}`,
-        }));
-
-        return fetchJSON(BASE_URL, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ access_token: META_TOKEN, batch: fbBatch2 }),
-        });
+      // === Gọi API ===
+      const adsResp = await fetchJSON(BASE_URL, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ access_token: META_TOKEN, batch: fbBatch }),
       });
 
-      const insightResponses = await runBatchesWithLimit(insightTasks, 5);
-      const insightsMap = new Map();
+      // === Parse kết quả cực nhanh ===
+      const processed = [];
+      const respLen = adsResp.length;
 
-      insightResponses.forEach((resp, batchIdx) => {
-        if (!resp) return;
-        const chunk = adChunks[batchIdx];
-        for (let i = 0; i < resp.length; i++) {
-          const r = resp[i];
-          const adId = chunk[i];
-          try {
-            if (r?.code === 200 && r?.body) {
-              const body = JSON.parse(r.body);
-              insightsMap.set(adId, body.data?.[0] || null);
-            } else insightsMap.set(adId, null);
-          } catch {
-            insightsMap.set(adId, null);
-          }
+      for (let i = 0; i < respLen; i++) {
+        const item = adsResp[i];
+        if (item?.code !== 200 || !item?.body) continue;
+
+        let body;
+        try {
+          body = JSON.parse(item.body);
+        } catch {
+          continue;
         }
-      });
 
-      // 3️⃣ Gộp data lại
-      const processedBatch = adsList.map((ad) => ({
-        ad_id: ad.id,
-        ad_name: ad.name,
-        adset_id: ad.adset_id,
-        effective_status: ad.effective_status,
-        adset: ad.adset,
-        creative: ad.creative,
-        insights: insightsMap.get(ad.id) || {
-          spend: 0,
-          impressions: 0,
-          reach: 0,
-          actions: [],
-        },
-      }));
+        const data = body.data;
+        if (!Array.isArray(data) || data.length === 0) continue;
 
-      onBatchProcessedCallback?.(processedBatch);
-      return processedBatch;
-    })
+        for (let j = 0, len = data.length; j < len; j++) {
+          const ad = data[j];
+          const adset = ad.adset ?? {};
+          const creative = ad.creative ?? {};
+          const insights = ad.insights?.data?.[0] ?? {};
+
+          const endTime = adset.end_time ? Date.parse(adset.end_time) : 0;
+          const effective_status =
+            endTime && endTime < now ? "COMPLETED" : ad.effective_status;
+
+          processed.push({
+            ad_id: ad.id,
+            ad_name: ad.name,
+            adset_id: ad.adset_id,
+            effective_status,
+            adset: {
+              status: adset.status ?? null,
+              daily_budget: adset.daily_budget ?? null,
+              lifetime_budget: adset.lifetime_budget ?? null,
+              end_time: adset.end_time ?? null,
+            },
+            creative: {
+              thumbnail_url: creative.thumbnail_url ?? null,
+              instagram_permalink_url: creative.instagram_permalink_url ?? null,
+              facebook_post_url: creative.effective_object_story_id
+                ? `https://facebook.com/${creative.effective_object_story_id}`
+                : null,
+            },
+            insights: {
+              spend: +insights.spend || 0,
+              impressions: +insights.impressions || 0,
+              reach: +insights.reach || 0,
+              actions: insights.actions || [],
+              optimization_goal: insights.optimization_goal || "",
+            },
+          });
+        }
+      }
+
+      // === Stream về sớm (tránh nghẽn bộ nhớ) ===
+      if (processed.length) {
+        onBatchProcessedCallback?.(processed);
+        results.push(...processed);
+      }
+
+      // === Perf log ===
+      batchCount++;
+      const elapsed = (performance.now() - startTime).toFixed(0);
+      console.log(
+        `✅ Batch #${batchCount} (${batch.length} adsets) done in ${elapsed}ms`
+      );
+    }),
+    CONCURRENCY
   );
 
-  const allAds = allAdsLists.flat();
-
-  return allAds;
+  console.timeEnd("⏱️ Total fetchAdsAndInsights");
+  return results;
 }
+
 
 async function fetchDailySpendByAccount() {
   const url = `${BASE_URL}/act_${ACCOUNT_ID}/insights?fields=spend,impressions,reach,actions&time_increment=1&time_range[since]=${startDate}&time_range[until]=${endDate}&access_token=${META_TOKEN}`;
@@ -321,17 +314,6 @@ async function fetchDailySpendByAccount() {
 }
 
 let DAILY_DATA = [];
-
-async function loadDailyChart() {
-  try {
-    console.log("⚙️ Fetching daily spend data...");
-    DAILY_DATA = await fetchDailySpendByAccount();
-    renderDetailDailyChart2(DAILY_DATA);
-    console.log("✅ Daily chart rendered successfully.");
-  } catch (err) {
-    console.error("❌ Error in daily chart flow:", err);
-  }
-}
 
 async function loadDailyChart() {
   try {
@@ -675,7 +657,7 @@ function renderCampaignView(data) {
         adsHtml[k] = `
           <div class="ad_item ${isActive ? "active" : "inactive"}">
             <div class="ads_name">
-              <a href="${ad.post_url}" target="_blank">
+              <a>
                 <img src="${ad.thumbnail}" data-ad-id-img="${ad.id}" />
                 <p class="ad_name">ID: ${ad.id}</p>
               </a>
@@ -700,6 +682,8 @@ function renderCampaignView(data) {
               data-name="${as.name}"
               data-goal="${as.optimization_goal}"
               data-spend="${ad.spend}"
+              data-reach="${ad.reach}"
+              data-impressions="${ad.impressions}"
               data-result="${ad.result}"
               data-cpr="${adCpr}"
               data-thumb="${ad.thumbnail || ""}"
@@ -925,13 +909,22 @@ async function loadCampaignList() {
   }
 }
 
-async function main() {
+
+// 🧩 Chạy 1 lần khi load page
+function initDashboard() {
   initDateSelector();
-  setupDetailDailyFilter(); // 🔹 Hiển thị loading
-  setupDetailDailyFilter2(); // 🔹 Hiển thị loading
+  setupDetailDailyFilter();
+  setupDetailDailyFilter2();
   const { start, end } = getDateRange("this_week");
   startDate = start;
   endDate = end;
+
+  // Có thể add thêm listener hoặc setup UI khác ở đây
+  console.log("✅ Dashboard UI initialized");
+}
+
+// 🧠 Hàm chỉ để load lại data (gọi khi đổi account/filter)
+async function loadDashboardData() {
   const domDate = document.querySelector(".dom_date");
   if (domDate) {
     const fmt = (d) => {
@@ -941,16 +934,26 @@ async function main() {
     domDate.textContent = `${fmt(startDate)} - ${fmt(endDate)}`;
   }
   const loading = document.querySelector(".loading");
-  if (loading) loading.classList.add("active"); // Kích hoạt cả 2 luồng chạy song song, không await
+  if (loading) loading.classList.add("active");
 
+  // 🔁 Chạy song song các luồng
   loadDailyChart();
   loadPlatformSummary();
   loadSpendPlatform();
+  loadAgeGenderSpendChart();
   loadCampaignList().finally(() => {
-    console.log("Main flow completed. Hiding loading.");
+    console.log("📊 Dashboard data loaded.");
     if (loading) loading.classList.remove("active");
   });
 }
+
+// 🚀 Hàm chính gọi khi load trang lần đầu
+async function main() {
+  initDashboard();        // chỉ chạy setup UI 1 lần
+  await loadDashboardData(); // load data lần đầu
+}
+
+
 const formatMoney = (v) =>
   v && !isNaN(v) ? Math.round(v).toLocaleString("vi-VN") + "đ" : "0đ";
 const formatNumber = (v) =>
@@ -1028,6 +1031,8 @@ async function handleViewClick(e, type = "ad") {
 
   // --- Lấy dữ liệu từ dataset ---
   const spend = parseFloat(el.dataset.spend || 0);
+  const reach = parseFloat(el.dataset.reach || 0);
+  const impressions = parseFloat(el.dataset.impressions || 0);
   const goal = el.dataset.goal || "";
   const name = el.dataset.name || "";
   const result = parseFloat(el.dataset.result || 0);
@@ -1051,7 +1056,28 @@ async function handleViewClick(e, type = "ad") {
 
   // --- Gán VIEW_GOAL toàn cục ---
   VIEW_GOAL = goal;
+  const freqWrap = document.querySelector(".dom_frequency");
+  if (freqWrap && reach > 0) {
+    const frequency = impressions / reach; // tần suất hiển thị trung bình
+    const percent = Math.min((frequency / 4) * 100, 100); // ví dụ 3 = full bar
 
+    // Cập nhật progress (dạng donut/bar)
+    const donut = freqWrap.querySelector(".semi-donut");
+    if (donut) donut.style.setProperty("--percentage", percent.toFixed(1));
+
+    // Text hiển thị frequency
+    const freqNum = freqWrap.querySelector(".frequency_number");
+    if (freqNum)
+      freqNum.querySelector("span:nth-child(1)").textContent =
+        frequency.toFixed(1);
+
+    // Impression & Reach labels
+    const impLabel = freqWrap.querySelector(".dom_frequency_label_impression");
+    const reachLabel = freqWrap.querySelector(".dom_frequency_label_reach");
+    if (impLabel)
+      impLabel.textContent = impressions.toLocaleString("vi-VN");
+    if (reachLabel) reachLabel.textContent = reach.toLocaleString("vi-VN");
+  }
   // --- Hiển thị panel chi tiết ---
   const domDetail = document.querySelector("#dom_detail");
   if (domDetail) {
@@ -1389,17 +1415,46 @@ function debounce(fn, delay = 500) {
   };
 }
 
-// 🎯 Lắng nghe input filter với debounce
 const filterInput = document.getElementById("filter");
+const filterButton = document.getElementById("filter_button");
+
 if (filterInput) {
+  // 🧠 Khi nhấn Enter mới filter
+  filterInput.addEventListener(
+    "keydown",
+    debounce((e) => {
+      if (e.key === "Enter") {
+        const keyword = e.target.value.trim().toLowerCase();
+        applyCampaignFilter(keyword);
+      } else if (e.target.value.trim() === "") {
+        // 🧹 Nếu clear input → reset về mặc định
+        applyCampaignFilter("");
+      }
+    }, 300)
+  );
+
+  // 👀 Khi clear input bằng tay (xóa hết text)
   filterInput.addEventListener(
     "input",
     debounce((e) => {
-      const keyword = e.target.value.trim().toLowerCase();
-      applyCampaignFilter(keyword);
-    }, 500)
+      if (e.target.value.trim() === "") {
+        applyCampaignFilter("");
+      }
+    }, 300)
   );
 }
+
+if (filterButton) {
+  // 🖱 Khi click nút tìm
+  filterButton.addEventListener(
+    "click",
+    debounce(() => {
+      const keyword = filterInput?.value?.trim().toLowerCase() || "";
+      applyCampaignFilter(keyword);
+    }, 300)
+  );
+}
+
 async function applyCampaignFilter(keyword) {
   if (!window._ALL_CAMPAIGNS || !Array.isArray(window._ALL_CAMPAIGNS)) return;
 
@@ -1418,6 +1473,7 @@ async function applyCampaignFilter(keyword) {
   const ids = filtered.map((c) => c.id).filter(Boolean);
   loadPlatformSummary(ids);
   loadSpendPlatform(ids);
+  loadAgeGenderSpendChart(ids);
   const dailyData = ids.length ? await fetchDailySpendByCampaignIDs(ids) : [];
   renderDetailDailyChart2(dailyData, "spend");
 
@@ -1525,14 +1581,12 @@ function calcTotalAction(data, type) {
 // ================== Render Targeting ==================
 function renderTargetingToDOM(targeting) {
   const targetBox = document.getElementById("detail_targeting");
-  if (!targetBox) return;
+  if (!targetBox || !targeting) return;
 
-  // === Age ===
-  let min = 18,
-    max = 65;
+  // === AGE RANGE ===
+  let min = 18, max = 65;
   if (Array.isArray(targeting.age_range) && targeting.age_range.length === 2) {
-    min = targeting.age_range[0];
-    max = targeting.age_range[1];
+    [min, max] = targeting.age_range;
   } else {
     min = targeting.age_min || 18;
     max = targeting.age_max || 65;
@@ -1546,11 +1600,9 @@ function renderTargetingToDOM(targeting) {
 
   const ageBar = targetBox.querySelector(".detail_age_bar");
   if (ageBar) {
-    const fullMin = 18;
-    const fullMax = 65;
+    const fullMin = 18, fullMax = 65;
     const leftPercent = ((min - fullMin) / (fullMax - fullMin)) * 100;
     const widthPercent = ((max - min) / (fullMax - fullMin)) * 100;
-
     let rangeEl = ageBar.querySelector(".age_range");
     if (!rangeEl) {
       rangeEl = document.createElement("div");
@@ -1561,77 +1613,71 @@ function renderTargetingToDOM(targeting) {
     rangeEl.style.width = `${widthPercent}%`;
   }
 
-  // === Gender ===
+  // === GENDER ===
   const genderWrap = targetBox.querySelector(".detail_gender_bar");
   if (genderWrap) {
     const genders = Array.isArray(targeting.genders) ? targeting.genders : [];
     const validGenders = genders
       .map(String)
       .filter((g) => ["male", "female", "other"].includes(g.toLowerCase()));
-
-    if (validGenders.length) {
-      genderWrap.innerHTML = validGenders.map((g) => `<p>${g}</p>`).join("");
-    } else {
-      genderWrap.innerHTML = `<p>Male</p><p>Female</p><p>Other</p>`;
-    }
+    genderWrap.innerHTML = validGenders.length
+      ? validGenders.map((g) => `<p>${g}</p>`).join("")
+      : `<p>Male</p><p>Female</p><p>Other</p>`;
   }
 
-  // === Locations ===
+  // === LOCATIONS ===
   const locationWrap = targetBox.querySelector(".detail_location_bar");
   if (locationWrap) {
     let locations = [];
-
     const { geo_locations } = targeting || {};
 
-    if (geo_locations?.cities) {
+    if (geo_locations?.cities)
       locations = geo_locations.cities.map(
         (c) => `${c.name} (${c.radius}${c.distance_unit || "km"})`
       );
-    }
 
-    if (geo_locations?.regions) {
+    if (geo_locations?.regions)
       locations = locations.concat(geo_locations.regions.map((r) => r.name));
-    }
 
-    if (geo_locations?.custom_locations) {
+    if (geo_locations?.custom_locations)
       locations = locations.concat(
-        geo_locations.custom_locations.map((r) => r.name)
+        geo_locations.custom_locations.map(
+          (r) =>
+            `${r.name} (${r.radius}${r.distance_unit || "km"})`
+        )
       );
-    }
 
-    if (geo_locations?.places) {
+    if (geo_locations?.places)
       locations = locations.concat(
         geo_locations.places.map(
-          (p) => `${p.name} (${p.radius} ${p.distance_unit || "km"})`
+          (p) => `${p.name} (${p.radius}${p.distance_unit || "km"})`
         )
       );
-    }
 
-    if (locations.length) {
-      locationWrap.innerHTML = locations
-        .slice(0, 5)
-        .map(
-          (c) =>
-            `<p><i class="fa-solid fa-location-crosshairs"></i><span>${c}</span></p>`
-        )
-        .join("");
-    } else {
-      locationWrap.innerHTML = `<p><i class="fa-solid fa-location-crosshairs"></i><span>Việt Nam</span></p>`;
-    }
+    if (geo_locations?.countries)
+      locations = locations.concat(geo_locations.countries);
+
+    locationWrap.innerHTML = locations.length
+      ? locations
+          .slice(0, 5)
+          .map(
+            (c) =>
+              `<p><i class="fa-solid fa-location-crosshairs"></i><span>${c}</span></p>`
+          )
+          .join("")
+      : `<p><i class="fa-solid fa-location-crosshairs"></i><span>Việt Nam</span></p>`;
   }
 
-  // === Frequency Tags (Interests / Education / Industries / Behaviour) ===
-  // === Frequency Tags (tổng hợp toàn bộ flexible_spec) ===
+  // === FLEXIBLE SPEC (Interests / Education / etc.) ===
   const freqWrap = targetBox.querySelector(".frequency_tag");
   if (freqWrap) {
     const tags = [];
-
     const flex = targeting.flexible_spec || [];
+
     flex.forEach((fs) => {
       for (const [key, arr] of Object.entries(fs)) {
         if (!Array.isArray(arr)) continue;
         arr.forEach((item) => {
-          // Ưu tiên name, nếu không có thì hiển thị giá trị trực tiếp
           const name = item?.name || item;
           const cleanKey = key
             .replace(/_/g, " ")
@@ -1648,10 +1694,119 @@ function renderTargetingToDOM(targeting) {
               `<p class="freq_tag_item"><span class="tag_dot"></span><span class="tag_name">${t}</span></p>`
           )
           .join("")
-      : `<p class="freq_tag_item"><span class="tag_dot"></span><span class="tag_name">Automatic Target</span></p>`;
+      : `<p class="freq_tag_item"><span class="tag_dot"></span><span class="tag_name">Advantage targeting</span></p>`;
   }
 
-  // === Advantage Audience ===
+  // === CUSTOM & LOOKALIKE AUDIENCES ===
+  const audienceWrap = targetBox.querySelector(".detail_audience");
+  if (audienceWrap) {
+    const audiences = [];
+
+    if (Array.isArray(targeting.custom_audiences)) {
+      targeting.custom_audiences.forEach((a) =>
+        audiences.push(`${a.name || a.id} (Custom Audience)`)
+      );
+    }
+
+    if (Array.isArray(targeting.lookalike_spec)) {
+      targeting.lookalike_spec.forEach((a) =>
+        audiences.push(`${a.name || a.origin || a.id} (Lookalike Audience)`)
+      );
+    }
+
+    audienceWrap.innerHTML = audiences.length
+      ? audiences
+          .map(
+            (t) =>
+            `<p class="freq_tag_item"><span class="tag_dot"></span><span class="tag_name">${t}</span></p>`
+          )
+          .join("")
+      : `<p><span>No audience selected</span></p>`;
+  }
+
+  // === EXCLUDED AUDIENCES ===
+  const excludeWrap = targetBox.querySelector(".detail_exclude");
+  if (excludeWrap) {
+    const excluded = [];
+    const {
+      excluded_custom_audiences,
+      excluded_interests,
+      excluded_behaviors,
+      excluded_geo_locations,
+    } = targeting || {};
+
+    if (Array.isArray(excluded_custom_audiences))
+      excluded_custom_audiences.forEach((e) =>
+        excluded.push(`${e.name || e.id} (Custom Audience)`)
+      );
+
+    if (Array.isArray(excluded_interests))
+      excluded_interests.forEach((e) =>
+        excluded.push(`${e.name || e.id} (Interest)`)
+      );
+
+    if (Array.isArray(excluded_behaviors))
+      excluded_behaviors.forEach((e) =>
+        excluded.push(`${e.name || e.id} (Behavior)`)
+      );
+
+    if (excluded_geo_locations?.countries)
+      excluded_geo_locations.countries.forEach((c) =>
+        excluded.push(`${c} (Excluded Country)`)
+      );
+
+    excludeWrap.innerHTML = excluded.length
+      ? excluded
+          .map(
+            (t) =>
+            `<p class="freq_tag_item"><span class="tag_dot"></span><span class="tag_name">${t}</span></p>`
+          )
+          .join("")
+      : `<p><span>No excluded audience</span></p>`;
+  }
+
+  // === LANGUAGES (Locales) ===
+  const localeWrap = targetBox.querySelector(".detail_locale");
+  if (localeWrap && Array.isArray(targeting.locales)) {
+    const localeMap = {
+      1: "English (US)",
+      2: "Spanish",
+      3: "French",
+      6: "Vietnamese",
+    };
+    const langs = targeting.locales.map((l) => localeMap[l] || `Locale ID ${l}`);
+    localeWrap.innerHTML = langs
+      .map(
+        (l) =>
+          `<p><i class="fa-solid fa-language"></i><span>${l}</span></p>`
+      )
+      .join("");
+  }
+
+  // === PLACEMENT ===
+  const placementWrap = targetBox.querySelector(".detail_placement");
+  if (placementWrap) {
+    const {
+      publisher_platforms,
+      facebook_positions,
+      instagram_positions,
+    } = targeting || {};
+    const platforms = [
+      ...(publisher_platforms || []),
+      ...(facebook_positions || []),
+      ...(instagram_positions || []),
+    ];
+    placementWrap.innerHTML = platforms.length
+      ? platforms
+          .map(
+            (p) =>
+              `<p><i class="fa-solid fa-bullhorn"></i><span>${p}</span></p>`
+          )
+          .join("")
+      : `<p><i class="fa-solid fa-bullhorn"></i><span>Automatic placement</span></p>`;
+  }
+
+  // === ADVANTAGE AUDIENCE ===
   const optimizeWrap = targetBox.querySelector(".detail_optimize");
   if (optimizeWrap) {
     const adv =
@@ -1661,6 +1816,7 @@ function renderTargetingToDOM(targeting) {
     optimizeWrap.textContent = adv;
   }
 }
+
 
 // ================== Render Interaction ==================
 function renderInteraction(byDate) {
@@ -1685,13 +1841,13 @@ function renderInteraction(byDate) {
     },
 
     {
-      key: "post_save",
+      key: "onsite_conversion.post_save",
       label: "Saves",
       icon: "fa-solid fa-bookmark",
     },
     {
       key: "page_engagement",
-      label: "Page Engage",
+      label: "Page Engaged",
       icon: "fa-solid fa-bolt",
     },
     {
@@ -1705,8 +1861,8 @@ function renderInteraction(byDate) {
       icon: "fa-solid fa-video",
     },
     {
-      key: "photo_view",
-      label: "Photo Views",
+      key: "like",
+      label: "Follows",
       icon: "fa-solid fa-video",
     },
     {
@@ -2157,36 +2313,32 @@ function renderChartByDevice(dataByDevice) {
   if (!ctx) return;
   const c2d = ctx.getContext("2d");
 
-  // Chuẩn hoá tên thiết bị
   const prettyName = (key) => {
     key = key.toLowerCase();
     if (key.includes("android")) return "Android";
-    if (key.includes("iphone")) return "iPhone";
-    if (key.includes("ipad")) return "iPhone";
+    if (key.includes("iphone") || key.includes("ipad")) return "iPhone";
     if (key.includes("tablet")) return "Tablet";
     if (key.includes("desktop")) return "Desktop";
     return key.charAt(0).toUpperCase() + key.slice(1);
   };
 
-  // Lọc chỉ giữ thiết bị có result > 0
+  // ✅ Lấy device có result > 0
   const validEntries = Object.entries(dataByDevice)
     .map(([k, v]) => [prettyName(k), getResults(v) || 0])
     .filter(([_, val]) => val > 0);
 
-  // Nếu không có dữ liệu hợp lệ thì thoát
   if (!validEntries.length) {
     if (window.chart_by_device_instance)
       window.chart_by_device_instance.destroy();
     return;
   }
 
-  // Sắp xếp giảm dần theo result
+  // 🔹 Sort giảm dần theo result
   validEntries.sort((a, b) => b[1] - a[1]);
-
   const labels = validEntries.map(([k]) => k);
   const resultData = validEntries.map(([_, v]) => v);
 
-  // Màu: 2 cái lớn nhất nổi bật, còn lại nhạt hơn
+  // 🎨 Màu sắc: top 2 nổi bật
   const highlightColors = [
     "rgba(255,171,0,0.9)", // vàng
     "rgba(38,42,83,0.9)", // xanh đậm
@@ -2197,21 +2349,50 @@ function renderChartByDevice(dataByDevice) {
     "rgba(0, 71, 26, 0.7)",
     "rgba(153, 0, 0, 0.7)",
   ];
-
   const colors = resultData.map((_, i) =>
     i < 2 ? highlightColors[i] : fallbackColors[i - 2] || "#ccc"
   );
 
+  // 🔢 Tính % cao nhất
+  const total = resultData.reduce((a, b) => a + b, 0);
+  const maxIndex = resultData.indexOf(Math.max(...resultData));
+  const maxLabel = labels[maxIndex];
+  const maxPercent = ((resultData[maxIndex] / total) * 100).toFixed(1);
+
   if (window.chart_by_device_instance)
     window.chart_by_device_instance.destroy();
 
+  // 🎯 Plugin custom: show % giữa lỗ
+  const centerTextPlugin = {
+    id: "centerText",
+    afterDraw(chart) {
+      const { width, height } = chart;
+      const ctx = chart.ctx;
+      ctx.save();
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillStyle = "#333";
+  
+      // 🎯 Dịch text lên 10px cho đúng giữa lỗ donut
+      const centerY = height / 2 - 18;
+  
+      ctx.font = "bold 18px sans-serif";
+      ctx.fillText(`${maxPercent}%`, width / 2, centerY - 4);
+  
+      ctx.font = "12px sans-serif";
+      ctx.fillText(maxLabel, width / 2, centerY + 18);
+      ctx.restore();
+    },
+  };
+
+  // 🎨 Render chart
   window.chart_by_device_instance = new Chart(c2d, {
-    type: "pie",
+    type: "doughnut",
     data: {
       labels,
       datasets: [
         {
-          label: "Result",
+          label: "Results",
           data: resultData,
           backgroundColor: colors,
           borderColor: "#fff",
@@ -2221,35 +2402,34 @@ function renderChartByDevice(dataByDevice) {
     },
     options: {
       responsive: true,
-      maintainAspectRatio: false, // Không set width/height
+      cutout: "70%", // 💫 tạo lỗ tròn
+      maintainAspectRatio: false,
       plugins: {
         legend: {
           position: "bottom",
-          labels: { color: "#333", boxWidth: 14, padding: 12 },
+          labels: {
+            color: "#333",
+            boxWidth: 14,
+            padding: 10,
+          },
         },
         tooltip: {
           callbacks: {
-            label: (c) => `${c.label}: ${c.raw}`,
+            label: (ctx) =>
+              `${ctx.label}: ${formatNumber(ctx.raw)} (${(
+                (ctx.raw / total) *
+                100
+              ).toFixed(1)}%)`,
           },
         },
-        datalabels: {
-          color: "#fff",
-          font: { weight: "bold", size: 11 },
-          formatter: (v, ctx) => {
-            const total = ctx.chart.data.datasets[0].data.reduce(
-              (a, b) => a + b,
-              0
-            );
-            const pct = total ? ((v / total) * 100).toFixed(1) + "%" : "";
-            return pct;
-          },
-        },
+        datalabels: { display: false },
       },
-      hoverOffset: 10, // hiệu ứng nổi khi hover
+      hoverOffset: 8,
     },
-    plugins: [ChartDataLabels],
+    plugins: [centerTextPlugin],
   });
 }
+
 function renderChartByRegion(dataByRegion) {
   if (!dataByRegion) return;
 
@@ -2557,23 +2737,19 @@ function renderChartByPlatform(allData) {
       if (k.includes("desktop") || k.includes("pc"))
         return "https://ms.codes/cdn/shop/articles/this-pc-computer-display-windows-11-icon.png?v=1709255180";
     }
-    if (groupKey === "byAgeGender") {
+    if (groupKey === "byAgeGender" || groupKey === "byRegion")
       return "https://raw.githubusercontent.com/DEV-trongphuc/DOM_MISA_IDEAS_CRM/refs/heads/main/DOM_MKT%20(2).png";
-    }
-    if (groupKey === "byRegion") {
-      return "https://raw.githubusercontent.com/DEV-trongphuc/DOM_MISA_IDEAS_CRM/refs/heads/main/DOM_MKT%20(2).png";
-    }
+
     if (k.includes("facebook"))
       return "https://upload.wikimedia.org/wikipedia/commons/0/05/Facebook_Logo_%282019%29.png";
-
     if (k.includes("instagram"))
       return "https://upload.wikimedia.org/wikipedia/commons/e/e7/Instagram_logo_2016.svg";
+
     return "https://raw.githubusercontent.com/DEV-trongphuc/DOM_MISA_IDEAS_CRM/refs/heads/main/DOM_MKT%20(2).png";
   };
 
   let hasData = false;
 
-  // 🧩 Duyệt tất cả nhóm data
   for (const [groupKey, groupLabel] of Object.entries(sources)) {
     const group = allData[groupKey];
     if (!group) continue;
@@ -2581,22 +2757,28 @@ function renderChartByPlatform(allData) {
     const items = [];
     for (const [key, val] of Object.entries(group)) {
       const spend = +val.spend || 0;
-      const result = getResults(val);
-      if (!spend || !result) continue;
-
+      const result = getResults(val); // có thể = 0 hoặc undefined
       const goal = VIEW_GOAL;
-      const cpr = goal === "REACH" ? (spend / result) * 1000 : spend / result;
 
-      items.push({ key, spend, result, cpr, goal });
+      let cpr = 0;
+      if (result && spend) {
+        cpr = goal === "REACH" ? (spend / result) * 1000 : spend / result;
+      }
+
+      // ✅ Nếu có spend > 0 thì vẫn push, chỉ set result = 0
+      if (spend > 0) items.push({ key, spend, result: result || 0, cpr, goal });
     }
 
     if (!items.length) continue;
     hasData = true;
 
-    // Sort theo CPR tăng dần (tốt nhất → tệ nhất)
-    items.sort((a, b) => a.cpr - b.cpr);
-    const minCPR = items[0].cpr;
-    const maxCPR = items[items.length - 1].cpr;
+    // ✅ Sắp xếp theo spend giảm dần trước
+    items.sort((a, b) => b.spend - a.spend);
+
+    // Tìm giá trị CPR min và max
+    const cprValues = items.map((x) => x.cpr).filter((x) => x > 0);
+    const minCPR = Math.min(...cprValues);
+    const maxCPR = Math.max(...cprValues);
 
     // Divider group
     const divider = document.createElement("li");
@@ -2604,37 +2786,37 @@ function renderChartByPlatform(allData) {
     divider.innerHTML = `<p><strong>${groupLabel}</strong></p>`;
     wrap.appendChild(divider);
 
-    // Render từng dòng
     items.forEach((p) => {
-      let color = "rgb(213,141,0)";
-      if (p.cpr === minCPR) color = "rgb(2,116,27)";
-      else if (p.cpr === maxCPR) color = "rgb(215,0,0)";
+      let color = "rgb(213,141,0)"; // mặc định vàng
+      if (p.cpr === minCPR && p.result > 0) color = "rgb(2,116,27)"; // ✅ xanh cho CPR tốt nhất
+      else if (p.cpr === maxCPR && p.result > 0) color = "rgb(215,0,0)"; // 🔴 đỏ cho CPR cao nhất
       const bg = color.replace("rgb", "rgba").replace(")", ",0.05)");
 
       const li = document.createElement("li");
       li.dataset.platform = p.key;
+      li.className = p.cpr === minCPR ? "best-performer" : "";
       li.innerHTML = `
         <p>
           <img src="${getLogo(p.key, groupKey)}" alt="${p.key}" />
           <span>${formatName(p.key)}</span>
         </p>
         <p><span class="total_spent"><i class="fa-solid fa-money-bill"></i> ${p.spend.toLocaleString()}đ</span></p>
-        <p><span class="total_result"><i class="fa-solid fa-bullseye"></i> ${formatNumber(
-          p.result
-        )}</span></p>
+        <p><span class="total_result"><i class="fa-solid fa-bullseye"></i> ${
+          p.result > 0 ? formatNumber(p.result) : "—"
+        }</span></p>
         <p class="toplist_percent" style="color:${color};background:${bg}">
-          ${formatMoney(p.cpr)}
+          ${p.result > 0 ? formatMoney(p.cpr) : "—"}
         </p>
       `;
       wrap.appendChild(li);
     });
   }
 
-  // Nếu rỗng toàn bộ
   if (!hasData) {
     wrap.innerHTML = `<li><p>Không có dữ liệu hợp lệ để hiển thị.</p></li>`;
   }
 }
+
 
 function renderDeepCPR(allData) {
   const wrap = document.querySelector("#deep_cpr .dom_toplist");
@@ -2720,7 +2902,7 @@ function renderCharts({
   byDevice,
   byDate,
 }) {
-  renderDetailDailyChart(byDate, "spend"); // Render lần đầu với 'spend'
+  renderDetailDailyChart(byDate, "spend"); 
   renderChartByHour(byHour);
   renderChartByAgeGender(byAgeGender);
   renderChartByRegion(byRegion);
@@ -3002,28 +3184,7 @@ function updatePlatformSummaryUI(data) {
     totalClick.toLocaleString("vi-VN");
   document.querySelector(".dom_interaction_view").textContent =
     totalView.toLocaleString("vi-VN");
-  const freqWrap = document.querySelector(".dom_frequency");
-  if (freqWrap && totalReach > 0) {
-    const frequency = totalImpression / totalReach; // tần suất hiển thị trung bình
-    const percent = Math.min((frequency / 3) * 100, 100); // ví dụ 3 = full bar
-
-    // Cập nhật progress (dạng donut/bar)
-    const donut = freqWrap.querySelector(".semi-donut");
-    if (donut) donut.style.setProperty("--percentage", percent.toFixed(1));
-
-    // Text hiển thị frequency
-    const freqNum = freqWrap.querySelector(".frequency_number");
-    if (freqNum)
-      freqNum.querySelector("span:nth-child(1)").textContent =
-        frequency.toFixed(1);
-
-    // Impression & Reach labels
-    const impLabel = freqWrap.querySelector(".dom_frequency_label_impression");
-    const reachLabel = freqWrap.querySelector(".dom_frequency_label_reach");
-    if (impLabel)
-      impLabel.textContent = totalImpression.toLocaleString("vi-VN");
-    if (reachLabel) reachLabel.textContent = totalReach.toLocaleString("vi-VN");
-  }
+  
 }
 
 async function loadPlatformSummary(campaignIds = []) {
@@ -3050,6 +3211,31 @@ async function fetchSpendByPlatform(campaignIds = []) {
     return [];
   }
 }
+async function fetchSpendByAgeGender(campaignIds = []) {
+  try {
+    if (!ACCOUNT_ID) throw new Error("ACCOUNT_ID is required");
+
+    // Nếu có campaignIds thì filter, còn không thì query theo account
+    const filtering = campaignIds.length
+      ? `&filtering=${encodeURIComponent(
+          JSON.stringify([
+            { field: "campaign.id", operator: "IN", value: campaignIds },
+          ])
+        )}`
+      : "";
+
+    const url = `${BASE_URL}/act_${ACCOUNT_ID}/insights?fields=spend&breakdowns=age,gender&time_range={"since":"${startDate}","until":"${endDate}"}${filtering}&access_token=${META_TOKEN}`;
+
+    const data = await fetchJSON(url);
+    const results = data.data || [];
+
+    return results;
+  } catch (err) {
+    console.error("❌ Error fetching spend by age_gender:", err);
+    return [];
+  }
+}
+
 function summarizeSpendByPlatform(data) {
   const result = {
     facebook: 0,
@@ -3156,6 +3342,10 @@ async function loadSpendPlatform(campaignIds = []) {
   const data = await fetchSpendByPlatform(campaignIds);
   const summary = summarizeSpendByPlatform(data);
   renderPlatformSpendUI(summary);
+}
+async function loadAgeGenderSpendChart(campaignIds = []) {
+  const data = await fetchSpendByAgeGender(campaignIds);
+  renderAgeGenderChart(data);
 }
 
 main();
@@ -3295,26 +3485,322 @@ function reloadDashboard() {
 
 // =================== MAIN INIT ===================
 
-// document.addEventListener("click", (e) => {
-//   const select = e.target.closest(".quick_filter_detail");
-//   const option = e.target.closest(".quick_filter_detail ul li");
+document.addEventListener("click", (e) => {
+  const select = e.target.closest(".quick_filter_detail");
+  const option = e.target.closest(".quick_filter_detail ul li");
 
-//   // ✅ Toggle dropdown khi click vào select
-//   if (select && !option) {
-//     select.classList.toggle("active");
-//   }
+  // ✅ Toggle dropdown khi click vào select (nhưng không phải chọn item)
+  if (select && !option) {
+    select.classList.toggle("active");
+    return;
+  }
 
-//   // ✅ Khi chọn 1 option
-//   if (option) {
-//     const parent = option.closest(".quick_filter_detail");
-//     const imgSrc = option.querySelector("img").src;
-//     const name = option.querySelector("span").textContent.trim();
-//     const filter = option.dataset.filter.trim().toLowerCase();
+  // ✅ Khi chọn 1 option
+  if (option) {
+    const parent = option.closest(".quick_filter_detail");
+    if (!parent) return;
 
-//     // Update UI
-//     parent.querySelector("img").src = imgSrc;
-//     parent.querySelector(".dom_selected").textContent = name;
-//     parent.classList.remove("active");
-//     applyCampaignFilter(filter);
-//   }
-// });
+    const imgEl = option.querySelector("img");
+    const nameEl = option.querySelector("span");
+    const filterValue = option.dataset?.filter;
+
+    // Nếu thiếu dữ liệu → không làm gì cả
+    if (!imgEl || !nameEl || !filterValue) return;
+
+    const imgSrc = imgEl.src;
+    const name = nameEl.textContent.trim();
+    const filter = filterValue.trim().toLowerCase();
+
+    // Update UI
+    const parentImg = parent.querySelector("img");
+    const parentText = parent.querySelector(".dom_selected");
+    if (parentImg) parentImg.src = imgSrc;
+    if (parentText) parentText.textContent = name;
+
+    parent.classList.remove("active");
+
+    // Gọi hàm filter nếu tồn tại
+    if (typeof applyCampaignFilter === "function") {
+      applyCampaignFilter(filter);
+    }
+  }
+});
+
+function renderAgeGenderChart(rawData = []) {
+  if (!Array.isArray(rawData) || !rawData.length) return;
+
+  // 🚫 Bỏ gender unknown
+  const data = rawData.filter(
+    (d) => d.gender && d.gender.toLowerCase() !== "unknown"
+  );
+  if (!data.length) return;
+
+  const ctx = document.getElementById("age_gender_total");
+  if (!ctx) return;
+  const c2d = ctx.getContext("2d");
+
+  // ❌ Clear chart cũ
+  if (window.chart_age_gender_total?.destroy) {
+    window.chart_age_gender_total.destroy();
+    window.chart_age_gender_total = null;
+  }
+
+  // 🔹 Gom theo độ tuổi + giới tính
+  const ages = [...new Set(data.map((d) => d.age))].sort(
+    (a, b) => parseInt(a) - parseInt(b)
+  );
+
+  const maleSpends = [];
+  const femaleSpends = [];
+  const totalByAge = {};
+
+  ages.forEach((age) => {
+    const male = data.find(
+      (d) => d.age === age && d.gender.toLowerCase() === "male"
+    );
+    const female = data.find(
+      (d) => d.age === age && d.gender.toLowerCase() === "female"
+    );
+    const maleSpend = male ? +male.spend : 0;
+    const femaleSpend = female ? +female.spend : 0;
+    maleSpends.push(maleSpend);
+    femaleSpends.push(femaleSpend);
+    totalByAge[age] = maleSpend + femaleSpend;
+  });
+
+  // 🔸 Xác định nhóm tuổi có tổng chi cao nhất
+  const maxAge = Object.keys(totalByAge).reduce((a, b) =>
+    totalByAge[a] > totalByAge[b] ? a : b
+  );
+
+  // 🎨 Màu
+  const gradientGray = c2d.createLinearGradient(0, 0, 0, 300);
+  gradientGray.addColorStop(0, "rgba(210,210,210,1)");
+  gradientGray.addColorStop(1, "rgba(160,160,160,0.6)");
+
+  const gradientGold = c2d.createLinearGradient(0, 0, 0, 300);
+  gradientGold.addColorStop(0, "rgba(255,169,0,1)");
+  gradientGold.addColorStop(1, "rgba(255,169,0,0.6)");
+
+  const maleColors = ages.map((age) =>
+    age === maxAge ? gradientGold : gradientGray
+  );
+  const femaleColors = ages.map((age) =>
+    age === maxAge ? gradientGold : gradientGray
+  );
+
+  // ⚙️ Cấu hình Chart.js
+  window.chart_age_gender_total = new Chart(c2d, {
+    type: "bar",
+    data: {
+      labels: ages,
+      datasets: [
+        {
+          label: "Male",
+          data: maleSpends,
+          backgroundColor: maleColors,
+          borderRadius: 8,
+          borderWidth: 0,
+        },
+        {
+          label: "Female",
+          data: femaleSpends,
+          backgroundColor: femaleColors,
+          borderRadius: 8,
+          borderWidth: 0,
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      layout: { padding: { left: 10, right: 10 } },
+      animation: { duration: 700, easing: "easeOutQuart" },
+      plugins: {
+        legend: { display: false }, // ❌ bỏ chú thích
+        tooltip: {
+          callbacks: {
+            title: (ctx) => `Age: ${ctx[0].label}`,
+            label: (ctx) => `${ctx.dataset.label}: ${formatMoneyShort(ctx.raw)}`,
+          },
+        },
+        datalabels: { display: false }, // ❌ bỏ label trên bar
+      },
+      scales: {
+        x: {
+          stacked: false,
+          grid: {
+            color: "rgba(0,0,0,0.03)",
+            drawBorder: true,
+            borderColor: "rgba(0,0,0,0.05)",
+          },
+          ticks: {
+            color: "#555",
+            font: { weight: "600", size: 11 },
+          },
+          title: { display: false},
+        },
+        y: {
+          beginAtZero: true,
+          grid: {
+            color: "rgba(0,0,0,0.03)",
+            drawBorder: true,
+            borderColor: "rgba(0,0,0,0.05)",
+          },
+          ticks: { display: false },
+          title: { display: false},
+        },
+      },
+    },
+    plugins: [ChartDataLabels],
+  });
+}
+document.querySelectorAll('.dom_menu li').forEach(menuItem => {
+  menuItem.addEventListener('click', function() {
+    // Remove active class from all menu items
+    document.querySelectorAll('.dom_menu li').forEach(item => item.classList.remove('active'));
+    // Add active class to the clicked item
+    menuItem.classList.add('active');
+
+    // Get the data-view of the clicked item
+    const view = menuItem.getAttribute('data-view');
+
+    // Get the container div and update its classes
+    const container = document.querySelector('.dom_container');
+    
+    // Remove all views from the container
+    container.classList.remove('dashboard', 'ad_detail');
+    
+    // Add the relevant class based on the clicked item
+    container.classList.add(view);
+  });
+});
+
+// 🎯 Quick Filter Logic
+
+const quickFilterBox = document.querySelector(".quick_filter");
+if (quickFilterBox) {
+  const selectedText = quickFilterBox.querySelector(".dom_selected");
+  const listItems = quickFilterBox.querySelectorAll(".dom_select_show li");
+
+  listItems.forEach((li) => {
+    li.addEventListener("click", async (e) => {
+      e.stopPropagation(); // 🧱 chặn sự kiện lan lên .quick_filter
+
+      // Xóa highlight cũ
+      listItems.forEach((x) => x.classList.remove("active"));
+      li.classList.add("active");
+
+      // Lấy label & data-view
+      const label = li.querySelector("span:last-child")?.textContent || "";
+      const view = li.querySelector(".radio_box")?.dataset.view || "";
+
+      // Hiển thị text đã chọn
+      selectedText.textContent = label;
+
+      // --- 🔹 Active campaigns ---
+      if (view === "active_ads") {
+        const activeLower = "active";
+
+        const activeCampaigns = window._ALL_CAMPAIGNS.filter((c) => {
+          let campaignActive = false;
+          for (const adset of c.adsets || []) {
+            for (const ad of adset.ads || []) {
+              if ((ad.status || "").toLowerCase() === activeLower) {
+                campaignActive = true;
+                break;
+              }
+            }
+            if (campaignActive) break;
+          }
+          return campaignActive;
+        });
+
+        console.log(
+          `🔹 Active campaigns found: ${activeCampaigns.length}/${window._ALL_CAMPAIGNS.length}`
+        );
+
+        renderCampaignView(activeCampaigns);
+      }
+
+      // --- 🔹 Reset filter ---
+      else if (view === "reset") {
+        selectedText.textContent = "Quick filter";
+        renderCampaignView(window._ALL_CAMPAIGNS);
+      }
+
+      // ✅ Đóng dropdown ngay lập tức
+      quickFilterBox.classList.remove("active");
+    });
+  });
+
+  // Toggle mở dropdown
+  quickFilterBox.addEventListener("click", (e) => {
+    if (
+      e.target.closest(".flex") ||
+      e.target.classList.contains("fa-angle-down")
+    ) {
+      quickFilterBox.classList.toggle("active");
+    }
+  });
+
+  // 🧠 Click ra ngoài dropdown → tự đóng luôn
+  document.addEventListener("click", (e) => {
+    if (!quickFilterBox.contains(e.target)) {
+      quickFilterBox.classList.remove("active");
+    }
+  });
+}
+
+
+document.addEventListener("click", (e) => {
+  const accountBox = e.target.closest(".dom_account_view");
+  const option = e.target.closest(".dom_account_view ul li");
+
+  // 🧩 Toggle dropdown khi click icon hoặc phần header
+  if (accountBox && !option) {
+    accountBox.classList.toggle("active");
+    return;
+  }
+
+  // ✅ Khi chọn 1 tài khoản
+  if (option) {
+    const parent = option.closest(".dom_account_view");
+    if (!parent) return;
+
+    // Lấy data account
+    const accId = option.dataset.acc;
+    const imgEl = option.querySelector("img");
+    const nameEl = option.querySelector("span");
+
+    // Check đủ dữ liệu chưa
+    if (!accId || !imgEl || !nameEl) return;
+
+    // 🔹 Update UI
+    const avatar = parent.querySelector(".account_item_avatar");
+    const accName = parent.querySelector(".account_item_name");
+    const accIdEl = parent.querySelector(".account_item_id");
+
+    if (avatar) avatar.src = imgEl.src;
+    if (accName) accName.textContent = nameEl.textContent.trim();
+    if (accIdEl) accIdEl.textContent = accId;
+    console.log(accId);
+    // 🔹 Gán lại biến global
+    ACCOUNT_ID = accId;
+    console.log(`🔄 ACCOUNT_ID changed to: ${ACCOUNT_ID}`);
+
+    // 🔹 Đóng dropdown
+    parent.classList.remove("active");
+
+    // 🔹 Gọi lại main() để reload data
+   
+    loadDashboardData();
+  }
+
+  // ✅ Click ra ngoài thì đóng dropdown
+  if (!e.target.closest(".dom_account_view")) {
+    document
+      .querySelectorAll(".dom_account_view.active")
+      .forEach((el) => el.classList.remove("active"));
+  }
+});
