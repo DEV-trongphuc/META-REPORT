@@ -28,7 +28,7 @@ const resultMapping = {
   PROFILE_VISIT: "link_click",
   LINK_CLICKS: "link_click",
   LANDING_PAGE_VIEWS: "link_click",
-  REPLIES: "onsite_conversion.messaging_conversation_started_7d",
+  REPLIES: "onsite_conversion.messaging_conversation_replied_7d",
   IMPRESSIONS: "impressions",
   PAGE_LIKES: "follows",
   DEFAULT: "reach", // Fallback
@@ -2465,31 +2465,26 @@ function renderChartByDevice(dataByDevice) {
     return key.charAt(0).toUpperCase() + key.slice(1);
   };
 
-  // ✅ Gom data, nếu result = 0 thì fallback sang spend
+  // ✅ Lấy device có result > 0
   const validEntries = Object.entries(dataByDevice)
-    .map(([k, v]) => {
-      let result = getResults(v);
-      if (!result || result === 0) result = +v.spend || 0;
-      return [prettyName(k), result];
-    })
+    .map(([k, v]) => [prettyName(k), getResults(v) || 0])
     .filter(([_, val]) => val > 0);
 
-  // Nếu rỗng thì clear chart
   if (!validEntries.length) {
     if (window.chart_by_device_instance)
       window.chart_by_device_instance.destroy();
     return;
   }
 
-  // 🔹 Sort giảm dần
+  // 🔹 Sort giảm dần theo result
   validEntries.sort((a, b) => b[1] - a[1]);
   const labels = validEntries.map(([k]) => k);
   const resultData = validEntries.map(([_, v]) => v);
 
-  // 🎨 Màu sắc
+  // 🎨 Màu sắc: top 2 nổi bật
   const highlightColors = [
-    "rgba(255,171,0,0.9)",
-    "rgba(38,42,83,0.9)",
+    "rgba(255,171,0,0.9)", // vàng
+    "rgba(38,42,83,0.9)", // xanh đậm
   ];
   const fallbackColors = [
     "rgba(156,163,175,0.7)",
@@ -2501,21 +2496,16 @@ function renderChartByDevice(dataByDevice) {
     i < 2 ? highlightColors[i] : fallbackColors[i - 2] || "#ccc"
   );
 
-  // 🔢 Xác định phần trăm cao nhất
+  // 🔢 Tính % cao nhất
   const total = resultData.reduce((a, b) => a + b, 0);
   const maxIndex = resultData.indexOf(Math.max(...resultData));
   const maxLabel = labels[maxIndex];
   const maxPercent = ((resultData[maxIndex] / total) * 100).toFixed(1);
 
-  // 🧠 Kiểm tra xem toàn bộ đang hiển thị spend hay result
-  const isSpendMode = Object.values(dataByDevice).every(
-    (v) => !getResults(v)
-  );
-
   if (window.chart_by_device_instance)
     window.chart_by_device_instance.destroy();
 
-  // 🎯 Plugin: hiển thị % giữa chart
+  // 🎯 Plugin custom: show % giữa lỗ
   const centerTextPlugin = {
     id: "centerText",
     afterDraw(chart) {
@@ -2525,12 +2515,13 @@ function renderChartByDevice(dataByDevice) {
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
       ctx.fillStyle = "#333";
-
+  
+      // 🎯 Dịch text lên 10px cho đúng giữa lỗ donut
       const centerY = height / 2 - 18;
-
+  
       ctx.font = "bold 18px sans-serif";
       ctx.fillText(`${maxPercent}%`, width / 2, centerY - 4);
-
+  
       ctx.font = "12px sans-serif";
       ctx.fillText(maxLabel, width / 2, centerY + 18);
       ctx.restore();
@@ -2544,7 +2535,7 @@ function renderChartByDevice(dataByDevice) {
       labels,
       datasets: [
         {
-          label: isSpendMode ? "Spend" : "Results",
+          label: "Results",
           data: resultData,
           backgroundColor: colors,
           borderColor: "#fff",
@@ -2554,17 +2545,21 @@ function renderChartByDevice(dataByDevice) {
     },
     options: {
       responsive: true,
-      cutout: "70%",
+      cutout: "70%", // 💫 tạo lỗ tròn
       maintainAspectRatio: false,
       plugins: {
         legend: {
           position: "bottom",
-          labels: { color: "#333", boxWidth: 14, padding: 10 },
+          labels: {
+            color: "#333",
+            boxWidth: 14,
+            padding: 10,
+          },
         },
         tooltip: {
           callbacks: {
             label: (ctx) =>
-              `${ctx.label}: ${isSpendMode ? formatMoney(ctx.raw) : formatNumber(ctx.raw)} (${(
+              `${ctx.label}: ${formatNumber(ctx.raw)} (${(
                 (ctx.raw / total) *
                 100
               ).toFixed(1)}%)`,
@@ -2578,8 +2573,8 @@ function renderChartByDevice(dataByDevice) {
   });
 }
 
-
 function renderChartByRegion(dataByRegion) {
+  console.log(dataByRegion);
   if (!dataByRegion) return;
 
   const ctx = document.getElementById("chart_by_region");
@@ -2600,7 +2595,7 @@ function renderChartByRegion(dataByRegion) {
   }));
 
   const totalSpend = entries.reduce((acc, e) => acc + e.spend, 0);
-  const minSpend = totalSpend * 0.02; // lọc 2%
+  const minSpend = totalSpend * 0.02; 
 
   const filtered = entries.filter((r) => r.spend >= minSpend);
   if (!filtered.length) {
@@ -2747,14 +2742,7 @@ function renderChartByAgeGender(dataByAgeGender) {
       .toUpperCase();
 
     if (!ageGroups[age]) ageGroups[age] = { male: 0, female: 0, unknown: 0 };
-
-    // ⚙️ Lấy result trước, nếu không có thì fallback sang spend
-    let result = getResults(val);
-    if (!result || result === 0) {
-      result = +val.spend || 0;
-    }
-
-    ageGroups[age][gender] = result;
+    ageGroups[age][gender] = getResults(val) || 0;
   }
 
   const ages = Object.keys(ageGroups);
@@ -2777,13 +2765,6 @@ function renderChartByAgeGender(dataByAgeGender) {
   const gradientUnknown = c2d.createLinearGradient(0, 0, 0, 300);
   gradientUnknown.addColorStop(0, "rgba(180,180,180,1)");
   gradientUnknown.addColorStop(1, "rgba(150,150,150,0.8)");
-
-  // 🧠 Kiểm tra xem toàn bộ có phải đang render spend không
-  const totalResult = [...maleData, ...femaleData, ...unknownData].reduce(
-    (a, b) => a + b,
-    0
-  );
-  const isSpendMode = totalResult > 0 && Object.values(dataByAgeGender).every((v) => !getResults(v));
 
   window.chart_by_age_gender_instance = new Chart(c2d, {
     type: "bar",
@@ -2817,18 +2798,14 @@ function renderChartByAgeGender(dataByAgeGender) {
       responsive: true,
       maintainAspectRatio: false,
       interaction: { mode: "index", intersect: false },
-      layout: { padding: { left: 10, right: 10 } },
+      layout: {
+        padding: { left: 10, right: 10 },
+      },
       plugins: {
-        legend: {
-          display: true,
-          labels: { color: "#444", font: { weight: "600", size: 12 } },
-        },
+        legend: { display: false },
         tooltip: {
           callbacks: {
-            label: (ctx) =>
-              `${ctx.dataset.label}: ${formatMoney(ctx.raw)} ${
-                isSpendMode ? "đ" : ""
-              }`,
+            label: (ctx) => `${ctx.dataset.label}: ${ctx.raw}`,
           },
         },
         datalabels: {
@@ -2837,15 +2814,17 @@ function renderChartByAgeGender(dataByAgeGender) {
           offset: 2,
           font: { weight: "600", size: 11 },
           color: "#666",
-          formatter: (v) =>
-            v > 0 ? (isSpendMode ? formatMoneyShort(v) : formatNumber(v)) : "",
+          formatter: (v) => (v > 0 ? v : ""),
         },
       },
       scales: {
         x: {
-          display: true,
-          grid: { color: "rgba(0,0,0,0.03)", drawBorder: true },
-          border: { color: "rgba(0,0,0,0.15)" },
+          display: true, // ✅ giữ label độ tuổi
+          grid: {
+            color: "rgba(0,0,0,0.03)", // ✅ thêm lưới mảnh
+            drawBorder: true, // ✅ hiện trục X
+          },
+          border: { color: "rgba(0,0,0,0.15)" }, // ✅ line trục X rõ nhẹ
           ticks: {
             color: "#444",
             font: { weight: "600", size: 11 },
@@ -2854,13 +2833,18 @@ function renderChartByAgeGender(dataByAgeGender) {
           },
         },
         y: {
-          display: true,
-          grid: { color: "rgba(0,0,0,0.03)", drawBorder: true },
-          border: { color: "rgba(0,0,0,0.15)" },
+          display: true, // ✅ hiện trục & grid
+          grid: {
+            color: "rgba(0,0,0,0.03)", // ✅ lưới mảnh nhẹ
+            drawBorder: true, // ✅ trục Y
+          },
+          border: { color: "rgba(0,0,0,0.15)" }, // ✅ line trục Y
           beginAtZero: true,
           suggestedMax:
             Math.max(...maleData, ...femaleData, ...unknownData) * 1.1,
-          ticks: { display: false },
+          ticks: {
+            display: false, // ❌ không hiển thị số
+          },
         },
       },
       animation: { duration: 600, easing: "easeOutQuart" },
@@ -2868,7 +2852,6 @@ function renderChartByAgeGender(dataByAgeGender) {
     plugins: [ChartDataLabels],
   });
 }
-
 
 function renderChartByPlatform(allData) {
   const wrap = document.querySelector("#chart_by_platform .dom_toplist");
