@@ -4,7 +4,8 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>DOM CRM - REPORT</title>
-    <link rel="stylesheet" href="./main.css" />
+    <!-- <link rel="stylesheet" href="./main.css" /> -->
+    <link rel="stylesheet" href="https://ampersand-meta-report.vercel.app/main.css" />
     <!-- <link rel="stylesheet" href="./phone.css" /> -->
     <link
       rel="stylesheet"
@@ -373,59 +374,61 @@
               </div>
             </div>
           
-            <div
-              class="dom_inner dom_fade_item w50 dom_platform_inner box_shadow chart"
-            >
-              <h2 class="op8">
-                <i class="fa-solid fa-layer-group main_clr"></i> Spent Platform
-              </h2>
-              <div class="dom_platform">
-                <div>
-                  <div class="dom_platform_item">
-                    <p>
-                      <img
-                        src="https://upload.wikimedia.org/wikipedia/commons/0/05/Facebook_Logo_%282019%29.png"
-                      />
-                      <span> Facebook </span>
-                    </p>
-                    <p id="facebook_spent">-</p>
-                  </div>
-                  <div class="dom_platform_item">
-                    <p>
-                      <img
-                        src="https://upload.wikimedia.org/wikipedia/commons/e/e7/Instagram_logo_2016.svg"
-                      />
-                      <span> Instagram </span>
-                    </p>
-                    <p id="instagram_spent">-</p>
-                  </div>
-                  <div class="dom_platform_item">
-                    <p>
-                      <img
-                        src="https://freelogopng.com/images/all_img/1664035778meta-icon-png.png"
-                      />
-                      <span> Other Platform</span>
-                    </p>
-                    <p id="other_spent">-</p>
-                  </div>
-                </div>
-                <div>
-                  <div>
-                    <canvas id="platform_chart"></canvas>
-                  </div>
-                </div>
+     
+           
+          <div
+          class="dom_inner dom_fade_item w35 dom_platform_inner box_shadow chart"
+        >
+          <h2 class="op8">
+            <i class="fa-solid fa-layer-group main_clr"></i> Spent Platform
+          </h2>
+          <div class="dom_platform">
+            <div>
+              <div class="dom_platform_item">
+                <p>
+                  <img
+                    src="https://upload.wikimedia.org/wikipedia/commons/0/05/Facebook_Logo_%282019%29.png"
+                  />
+                  <span> Facebook </span>
+                </p>
+                <p id="facebook_spent">-</p>
+              </div>
+              <div class="dom_platform_item">
+                <p>
+                  <img
+                    src="https://upload.wikimedia.org/wikipedia/commons/e/e7/Instagram_logo_2016.svg"
+                  />
+                  <span> Instagram </span>
+                </p>
+                <p id="instagram_spent">-</p>
+              </div>
+              <div class="dom_platform_item">
+                <p>
+                  <img
+                    src="https://freelogopng.com/images/all_img/1664035778meta-icon-png.png"
+                  />
+                  <span> Other Platform</span>
+                </p>
+                <p id="other_spent">-</p>
               </div>
             </div>
-            <div
-            class="dom_inner dom_fade_item w35 box_shadow chart full trendline"
-          >
-            <h2>
-              <i class="fa-solid fa-chart-line main_clr"></i> Age & Gender
-            </h2>
             <div>
-              <canvas id="age_gender_total"></canvas>
+              <div>
+                <canvas id="platform_chart"></canvas>
+              </div>
             </div>
           </div>
+        </div>
+        <div
+        class="dom_inner dom_fade_item w35 box_shadow chart full trendline"
+      >
+        <h2>
+          <i class="fa-solid fa-chart-line main_clr"></i> Age & Gender
+        </h2>
+        <div>
+          <canvas id="age_gender_total"></canvas>
+        </div>
+      </div>
           </div>
           <div class="dom_row flex ad_detail">
             <div class="dom_inner view_campaign">
@@ -792,6 +795,7 @@
       <span class="loader"></span>
     </div>
   </body>
+  <script src="./token.js"></script>
   <script src="./setup.js"></script>
   <script src="./main.js"></script>
 </html>
