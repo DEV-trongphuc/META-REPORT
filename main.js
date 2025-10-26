@@ -452,7 +452,7 @@ function groupByCampaign(adsets) {
       const actions = ins.actions;
       const messageCount = safeGetActionValue(
         actions,
-        "onsite_conversion.messaging_conversation_started_7d"
+        "onsite_conversion.messaging_conversation_replied_7d"
       );
       const leadCount =
         safeGetActionValue(actions, "lead") +
@@ -1996,7 +1996,7 @@ function renderInteraction(byDate) {
       icon: "fa-solid fa-video", // Icon was fa-video, assuming typo, kept as-is
     },
     {
-      key: "onsite_conversion.messaging_conversation_started_7d",
+      key: "onsite_conversion.messaging_conversation_replied_7d",
       label: "Messages",
       icon: "fa-solid fa-message",
     },
@@ -2132,7 +2132,7 @@ function renderDetailDailyChart(dataByDate, type = currentDetailDailyType) {
     if (type === "reach") return item.reach || 0;
     if (type === "message")
       return (
-        item.actions["onsite_conversion.messaging_conversation_started_7d"] || 0
+        item.actions["onsite_conversion.messaging_conversation_replied_7d"] || 0
       );
     return 0;
   });
@@ -3167,7 +3167,7 @@ function getChartValue(item, type) {
 
   const typeMap = {
     lead: ["lead", "onsite_conversion.lead_grouped"],
-    message: ["onsite_conversion.messaging_conversation_started_7d"],
+    message: ["onsite_conversion.messaging_conversation_replied_7d"],
     like: ["like"],
     spend: ["spend"],
     reach: ["reach"],
@@ -3426,7 +3426,7 @@ function updatePlatformSummaryUI(data) {
   const totalClick = act["link_click"] || 0;
   const totalView = act["video_view"] || 0;
   const totalMessage =
-    act["onsite_conversion.messaging_conversation_started_7d"] || 0;
+    act["onsite_conversion.messaging_conversation_replied_7d"] || 0;
   const totalLead =
     act["lead"] ||
     act["onsite_web_lead"] ||
@@ -4300,15 +4300,12 @@ function processMonthlyData(data) {
         const value = parseInt(action.value || 0);
         switch (action.action_type) {
           case "onsite_conversion.lead_grouped":
-          case "lead": // Thêm "lead" cho chắc
             monthsData[month].lead += value;
             break;
           case "onsite_conversion.messaging_conversation_replied_7d":
-          case "onsite_conversion.messaging_conversation_started_7d": // Thêm "started"
             monthsData[month].message += value;
             break;
           case "like":
-          case "page_like": // Thêm "page_like"
             monthsData[month].likepage += value;
             break;
         }
