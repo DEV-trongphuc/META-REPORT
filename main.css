@@ -2205,14 +2205,25 @@ tbody {
   z-index: 999;
   overflow-y: auto;
   padding: 2rem;
-  padding-bottom: 10rem;
+  padding-bottom: 10rem !important;
   overflow-x: hidden;
 }
-
+.quick_filter .dom_selected {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+.quick_filter .dom_selected i {
+  color: var(--mainClr);
+  font-size: 1.5rem;
+}
 .dom_detail.active {
   transform: translateX(0);
   opacity: 1;
   z-index: 99999;
+}
+.ad_detail .dom_dashboard {
+  padding-bottom: 30rem;
 }
 .dom_detail.active ~ .dom_overlay {
   opacity: 1;
