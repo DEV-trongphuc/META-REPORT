@@ -19,7 +19,7 @@ let VIEW_GOAL; // Dùng cho chart breakdown
 const CACHE = new Map();
 let DAILY_DATA = [];
 const BATCH_SIZE = 40;
-const CONCURRENCY_LIMIT = 1;
+const CONCURRENCY_LIMIT = 15;
 const API_VERSION = "v24.0";
 const BASE_URL = `https://graph.facebook.com/${API_VERSION}`;
 const goalMapping = {
@@ -211,11 +211,22 @@ function chunkArray(arr, size) {
 }
 
 async function fetchAdsets() {
-  const url = `${BASE_URL}/act_${ACCOUNT_ID}/insights?level=adset&fields=adset_id,adset_name,campaign_id,campaign_name,optimization_goal&filtering=[{"field":"spend","operator":"GREATER_THAN","value":0}]&time_range={"since":"${startDate}","until":"${endDate}"}&access_token=${META_TOKEN}`;
+  let allData = []; // Mảng chứa tất cả dữ liệu
+  let nextPageUrl = `${BASE_URL}/act_${ACCOUNT_ID}/insights?level=adset&fields=adset_id,adset_name,campaign_id,campaign_name,optimization_goal&filtering=[{"field":"spend","operator":"GREATER_THAN","value":0}]&time_range={"since":"${startDate}","until":"${endDate}"}&access_token=${META_TOKEN}&limit=10000`;
 
-  const data = await fetchJSON(url);
-  console.log("✅ Adset fetched:", data.data?.length || 0);
-  return data.data || [];
+  // Tiến hành lặp lại việc gọi API cho đến khi không còn cursor tiếp theo
+  while (nextPageUrl) {
+    const data = await fetchJSON(nextPageUrl);
+    console.log(data);
+
+    if (data.data) {
+      allData = allData.concat(data.data); // Thêm dữ liệu vào mảng allData
+    }
+
+    nextPageUrl = data.paging && data.paging.next ? data.paging.next : null;
+  }
+
+  return allData;
 }
 
 async function fetchAdsAndInsights(adsetIds, onBatchProcessedCallback) {
@@ -276,17 +287,15 @@ async function fetchAdsAndInsights(adsetIds, onBatchProcessedCallback) {
 
         const data = body.data;
         if (!Array.isArray(data) || data.length === 0) continue;
-
         // Duyệt qua từng ad trong dữ liệu trả về và xử lý
         for (const ad of data) {
           const adset = ad.adset ?? {};
           const creative = ad.creative ?? {};
           const insights = ad.insights?.data?.[0] ?? {};
-
           const endTime = adset.end_time ? Date.parse(adset.end_time) : 0;
+
           const effective_status =
             endTime && endTime < now ? "COMPLETED" : ad.effective_status;
-
           // Chỉ lấy thông tin cần thiết từ insights
           processed.push({
             ad_id: ad.id,
@@ -326,9 +335,6 @@ async function fetchAdsAndInsights(adsetIds, onBatchProcessedCallback) {
       // Perf log
       batchCount++;
       const elapsed = (performance.now() - startTime).toFixed(0);
-      console.log(
-        `✅ Batch #${batchCount} (${batch.length} adsets) done in ${elapsed}ms`
-      );
     }),
     CONCURRENCY_LIMIT // Giới hạn số lượng batch song song
   );
@@ -345,28 +351,18 @@ async function fetchDailySpendByAccount() {
 
 async function loadDailyChart() {
   try {
-    console.log("Flow 1: Fetching daily data...");
     const dailyData = await fetchDailySpendByAccount();
     DAILY_DATA = dailyData;
     renderDetailDailyChart2(DAILY_DATA);
-    console.log("✅ Flow 1: Daily chart rendered.");
   } catch (err) {
     console.error("❌ Error in Flow 1 (Daily Chart):", err);
   }
 }
-
-/**
- * ⭐ TỐI ƯU: `groupByCampaign` này vẫn giữ logic như cũ.
- * Việc tính toán `isActive` sẽ được dời sang `renderCampaignView`
- * để tránh thay đổi cấu trúc data cốt lõi.
- */
 function groupByCampaign(adsets) {
-  console.log(adsets);
   if (!Array.isArray(adsets) || adsets.length === 0) return [];
 
-  const campaigns = Object.create(null);
+  const campaigns = Object.create(null); // ⚙️ Dùng map cache hành động -> tránh gọi find nhiều lần
 
-  // ⚙️ Dùng map cache hành động -> tránh gọi find nhiều lần
   const safeGetActionValue = (actions, type) => {
     if (!Array.isArray(actions) || !actions.length) return 0;
     for (let i = 0; i < actions.length; i++) {
@@ -374,9 +370,8 @@ function groupByCampaign(adsets) {
       if (a.action_type === type) return +a.value || 0;
     }
     return 0;
-  };
+  }; // ⚡ Duyệt qua tất cả adsets (1 vòng chính)
 
-  // ⚡ Duyệt qua tất cả adsets (1 vòng chính)
   for (let i = 0; i < adsets.length; i++) {
     const as = adsets[i];
     if (!as?.ads?.length) continue;
@@ -384,9 +379,8 @@ function groupByCampaign(adsets) {
     const campId = as.campaign_id || as.campaignId || "unknown_campaign";
     const campName = as.campaign_name || as.campaignName || "Unknown";
     const goal = as.optimization_goal || as.optimizationGoal || "UNKNOWN";
-    const asId = as.id || as.adset_id || as.adsetId || `adset_${i}`;
+    const asId = as.id || as.adset_id || as.adsetId || `adset_${i}`; // 🧱 Tạo campaign nếu chưa có
 
-    // 🧱 Tạo campaign nếu chưa có
     let campaign = campaigns[campId];
     if (!campaign) {
       campaign = campaigns[campId] = {
@@ -401,13 +395,12 @@ function groupByCampaign(adsets) {
         message: 0,
         adsets: [],
         _adsetMap: Object.create(null),
-        // KHÔNG thêm cờ isActive ở đây để giữ logic gốc
+        // Thêm status cho campaign (lấy từ ad đầu tiên, giả định chúng giống nhau)
+        // Mặc dù vậy, `ad.effective_status` vẫn đáng tin cậy hơn
       };
-    }
+    } // 🔹 Cache adset trong campaign
 
-    // 🔹 Cache adset trong campaign
     let adset = campaign._adsetMap[asId];
-    console.log(adset);
     if (!adset) {
       adset = {
         id: asId,
@@ -424,14 +417,11 @@ function groupByCampaign(adsets) {
         end_time: as.ads?.[0]?.adset?.end_time || null,
         daily_budget: as.ads?.[0]?.adset?.daily_budget || 0,
         lifetime_budget: as.ads?.[0]?.adset?.lifetime_budget || 0,
-        status: as.status || null,
-        // KHÔNG thêm cờ isActive ở đây
       };
       campaign._adsetMap[asId] = adset;
       campaign.adsets.push(adset);
-    }
+    } // 🔁 Lặp nhanh qua ads
 
-    // 🔁 Lặp nhanh qua ads
     const ads = as.ads;
     for (let j = 0; j < ads.length; j++) {
       const ad = ads[j];
@@ -446,8 +436,8 @@ function groupByCampaign(adsets) {
       const spend = +ins.spend || 0;
       const reach = +ins.reach || 0;
       const impressions = +ins.impressions || 0;
-      const result = getResults(ins) || 0;
-      const reactions = getReaction(ins) || 0;
+      const result = getResults(ins) || 0; // (Cần hàm này)
+      const reactions = getReaction(ins) || 0; // (Cần hàm này)
 
       const actions = ins.actions;
       const messageCount = safeGetActionValue(
@@ -456,31 +446,27 @@ function groupByCampaign(adsets) {
       );
       const leadCount =
         safeGetActionValue(actions, "lead") +
-        safeGetActionValue(actions, "onsite_conversion.lead_grouped");
+        safeGetActionValue(actions, "onsite_conversion.lead_grouped"); // ✅ Cộng dồn adset-level
 
-      // ✅ Cộng dồn adset-level
       adset.spend += spend;
       adset.result += result;
       adset.reach += reach;
       adset.impressions += impressions;
       adset.reactions += reactions;
       adset.lead += leadCount;
-      adset.message += messageCount;
+      adset.message += messageCount; // ✅ Cộng dồn campaign-level
 
-      // ✅ Cộng dồn campaign-level
       campaign.spend += spend;
       campaign.result += result;
       campaign.reach += reach;
       campaign.impressions += impressions;
       campaign.reactions += reactions;
       campaign.lead += leadCount;
-      campaign.message += messageCount;
+      campaign.message += messageCount; // 🖼️ Add ad summary
 
-      // 🖼️ Add ad summary
       adset.ads.push({
         id: ad.ad_id || ad.id || null,
-        name: ad.ad_name || ad.name || "Unnamed Ad",
-        // ⭐ QUAN TRỌNG: Phải lưu status gốc
+        name: ad.ad_name || ad.name || "Unnamed Ad", // ⭐ QUAN TRỌNG: Đây là status đáng tin cậy nhất
         status: ad.effective_status?.toUpperCase() || ad.status || "UNKNOWN",
         optimization_goal: ad.optimization_goal || goal || "UNKNOWN",
         spend,
@@ -501,20 +487,21 @@ function groupByCampaign(adsets) {
           "#",
       });
     }
-  }
+  } // 🧹 Xoá map nội bộ, convert sang array
 
-  // 🧹 Xoá map nội bộ, convert sang array
   return Object.values(campaigns).map((c) => {
+    // Gán status cho campaign dựa trên adset đầu tiên
+    // (Lưu ý: Logic này có thể cần xem lại nếu campaign có nhiều adset với status khác nhau)
+    if (c.adsets.length > 0) {
+      c.status = c.adsets[0].status;
+    }
+
     delete c._adsetMap;
     return c;
   });
 }
 
-/**
- * ⭐ TỐI ƯU: Hàm `renderCampaignView` được tối ưu đáng kể.
- */
 function renderCampaignView(data) {
-  console.log(data);
   const wrap = document.querySelector(".view_campaign_box");
   if (!wrap || !Array.isArray(data)) return;
 
@@ -532,16 +519,31 @@ function renderCampaignView(data) {
   for (let i = 0; i < data.length; i++) {
     const c = data[i];
     const adsets = c.adsets || [];
-    c._isActive = false; // Cờ tạm thời
-    c._activeAdsetCount = 0; // Cờ tạm thời
+    c._isActive = false; // Cờ tạm thời cho campaign
+    c._activeAdsetCount = 0; // Cờ tạm thời cho số adset active
     totalAdsetCount += adsets.length;
 
     for (let j = 0; j < adsets.length; j++) {
       const as = adsets[j];
-      // Tính toán `activeAdsCount` và `isActive` cho adset
+      // Tính toán trạng thái và số lượng ads active cho adset
       as._activeAdsCount = 0;
       as._isActive = false;
       const ads = as.ads || [];
+
+      // ==== ⭐ CẬP NHẬT: Sắp xếp ads (active lên trước, rồi theo spend) ====
+      ads.sort((a, b) => {
+        const aIsActive = a.status?.toLowerCase() === activeLower;
+        const bIsActive = b.status?.toLowerCase() === activeLower;
+
+        if (aIsActive !== bIsActive) {
+          return bIsActive - aIsActive; // true (1) đi trước false (0)
+        }
+        // Nếu cả hai cùng trạng thái, sắp xếp theo spend
+        return b.spend - a.spend;
+      });
+      // =================================================================
+
+      // Duyệt qua các ads và tính toán trạng thái active của adset
       for (let k = 0; k < ads.length; k++) {
         if (ads[k].status?.toLowerCase() === activeLower) {
           as._activeAdsCount++;
@@ -549,22 +551,35 @@ function renderCampaignView(data) {
         }
       }
 
-      // Nếu adset active, cập nhật cho campaign
+      // Nếu adset active, cập nhật trạng thái của campaign
       if (as._isActive) {
         c._isActive = true;
         c._activeAdsetCount++;
-        activeAdsetCount++; // Đếm tổng số adset active
+        activeAdsetCount++; // Đếm số adset active trong tổng
       }
-    }
+    } // <-- Hết vòng lặp adset (j)
+
+    // ==== ⭐ THÊM MỚI: Sắp xếp adset trong campaign ====
+    // Sắp xếp các adset: active lên trước, sau đó theo spend
+    adsets.sort((a, b) => {
+      if (a._isActive !== b._isActive) {
+        return b._isActive - a._isActive; // true (1) đi trước false (0)
+      }
+      // Nếu cả hai cùng trạng thái, sắp xếp theo spend
+      return b.spend - a.spend;
+    });
+    // ===============================================
+
+    // Nếu campaign có ít nhất 1 adset active, campaign được đánh dấu là active
     if (c._isActive) {
-      activeCampaignCount++; // Đếm tổng số campaign active
+      activeCampaignCount++;
     }
   }
 
   // === Cập nhật UI tổng active (dùng cờ đã tính) ===
   const activeCpEls = document.querySelectorAll(".dom_active_cp");
   if (activeCpEls.length >= 2) {
-    // Xử lý Campaign
+    // Cập nhật trạng thái campaign
     const campEl = activeCpEls[0].querySelector("span:nth-child(2)");
     if (campEl) {
       const hasActiveCampaign = activeCampaignCount > 0;
@@ -572,7 +587,7 @@ function renderCampaignView(data) {
       campEl.innerHTML = `<span class="live-dot"></span>${activeCampaignCount}/${totalCampaignCount}`;
     }
 
-    // Xử lý Adset
+    // Cập nhật trạng thái adset
     const adsetEl = activeCpEls[1].querySelector("span:nth-child(2)");
     if (adsetEl) {
       const hasActiveAdset = activeAdsetCount > 0;
@@ -582,12 +597,9 @@ function renderCampaignView(data) {
   }
 
   // === ⭐ TỐI ƯU 2: Sắp xếp (Sort) ===
-  // Dùng cờ `_isActive` đã tính toán.
-  // Nhanh hơn rất nhiều so với dùng `some().some()` lồng nhau.
+  // Dùng cờ `_isActive` đã tính toán
   data.sort((a, b) => {
-    // So sánh cờ boolean (true=1, false=0)
     if (a._isActive !== b._isActive) return b._isActive - a._isActive;
-    // Nếu giống nhau, sort theo spend
     return b.spend - a.spend;
   });
 
@@ -596,7 +608,7 @@ function renderCampaignView(data) {
 
   for (let i = 0; i < data.length; i++) {
     const c = data[i];
-    const adsets = c.adsets;
+    const adsets = c.adsets; // adsets lúc này đã được sắp xếp
 
     // Dùng cờ `_isActive` và `_activeAdsetCount` đã tính
     const hasActiveAdset = c._isActive;
@@ -645,7 +657,7 @@ function renderCampaignView(data) {
     // === Render adset (dùng cờ đã tính) ===
     for (let j = 0; j < adsets.length; j++) {
       const as = adsets[j];
-      const ads = as.ads;
+      const ads = as.ads; // ads lúc này cũng đã được sắp xếp
 
       // Dùng cờ `_isActive` và `_activeAdsCount` đã tính
       const hasActiveAd = as._isActive;
@@ -659,7 +671,6 @@ function renderCampaignView(data) {
       const dailyBudget = +as.daily_budget || 0;
       const lifetimeBudget = +as.lifetime_budget || 0;
 
-      console.log(dailyBudget);
       if (isEnded) {
         adsetStatusClass = "complete";
         adsetStatusText = `<span class="status-label">COMPLETE</span>`;
@@ -691,6 +702,7 @@ function renderCampaignView(data) {
         adsetStatusClass = "inactive";
         adsetStatusText = `<span>INACTIVE</span>`;
       }
+
       const adsetCpr =
         as.result > 0
           ? as.optimization_goal === "REACH"
@@ -698,7 +710,6 @@ function renderCampaignView(data) {
             : as.spend / as.result
           : 0;
 
-      // Ads HTML (map nhanh)
       const adsHtml = new Array(ads.length);
       for (let k = 0; k < ads.length; k++) {
         const ad = ads[k];
@@ -751,7 +762,7 @@ function renderCampaignView(data) {
 
       campaignHtml.push(`
         <div class="adset_item ${adsetStatusClass}">
-     <div class="ads_name">
+          <div class="ads_name">
             <a>
               <img src="${as.ads?.[0]?.thumbnail}" />
               <p class="ad_name">${as.name}</p>
@@ -785,11 +796,7 @@ function renderCampaignView(data) {
   }
 
   wrap.innerHTML = htmlBuffer.join("");
-
-  // ⭐ TỐI ƯU 4: KHÔNG gọi addListeners() ở đây nữa.
-  // addListeners();
 }
-
 function buildGoalSpendData(data) {
   const goalSpendMap = {};
 
@@ -927,13 +934,11 @@ function renderGoalChart(data) {
 
 async function loadCampaignList() {
   try {
-    console.log("Flow 2: Fetching adsets...");
     const adsets = await fetchAdsets();
     if (!adsets || !adsets.length) throw new Error("No adsets found.");
 
     const adsetIds = adsets.map((as) => as.adset_id).filter(Boolean);
     const ads = await fetchAdsAndInsights(adsetIds);
-    console.log(adsetIds);
 
     const adsetMap = new Map(
       adsets.map((as) => {
@@ -941,7 +946,6 @@ async function loadCampaignList() {
         return [as.adset_id, as];
       })
     );
-    console.log(adsetMap);
     ads.forEach((ad) => {
       const parentAdset = adsetMap.get(ad.adset_id);
       if (parentAdset) parentAdset.ads.push(ad);
@@ -983,7 +987,6 @@ function initDashboard() {
   endDate = end;
 
   // Có thể add thêm listener hoặc setup UI khác ở đây
-  console.log("✅ Dashboard UI initialized");
 }
 
 // 🧠 Hàm chỉ để load lại data (gọi khi đổi account/filter)
@@ -1009,7 +1012,6 @@ async function loadDashboardData() {
   resetYearDropdownToCurrentYear();
   resetFilterDropdownTo("spend");
   loadCampaignList().finally(() => {
-    console.log("📊 Dashboard data loaded.");
     if (loading) loading.classList.remove("active");
   });
 }
@@ -1152,7 +1154,6 @@ async function handleViewClick(e, type = "ad") {
     adViewEl.dataset.thumb ||
     "https://upload.wikimedia.org/wikipedia/commons/a/ac/No_image_available.svg";
   const postUrl = adViewEl.dataset.post || "#";
-  console.log(thumb);
 
   // --- Cập nhật quick stats ---
   const goalEl = document.querySelector("#detail_goal span");
@@ -1687,7 +1688,6 @@ async function fetchDailySpendByCampaignIDs(campaignIds) {
     const data = await fetchJSON(url);
     const results = data.data || [];
 
-    console.log("📊 Daily spend filtered by campaign IDs:", results);
     if (loading) loading.classList.remove("active");
     return results;
   } catch (err) {
@@ -2304,7 +2304,6 @@ function setupDetailDailyFilter2() {
       // đổi text hiển thị
       const textEl = li.querySelector("span:nth-child(2)");
       if (textEl) selectedEl.textContent = textEl.textContent.trim();
-      console.log(type);
 
       // 🎯 render chart với type mới (nếu có data)
       if (typeof renderDetailDailyChart2 === "function" && DAILY_DATA) {
@@ -2667,7 +2666,6 @@ function renderChartByDevice(dataByDevice) {
 }
 
 function renderChartByRegion(dataByRegion) {
-  console.log(dataByRegion);
   if (!dataByRegion) return;
 
   const ctx = document.getElementById("chart_by_region");
@@ -2975,7 +2973,7 @@ function renderChartByPlatform(allData) {
         k.includes("ipad") ||
         k.includes("macbook")
       )
-        return "https://upload.wikimedia.org/wikipedia/commons/f/fa/Apple_logo_black.svg";
+        return "https://raw.githubusercontent.com/DEV-trongphuc/META-REPORT/refs/heads/main/logo_ip%20(1).png";
       if (k.includes("android") || k.includes("mobile"))
         return "https://upload.wikimedia.org/wikipedia/commons/d/d7/Android_robot.svg";
       if (k.includes("desktop") || k.includes("pc"))
@@ -3393,7 +3391,6 @@ async function fetchPlatformStats(campaignIds = []) {
     const url = `${BASE_URL}/act_${ACCOUNT_ID}/insights?fields=spend,impressions,reach,actions&time_range={"since":"${startDate}","until":"${endDate}"}${filtering}&access_token=${META_TOKEN}`;
 
     const data = await fetchJSON(url);
-    console.log(data.data);
 
     return data.data || [];
   } catch (err) {
@@ -3755,7 +3752,6 @@ function reloadDashboard() {
   loadPlatformSummary();
   loadSpendPlatform();
   loadCampaignList().finally(() => {
-    console.log("Main flow completed. Hiding loading.");
     if (loading) loading.classList.remove("active");
   });
 }
@@ -3910,11 +3906,11 @@ if (quickFilterBox) {
       li.classList.add("active");
 
       // Lấy label & data-view
-      const label = li.querySelector("span:last-child")?.textContent || "";
+      const label = li.querySelector("span:last-child")?.innerHTML || "";
       const view = li.querySelector(".view_quick")?.dataset.view || "";
 
       // Hiển thị text đã chọn
-      selectedText.textContent = label;
+      selectedText.innerHTML = label;
 
       // --- 🔹 Active campaigns ---
       if (view === "active_ads") {
@@ -3934,10 +3930,6 @@ if (quickFilterBox) {
           return campaignActive;
         });
 
-        console.log(
-          `🔹 Active campaigns found: ${activeCampaigns.length}/${window._ALL_CAMPAIGNS.length}`
-        );
-
         renderCampaignView(activeCampaigns);
       }
 
@@ -3951,7 +3943,6 @@ if (quickFilterBox) {
           )
         );
 
-        console.log(`🔹 Lead Ads campaigns found: ${leadAdsCampaigns.length}`);
         renderCampaignView(leadAdsCampaigns);
       }
 
@@ -3965,9 +3956,6 @@ if (quickFilterBox) {
           )
         );
 
-        console.log(
-          `🔹 Message Ads campaigns found: ${messageAdsCampaigns.length}`
-        );
         renderCampaignView(messageAdsCampaigns);
       }
 
@@ -3984,9 +3972,6 @@ if (quickFilterBox) {
           )
         );
 
-        console.log(
-          `🔹 Engagement Ads campaigns found: ${engageAdsCampaigns.length}`
-        );
         renderCampaignView(engageAdsCampaigns);
       }
 
@@ -4000,9 +3985,6 @@ if (quickFilterBox) {
           )
         );
 
-        console.log(
-          `🔹 Brand Awareness Ads campaigns found: ${awarenessAdsCampaigns.length}`
-        );
         renderCampaignView(awarenessAdsCampaigns);
       }
 
@@ -4100,7 +4082,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
       // Update global variable and close dropdown
       ACCOUNT_ID = accId;
-      console.log(`🔄 ACCOUNT_ID changed to: ${ACCOUNT_ID}`);
       parent.classList.remove("active");
 
       // Load dashboard data after account change
@@ -4157,8 +4138,6 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 async function fetchAdAccountInfo() {
-  console.log(ACCOUNT_ID);
-
   const url = `${BASE_URL}/act_${ACCOUNT_ID}?fields=id,funding_source_details,name,balance,currency,amount_spent&access_token=${META_TOKEN}`;
 
   try {
