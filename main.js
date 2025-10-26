@@ -4157,7 +4157,7 @@ async function fetchAdAccountInfo() {
     let paymentMethodDisplay = paymentMethod;
     if (paymentMethod.includes("Mastercard")) {
       paymentMethodDisplay = `<img src="https://ampersand-reports-dom.netlify.app/DOM-img/mastercard.png" alt="Mastercard" style="width:20px; margin-right: 5px;"> ${paymentMethod}`;
-    } else if (paymentMethod.includes("Visa")) {
+    } else if (paymentMethod.includes("VISA")) {
       paymentMethodDisplay = `<img src="https://ampersand-reports-dom.netlify.app/DOM-img/visa.png" alt="Visa" style="width:20px; margin-right: 5px;"> ${paymentMethod}`;
     }
 
