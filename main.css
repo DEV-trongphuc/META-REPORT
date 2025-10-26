@@ -136,7 +136,7 @@ html {
   left: 0;
 }
 .dom_logo img {
-  width: 15rem;
+  width: 20rem;
 }
 .dom_logo {
   padding-bottom: 2rem;
@@ -251,8 +251,11 @@ html {
   background: linear-gradient(135deg, var(--mainClr) 0%, #d88200ee 100%);
   color: white;
 }
+.green {
+  color: green;
+}
 .interaction_list .dom_interaction_note:nth-child(5) > span:last-child {
-font-size: 2.5rem;
+  font-size: 2.5rem;
 }
 .dom_header_time {
   display: flex;
@@ -266,13 +269,37 @@ font-size: 2.5rem;
   opacity: 0.8;
 }
 .dom_select.quick_filter {
-  min-width: 18rem;
+  min-width: 20em;
   border-radius: 15px;
   background: white;
   box-shadow: 0 0 2px rgb(0, 0, 0, 0.2);
 }
+.dom_select.quick_filter li {
+  display: flex;
+  align-items: center;
+  padding: 0.8rem;
+}
+.quick_filter li > span:last-child {
+  display: flex;
+  width: 100%;
+  display: flex;
+  align-items: center;
+}
+.dom_select.quick_filter li i {
+  padding: 0.8rem;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  border-radius: 8px;
+  font-size: 1.5rem;
+  opacity: 0.7;
+}
+.dom_select.quick_filter li i.green {
+  color: green;
+  opacity: 1;
+}
 .dom_select.quick_filter .flex {
-  padding: .5rem !important;
+  padding: 0.5rem !important;
 }
 /* .dom_select.quality > i:first-child {
   color: rgb(0, 86, 97);
@@ -959,7 +986,7 @@ tbody {
   font-size: 1.4rem;
 }
 .account_item > i {
-  opacity: .7;
+  opacity: 0.7;
 }
 .account_item_name {
   font-weight: bold;
@@ -1011,7 +1038,7 @@ tbody {
   pointer-events: none;
   transition: 0.3s;
 }
-.dom_account_view.active  ul {
+.dom_account_view.active ul {
   opacity: 1;
   pointer-events: all;
 }
@@ -1367,7 +1394,6 @@ tbody {
       10px 50px;
   }
 }
-
 
 .dom_container.dashboard > div.dom_dashboard .dom_row {
   display: flex;
@@ -2939,7 +2965,7 @@ tbody {
   left: 0;
 }
 .dbudget {
-  transform: translateY(.5rem);
+  transform: translateY(0.5rem);
 }
 .ad_status.dbudget .status-value {
   font-weight: bold;
@@ -3030,7 +3056,9 @@ tbody {
 .adset_view {
   pointer-events: none;
 }
-.campaign_view i, .adset_view i, .ad_view i {
+.campaign_view i,
+.adset_view i,
+.ad_view i {
   font-size: 2rem;
   opacity: 0.8;
   transition: 0.3s ease;
@@ -3187,7 +3215,7 @@ tbody {
   font-size: 1.8rem;
 }
 .detail_thumb {
-     display: flex;
+  display: flex;
   justify-content: space-between;
   flex-direction: column;
   gap: 2rem;
@@ -3353,32 +3381,57 @@ tbody {
 .dom_row.ad_detail {
   display: none !important;
 }
+.dom_account .dom_row {
+  display: none !important;
+}
 .dom_container.ad_detail .dom_row {
   display: none !important;
 }
-.dom_detail.active .dom_row ,
+.dom_detail.active .dom_row,
 .dom_container.ad_detail .dom_row.ad_detail {
+  display: flex !important ;
+}
+.dom_container.account .dom_dashboard .dom_row {
+  display: none !important ;
+}
+.dom_container.account .dom_header {
+  display: none !important ;
+}
+.dom_container.account .dom_account .dom_row {
   display: flex !important ;
 }
 /* .campaign_main .campaign_view, .adset_view, .ad_view {
   width: 15rem;
 } */
+.dom_account_title > h2 {
+  font-size: 2rem;
+  color: #555;
+  padding: 2rem 1rem;
+  margin-bottom: 2rem;
+  font-weight: bold;
+}
+#platform_chart {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: auto !important;
+}
 
-
-@media  (max-width: 800px) {
- .campaign_item,.view_campaign_header {
-  width: max-content;
- }
+@media (max-width: 800px) {
+  .campaign_item,
+  .view_campaign_header {
+    width: max-content;
+  }
   .view_campaign {
     width: 100vw;
     overflow-x: scroll;
-  }  
+  }
   ::-webkit-scrollbar {
     width: 5px;
     height: 5px;
   }
- 
-.mbn {
+
+  .mbn {
     display: none;
   }
   .dom_sidebar {
@@ -3431,7 +3484,8 @@ tbody {
   .dom_detail {
     width: 90% !important;
   }
-  .dom_detail_ad,.detail_set {
+  .dom_detail_ad,
+  .detail_set {
     flex-direction: column;
   }
   .detail_set > .detail_gender {
@@ -3503,12 +3557,51 @@ tbody {
   .campaign_main > .ads_name {
     width: 45rem;
   }
- 
+
   .adset_item > .ads_name {
     width: 37.2rem;
   }
   /* .sidebar.active ~ .dom_overlay {
     opacity: 1; */
   .ad_item > .ads_name {
-    width: 29.5rem; }
+    width: 29.5rem;
+  }
+}
+.dom_account .dom_inner.chart {
+  height: 45rem !important;
+}
+.dom_account .dom_inner h2 {
+  font-size: 2rem;
+  opacity: 0.8;
+}
+.dom_account .dom_total_report > ul li {
+  padding: 2rem;
+}
+.dom_select.year_filter {
+  background-color: #f3f3f3;
+  box-shadow: unset !important;
+  margin-bottom: 2rem;
+}
+.dom_select.year {
+  background-color: #f3f3f3;
+  box-shadow: unset !important;
+  margin-bottom: 2rem;
+  min-width: 10rem;
+}
+.dom_account .dom_total_report > ul li span ~ p {
+  font-size: 1.8rem;
+  color: rgba(49, 49, 49, 0.733);
+}
+.dom_account .dom_total_report > ul li:not(:first-child) span {
+  font-size: 1.3rem;
+  opacity: 0.8;
+}
+.dom_account .dom_total_report > ul #detail_balance {
+  font-size: 3rem;
+  color: white;
+}
+#detail_method {
+  display: flex;
+  align-items: center;
+  font-size: 1.2rem;
 }
