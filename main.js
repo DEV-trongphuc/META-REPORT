@@ -719,7 +719,7 @@ function renderCampaignView(data) {
             ? as.optimization_goal === "REACH"
               ? (ad.spend / ad.result) * 1000
               : ad.spend / ad.result
-            : 0;
+            : "-";
 
         adsHtml[k] = `
           <div class="ad_item ${isActive ? "active" : "inactive"}">
