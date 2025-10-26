@@ -3044,6 +3044,7 @@ tbody {
 }
 .ad_cpr {
   width: 20rem;
+  font-weight: bold;
 }
 .ad_result {
   width: 13rem;
