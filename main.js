@@ -643,7 +643,9 @@ function renderCampaignView(data) {
           <div class="ad_status ${campaignStatusClass}">${campaignStatusText}</div>
           <div class="ad_spent">${formatMoney(c.spend)}</div>
           <div class="ad_result">${formatNumber(c.result)}</div>
-          <div class="ad_cpr">${formatMoney(campaignCpr)}</div>
+          <div class="ad_cpr">${
+            campaignCpr > 0 ? formatMoney(campaignCpr) : "-"
+          }</div>
           <div class="ad_cpm">${formatMoney(calcCpm(c.spend, c.reach))}</div>
           <div class="ad_reach">${formatNumber(c.reach)}</div>
           <div class="ad_frequency">${calcFrequency(
@@ -734,7 +736,7 @@ function renderCampaignView(data) {
         }</div>
             <div class="ad_spent">${formatMoney(ad.spend)}</div>
             <div class="ad_result">${formatNumber(ad.result)}</div>
-            <div class="ad_cpr">${formatMoney(adCpr)}</div>
+            <div class="ad_cpr">${adCpr > 0 ? formatMoney(adCpr) : "-"}</div>
             <div class="ad_cpm">${formatMoney(
               calcCpm(ad.spend, ad.reach)
             )}</div>
