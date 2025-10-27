@@ -251,6 +251,9 @@ html {
   background: linear-gradient(135deg, var(--mainClr) 0%, #d88200ee 100%);
   color: white;
 }
+.interaction_list .dom_interaction_note:nth-child(9) {
+  background: #fff5e6ee;
+}
 .green {
   color: green;
 }
