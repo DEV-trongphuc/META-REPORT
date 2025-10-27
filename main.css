@@ -2858,7 +2858,7 @@ tbody {
 }
 
 /* Ad item */
-.campaign_item.show .adset_item.show + .ad_item_box {
+.campaign_item.show .adset_item + .ad_item_box {
   display: flex;
   animation: slideDown 0.4s linear forwards;
 }
