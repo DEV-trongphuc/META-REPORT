@@ -18,8 +18,8 @@ let startDate, endDate;
 let VIEW_GOAL; // Dùng cho chart breakdown
 const CACHE = new Map();
 let DAILY_DATA = [];
-const BATCH_SIZE = 40;
-const CONCURRENCY_LIMIT = 15;
+const BATCH_SIZE = 10;
+const CONCURRENCY_LIMIT = 40;
 const API_VERSION = "v24.0";
 const BASE_URL = `https://graph.facebook.com/${API_VERSION}`;
 const goalMapping = {
@@ -295,7 +295,10 @@ async function fetchAdsAndInsights(adsetIds, onBatchProcessedCallback) {
           const endTime = adset.end_time ? Date.parse(adset.end_time) : 0;
 
           const effective_status =
-            endTime && endTime < now ? "COMPLETED" : ad.effective_status;
+            ad.effective_status === "ACTIVE" && endTime && endTime < now
+              ? "COMPLETED"
+              : ad.effective_status;
+
           // Chỉ lấy thông tin cần thiết từ insights
           processed.push({
             ad_id: ad.id,
@@ -1592,16 +1595,22 @@ if (filterButton) {
 async function applyCampaignFilter(keyword) {
   if (!window._ALL_CAMPAIGNS || !Array.isArray(window._ALL_CAMPAIGNS)) return;
 
+  // 🚩 Nếu filter = "RESET" thì load full data
+  if (keyword && keyword.toUpperCase() === "RESET") {
+    renderCampaignView(window._ALL_CAMPAIGNS); // FULL_CAMPAIGN
+    await reloadFullData(); // gọi 1 hàm load lại toàn bộ
+    return;
+  }
+
   // 🔹 Lọc campaign theo tên (không phân biệt hoa thường)
   const filtered = keyword
     ? window._ALL_CAMPAIGNS.filter((c) =>
-        (c.name || "").toLowerCase().includes(keyword)
+        (c.name || "").toLowerCase().includes(keyword.toLowerCase())
       )
     : window._ALL_CAMPAIGNS;
 
   // 🔹 Render lại danh sách và tổng quan
   renderCampaignView(filtered);
-  // updateSummaryUI(filtered);
 
   // 🔹 Lấy ID campaign hợp lệ để gọi API (lọc bỏ null)
   const ids = filtered.map((c) => c.id).filter(Boolean);
@@ -1622,7 +1631,6 @@ async function applyCampaignFilter(keyword) {
   );
   renderGoalChart(allAds);
 }
-
 // ================== CẬP NHẬT TỔNG UI ==================
 function updateSummaryUI(campaigns) {
   let totalSpend = 0,
@@ -1671,12 +1679,10 @@ function buildDailyDataFromCampaigns(campaigns) {
 }
 
 // ================== LẤY DAILY SPEND THEO CAMPAIGN ==================
-async function fetchDailySpendByCampaignIDs(campaignIds) {
+async function fetchDailySpendByCampaignIDs(campaignIds = []) {
   const loading = document.querySelector(".loading");
   if (loading) loading.classList.add("active");
   try {
-    if (!Array.isArray(campaignIds) || campaignIds.length === 0)
-      throw new Error("Campaign IDs are required");
     if (!ACCOUNT_ID) throw new Error("ACCOUNT_ID is required");
 
     const filtering = encodeURIComponent(
@@ -3665,6 +3671,7 @@ function initDateSelector() {
 
       // 🔥 Refresh dashboard
       reloadDashboard();
+      resetUIFilter();
     });
   });
 
@@ -3694,6 +3701,7 @@ function initDateSelector() {
 
     // 🚀 Reload dashboard
     reloadDashboard();
+    resetUIFilter();
   });
 }
 
@@ -4631,4 +4639,40 @@ function resetYearDropdownToCurrentYear() {
   // Đóng dropdown năm
   yearList.classList.remove("active");
 }
+async function reloadFullData() {
+  const ids = []; // rỗng => full data
+  loadPlatformSummary(ids);
+  loadSpendPlatform(ids);
+  loadAgeGenderSpendChart(ids);
+  const dailyData = await fetchDailySpendByCampaignIDs(ids);
+  renderDetailDailyChart2(dailyData, "spend");
 
+  // render lại chart mục tiêu
+  const allAds = window._ALL_CAMPAIGNS.flatMap((c) =>
+    c.adsets.flatMap((as) =>
+      (as.ads || []).map((ad) => ({
+        optimization_goal: as.optimization_goal,
+        insights: { spend: ad.spend || 0 },
+      }))
+    )
+  );
+  renderGoalChart(allAds);
+}
+function resetUIFilter() {
+  // ✅ 1. Reset quick filter dropdown về Ampersand
+  const quickFilter = document.querySelector(".quick_filter_detail");
+  if (quickFilter) {
+    const selectedEl = quickFilter.querySelector(".dom_selected");
+    const imgEl = quickFilter.querySelector("img");
+    const ul = quickFilter.querySelector(".dom_select_show");
+
+    // Đổi ảnh & text về Ampersand
+    if (imgEl) imgEl.src = "./adset/ampersand/ampersand_img.jpg";
+    if (selectedEl) selectedEl.textContent = "Ampersand";
+
+    // Xóa trạng thái active trên list item
+    if (ul) {
+      ul.querySelectorAll("li").forEach((li) => li.classList.remove("active"));
+    }
+  }
+}
