@@ -2842,7 +2842,7 @@ tbody {
 
 /* Ẩn mặc định */
 .campaign_item .adset_item,
-.campaign_item .ad_item_box {
+.adset_item .ad_item_box {
   display: none;
 }
 
@@ -2853,13 +2853,9 @@ tbody {
 }
 
 /* Khi tắt (thêm class hide tạm thời trước khi remove) */
-.campaign_item .adset_item.hide {
-  animation: slideUp 0.35s linear forwards;
-}
-
 /* Ad item */
-.campaign_item.show .adset_item + .ad_item_box {
-  display: flex;
+ .adset_item.show + .ad_item_box {
+  display: flex !important;
   animation: slideDown 0.4s linear forwards;
 }
 
