@@ -984,7 +984,7 @@ function initDashboard() {
   // ⭐ TỐI ƯU: Gọi addListeners MỘT LẦN DUY NHẤT
   addListeners();
 
-  const { start, end } = getDateRange("this_week");
+  const { start, end } = getDateRange("last_7days");
   startDate = start;
   endDate = end;
 
@@ -4631,3 +4631,4 @@ function resetYearDropdownToCurrentYear() {
   // Đóng dropdown năm
   yearList.classList.remove("active");
 }
+
