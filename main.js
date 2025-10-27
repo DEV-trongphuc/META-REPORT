@@ -1995,7 +1995,7 @@ function renderInteraction(byDate) {
     },
     {
       key: "video_view",
-      label: "Video Views",
+      label: "Video/Photo Views",
       icon: "fa-solid fa-video",
     },
     {
@@ -3429,7 +3429,7 @@ function updatePlatformSummaryUI(data) {
   const totalComment = act["comment"] || 0;
   const totalShare = act["post"] || act["share"] || 0;
   const totalClick = act["link_click"] || 0;
-  const totalView = act["video_view"] || 0;
+  const totalView = act["video_view"] || act["photo_view"] || 0;
   const totalMessage =
     act["onsite_conversion.messaging_conversation_replied_7d"] || 0;
   const totalLead =
