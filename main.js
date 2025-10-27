@@ -1995,7 +1995,7 @@ function renderInteraction(byDate) {
     },
     {
       key: "video_view",
-      label: "Video/Photo Views",
+      label: "Media Views",
       icon: "fa-solid fa-video",
     },
     {
