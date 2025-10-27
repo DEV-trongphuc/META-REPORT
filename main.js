@@ -2992,6 +2992,8 @@ function renderChartByPlatform(allData) {
 
     if (k.includes("facebook"))
       return "https://upload.wikimedia.org/wikipedia/commons/0/05/Facebook_Logo_%282019%29.png";
+    if (k.includes("messenger"))
+      return "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRemnhxz7XnQ1BiDuwUlmdQoYO9Wyko5-uOGQ&s";
     if (k.includes("instagram"))
       return "https://upload.wikimedia.org/wikipedia/commons/e/e7/Instagram_logo_2016.svg";
 
