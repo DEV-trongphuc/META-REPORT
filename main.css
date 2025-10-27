@@ -2459,6 +2459,7 @@ tbody {
 .dom_interaction_note > span:last-child {
   font-size: 1.7rem;
   font-weight: bold;
+  opacity: .8;
 }
 .dom_active_cp > span:first-child {
   font-size: 1.2rem;
