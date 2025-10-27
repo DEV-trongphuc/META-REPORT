@@ -250,16 +250,16 @@ html {
 .interaction_list .dom_interaction_note:nth-child(5) {
   background: linear-gradient(135deg, var(--mainClr) 0%, #d88200ee 100%);
   color: white;
+  opacity: 1 !important;
 }
+
 .interaction_list .dom_interaction_note:nth-child(9) {
   background: #fff5e6ee;
 }
 .green {
   color: green;
 }
-.interaction_list .dom_interaction_note:nth-child(5) > span:last-child {
-  font-size: 2.5rem;
-}
+
 .dom_header_time {
   display: flex;
   align-items: center;
@@ -3616,4 +3616,8 @@ tbody {
   display: flex;
   align-items: center;
   font-size: 1.2rem;
+}
+.interaction_list .dom_interaction_note:nth-child(5) > span:last-child {
+  font-size: 2.5rem;
+  opacity: 1 !important;
 }
