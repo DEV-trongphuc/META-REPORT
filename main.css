@@ -3004,10 +3004,7 @@ tbody {
   align-items: center;
   justify-content: space-between;
 }
-.dom_region_inner.active .dom_platform_abs {
-  opacity: 1;
-  pointer-events: all;
-}
+
 .dom_title_button {
   padding: 0.5rem 2rem;
   border-radius: 5px;
@@ -3032,10 +3029,18 @@ tbody {
   border-radius: 15px;
   opacity: 0;
   pointer-events: none;
+  transition: opacity 0.25s ease-in-out; /* ✨ fade nhẹ như sương */
+  transform: scale(0.98);
 }
 .dom_platform_inner.active > .dom_platform_abs {
   opacity: 1;
   pointer-events: all;
+  transform: scale(1);
+}
+.dom_region_inner.active .dom_platform_abs {
+  opacity: 1;
+  pointer-events: all;
+  transform: scale(1);
 }
 .dom_platform_abs_item.dom_toplist {
   height: 32rem;
@@ -3512,6 +3517,48 @@ tbody {
   height: auto !important;
 }
 
+.dom_account .dom_inner.chart {
+  height: 45rem !important;
+}
+.dom_account .dom_inner h2 {
+  font-size: 2rem;
+  opacity: 0.8;
+}
+.dom_account .dom_total_report > ul li {
+  padding: 2rem;
+}
+.dom_select.year_filter {
+  background-color: #f3f3f3;
+  box-shadow: unset !important;
+  margin-bottom: 2rem;
+}
+.dom_select.year {
+  background-color: #f3f3f3;
+  box-shadow: unset !important;
+  margin-bottom: 2rem;
+  min-width: 10rem;
+}
+.dom_account .dom_total_report > ul li span ~ p {
+  font-size: 1.8rem;
+  color: rgba(49, 49, 49, 0.733);
+}
+.dom_account .dom_total_report > ul li:not(:first-child) span {
+  font-size: 1.3rem;
+  opacity: 0.8;
+}
+.dom_account .dom_total_report > ul #detail_balance {
+  font-size: 3rem;
+  color: white;
+}
+#detail_method {
+  display: flex;
+  align-items: center;
+  font-size: 1.2rem;
+}
+.interaction_list .dom_interaction_note:nth-child(5) > span:last-child {
+  font-size: 2.5rem;
+  opacity: 1 !important;
+}
 @media (max-width: 800px) {
   .campaign_item,
   .view_campaign_header {
@@ -3661,46 +3708,24 @@ tbody {
   .ad_item > .ads_name {
     width: 29.5rem;
   }
-}
-.dom_account .dom_inner.chart {
-  height: 45rem !important;
-}
-.dom_account .dom_inner h2 {
-  font-size: 2rem;
-  opacity: 0.8;
-}
-.dom_account .dom_total_report > ul li {
-  padding: 2rem;
-}
-.dom_select.year_filter {
-  background-color: #f3f3f3;
-  box-shadow: unset !important;
-  margin-bottom: 2rem;
-}
-.dom_select.year {
-  background-color: #f3f3f3;
-  box-shadow: unset !important;
-  margin-bottom: 2rem;
-  min-width: 10rem;
-}
-.dom_account .dom_total_report > ul li span ~ p {
-  font-size: 1.8rem;
-  color: rgba(49, 49, 49, 0.733);
-}
-.dom_account .dom_total_report > ul li:not(:first-child) span {
-  font-size: 1.3rem;
-  opacity: 0.8;
-}
-.dom_account .dom_total_report > ul #detail_balance {
-  font-size: 3rem;
-  color: white;
-}
-#detail_method {
-  display: flex;
-  align-items: center;
-  font-size: 1.2rem;
-}
-.interaction_list .dom_interaction_note:nth-child(5) > span:last-child {
-  font-size: 2.5rem;
-  opacity: 1 !important;
+  .dom_total_report > ul {
+    flex-wrap: wrap;
+    width: 100%;
+    flex-direction: row;
+  }
+  .dom_total_report > ul > li {
+    width: calc(50% - 1rem);
+  }
+  .chart canvas {
+    max-height: 32rem !important;
+  }
+  .dom_total_report > ul > li {
+    padding: 3rem 2rem;
+  }
+  .dom_dashboard > .dom_row:first-child .dom_inner:first-child {
+    height: unset;
+  }
+  .dom_container.dashboard .dom_dashboard {
+    padding-bottom: 100rem;
+  }
 }
