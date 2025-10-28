@@ -2484,7 +2484,6 @@ function renderChartByHour(dataByHour) {
       maintainAspectRatio: false,
       animation: { duration: 600, easing: "easeOutQuart" },
       plugins: {
-        legend: { display: false },
         tooltip: {
           callbacks: {
             label: (c) =>
@@ -2528,8 +2527,6 @@ function renderChartByHour(dataByHour) {
           ticks: {
             color: "#444",
             font: { size: 11 },
-            maxRotation: 0,
-            minRotation: 0,
           },
         },
         ySpent: {
@@ -2564,12 +2561,12 @@ function renderChartByDevice(dataByDevice) {
   const c2d = ctx.getContext("2d");
 
   const prettyName = (key) => {
-    key = key.toLowerCase();
-    if (key.includes("android")) return "Android";
-    if (key.includes("iphone")) return "iPhone";
-    if (key.includes("tablet")) return "Tablet";
-    if (key.includes("desktop")) return "Desktop";
-    return key.charAt(0).toUpperCase() + key.slice(1);
+    return key
+      .replace(/_/g, " ") // chuyển _ thành space
+      .replace(
+        /\w\S*/g,
+        (w) => w[0].toUpperCase() + w.substring(1).toLowerCase()
+      );
   };
 
   const validEntries = Object.entries(dataByDevice)
@@ -2591,10 +2588,11 @@ function renderChartByDevice(dataByDevice) {
 
   const highlightColors = [
     "rgba(255,171,0,0.9)", // vàng
-    "rgba(38,42,83,0.9)", // xanh đậm
+
+    "rgba(156,163,175,0.7)",
   ];
   const fallbackColors = [
-    "rgba(156,163,175,0.7)",
+    "rgba(38,42,83,0.9)", // xanh đậm
     "rgba(0, 59, 59, 0.7)",
     "rgba(0, 71, 26, 0.7)",
     "rgba(153, 0, 0, 0.7)",
@@ -2701,26 +2699,38 @@ function renderChartByRegion(dataByRegion) {
 
   if (window.chart_by_region_instance) {
     window.chart_by_region_instance.destroy();
-    window.chart_by_region_instance = null; // Gán null
+    window.chart_by_region_instance = null;
   }
 
-  if (!filtered.length) {
-    return; // Không có data, không vẽ
-  }
+  if (!filtered.length) return;
 
   filtered.sort((a, b) => b.spend - a.spend);
+
   const labels = filtered.map((e) => e.name);
   const spentData = filtered.map((e) => e.spend);
   const resultData = filtered.map((e) => e.result);
 
-  // 🎨 Gradient đẹp
-  const gradientSpent = c2d.createLinearGradient(0, 0, 0, 300);
-  gradientSpent.addColorStop(0, "rgba(255,193,7,1)");
-  gradientSpent.addColorStop(1, "rgba(255,171,0,0.8)");
+  // 🎯 Highlight theo Result
+  const maxResultIndex = resultData.indexOf(Math.max(...resultData));
 
-  const gradientResult = c2d.createLinearGradient(0, 0, 0, 300);
-  gradientResult.addColorStop(0, "rgba(38,42,83,1)");
-  gradientResult.addColorStop(1, "rgba(38,42,83,0.8)");
+  // ✨ Gradient vàng quyền lực
+  const gradientGold = c2d.createLinearGradient(0, 0, 0, 300);
+  gradientGold.addColorStop(0, "rgba(255,169,0,1)");
+  gradientGold.addColorStop(1, "rgba(255,169,0,0.4)");
+
+  // 🌫 Gradient xám thanh lịch
+  const gradientGray = c2d.createLinearGradient(0, 0, 0, 300);
+  gradientGray.addColorStop(0, "rgba(210,210,210,0.9)");
+  gradientGray.addColorStop(1, "rgba(160,160,160,0.4)");
+
+  // ✅ Apply màu theo chỉ số maxResultIndex
+  const spentColors = labels.map((_, i) =>
+    i === maxResultIndex ? gradientGold : gradientGray
+  );
+
+  const resultColors = labels.map((_, i) =>
+    i === maxResultIndex ? gradientGold : gradientGray
+  );
 
   window.chart_by_region_instance = new Chart(c2d, {
     type: "bar",
@@ -2730,7 +2740,7 @@ function renderChartByRegion(dataByRegion) {
         {
           label: "Spent",
           data: spentData,
-          backgroundColor: gradientSpent,
+          backgroundColor: spentColors,
           borderWidth: 0,
           borderRadius: 6,
           yAxisID: "ySpend",
@@ -2738,7 +2748,7 @@ function renderChartByRegion(dataByRegion) {
         {
           label: "Result",
           data: resultData,
-          backgroundColor: gradientResult,
+          backgroundColor: resultColors,
           borderWidth: 0,
           borderRadius: 6,
           yAxisID: "yResult",
@@ -2749,9 +2759,7 @@ function renderChartByRegion(dataByRegion) {
       responsive: true,
       maintainAspectRatio: false,
       interaction: { mode: "index", intersect: false },
-      layout: {
-        padding: { left: 10, right: 10 },
-      },
+      layout: { padding: { left: 10, right: 10 } },
       plugins: {
         legend: { display: false },
         tooltip: {
@@ -2769,7 +2777,7 @@ function renderChartByRegion(dataByRegion) {
           align: "end",
           offset: 2,
           font: { weight: "600", size: 11 },
-          color: "#666",
+          color: "#555",
           formatter: (value, ctx) =>
             ctx.dataset.label === "Spent"
               ? formatMoneyShort(value)
@@ -2781,36 +2789,32 @@ function renderChartByRegion(dataByRegion) {
       scales: {
         x: {
           grid: {
-            color: "rgba(0,0,0,0.03)", // ✅ grid mảnh
+            color: "rgba(0,0,0,0.03)",
             drawBorder: true,
           },
-          border: { color: "rgba(0,0,0,0.15)" }, // ✅ trục X rõ nhẹ
           ticks: {
             color: "#444",
             font: { weight: "600", size: 11 },
             maxRotation: 0,
             minRotation: 0,
+            autoSkip: false,
           },
         },
         ySpend: {
           type: "linear",
           position: "left",
-          grid: {
-            color: "rgba(0,0,0,0.03)",
-            drawBorder: true,
-          },
-          border: { color: "rgba(0,0,0,0.15)" },
+          grid: { color: "rgba(0,0,0,0.03)" },
           beginAtZero: true,
+          ticks: { display: false },
           suggestedMax: Math.max(...spentData) * 1.1,
-          ticks: { display: false }, // ❌ không hiện số
         },
         yResult: {
           type: "linear",
           position: "right",
           grid: { drawOnChartArea: false },
           beginAtZero: true,
+          ticks: { display: false },
           suggestedMax: Math.max(...resultData) * 1.1,
-          ticks: { display: false }, // ❌ không hiện số
         },
       },
       animation: { duration: 600, easing: "easeOutQuart" },
@@ -2828,46 +2832,53 @@ function renderChartByAgeGender(dataByAgeGender) {
 
   const ageGroups = {};
 
-  // 🔹 Gom dữ liệu theo age & gender (kể cả Unknown)
+  // ✅ Chỉ gom Male + Female
   for (const [key, val] of Object.entries(dataByAgeGender)) {
     const lowerKey = key.toLowerCase();
 
-    let gender = "unknown";
+    let gender = null;
     if (lowerKey.includes("female")) gender = "female";
     else if (lowerKey.includes("male")) gender = "male";
+    else continue;
 
     const age = key
-      .replace(/_/g, " ")
-      .replace(/male|female|unknown/gi, "")
+      .replace(/_|male|female/gi, "")
       .trim()
       .toUpperCase();
 
-    if (!ageGroups[age]) ageGroups[age] = { male: 0, female: 0, unknown: 0 };
+    if (!ageGroups[age]) ageGroups[age] = { male: 0, female: 0 };
     ageGroups[age][gender] = getResults(val) || 0;
   }
 
   const ages = Object.keys(ageGroups);
   const maleData = ages.map((a) => ageGroups[a].male);
   const femaleData = ages.map((a) => ageGroups[a].female);
-  const unknownData = ages.map((a) => ageGroups[a].unknown);
+
+  // ✅ Highlight theo tổng result
+  const totals = ages.map((a) => ageGroups[a].male + ageGroups[a].female);
+  const maxTotalIndex = totals.indexOf(Math.max(...totals));
+
+  // ✨ Gradient vàng quyền lực
+  const gradientGold = c2d.createLinearGradient(0, 0, 0, 300);
+  gradientGold.addColorStop(0, "rgba(255,169,0,1)");
+  gradientGold.addColorStop(1, "rgba(255,169,0,0.4)");
+
+  // 🌫 Gradient xám thanh lịch
+  const gradientGray = c2d.createLinearGradient(0, 0, 0, 300);
+  gradientGray.addColorStop(0, "rgba(210,210,210,0.9)");
+  gradientGray.addColorStop(1, "rgba(160,160,160,0.4)");
+
+  const maleColors = ages.map((_, i) =>
+    i === maxTotalIndex ? gradientGold : gradientGray
+  );
+  const femaleColors = ages.map((_, i) =>
+    i === maxTotalIndex ? gradientGold : gradientGray
+  );
 
   if (window.chart_by_age_gender_instance) {
     window.chart_by_age_gender_instance.destroy();
-    window.chart_by_age_gender_instance = null; // Gán null
+    window.chart_by_age_gender_instance = null;
   }
-
-  // 🎨 Gradient màu cho từng giới tính
-  const gradientMale = c2d.createLinearGradient(0, 0, 0, 300);
-  gradientMale.addColorStop(0, "rgba(255,169,0,1)");
-  gradientMale.addColorStop(1, "rgba(255,169,0,0.8)");
-
-  const gradientFemale = c2d.createLinearGradient(0, 0, 0, 300);
-  gradientFemale.addColorStop(0, "rgba(38,42,83,1)");
-  gradientFemale.addColorStop(1, "rgba(38,42,83,0.8)");
-
-  const gradientUnknown = c2d.createLinearGradient(0, 0, 0, 300);
-  gradientUnknown.addColorStop(0, "rgba(180,180,180,1)");
-  gradientUnknown.addColorStop(1, "rgba(150,150,150,0.8)");
 
   window.chart_by_age_gender_instance = new Chart(c2d, {
     type: "bar",
@@ -2877,23 +2888,16 @@ function renderChartByAgeGender(dataByAgeGender) {
         {
           label: "Male",
           data: maleData,
-          backgroundColor: gradientMale,
+          backgroundColor: maleColors,
+          borderRadius: 6,
           borderWidth: 0,
-          borderRadius: 5,
         },
         {
           label: "Female",
           data: femaleData,
-          backgroundColor: gradientFemale,
+          backgroundColor: femaleColors,
+          borderRadius: 6,
           borderWidth: 0,
-          borderRadius: 5,
-        },
-        {
-          label: "Unknown",
-          data: unknownData,
-          backgroundColor: gradientUnknown,
-          borderWidth: 0,
-          borderRadius: 5,
         },
       ],
     },
@@ -2901,14 +2905,13 @@ function renderChartByAgeGender(dataByAgeGender) {
       responsive: true,
       maintainAspectRatio: false,
       interaction: { mode: "index", intersect: false },
-      layout: {
-        padding: { left: 10, right: 10 },
-      },
+      layout: { padding: { left: 10, right: 10 } },
       plugins: {
         legend: { display: false },
         tooltip: {
           callbacks: {
-            label: (ctx) => `${ctx.dataset.label}: ${ctx.raw}`,
+            label: (ctx) =>
+              `${ctx.dataset.label}: ${formatMoneyShort(ctx.raw)}`,
           },
         },
         datalabels: {
@@ -2916,38 +2919,26 @@ function renderChartByAgeGender(dataByAgeGender) {
           align: "end",
           offset: 2,
           font: { weight: "600", size: 11 },
-          color: "#666",
-          formatter: (v) => (v > 0 ? v : ""),
+          color: "#555",
+          formatter: (v) => (v > 0 ? formatMoneyShort(v) : ""),
         },
       },
       scales: {
         x: {
-          display: true, // ✅ giữ label độ tuổi
-          grid: {
-            color: "rgba(0,0,0,0.03)", // ✅ thêm lưới mảnh
-            drawBorder: true, // ✅ hiện trục X
-          },
-          border: { color: "rgba(0,0,0,0.15)" }, // ✅ line trục X rõ nhẹ
+          grid: { color: "rgba(0,0,0,0.03)", drawBorder: true },
           ticks: {
             color: "#444",
             font: { weight: "600", size: 11 },
             maxRotation: 0,
             minRotation: 0,
+            autoSkip: false,
           },
         },
         y: {
-          display: true, // ✅ hiện trục & grid
-          grid: {
-            color: "rgba(0,0,0,0.03)", // ✅ lưới mảnh nhẹ
-            drawBorder: true, // ✅ trục Y
-          },
-          border: { color: "rgba(0,0,0,0.15)" }, // ✅ line trục Y
           beginAtZero: true,
-          suggestedMax:
-            Math.max(...maleData, ...femaleData, ...unknownData) * 1.1,
-          ticks: {
-            display: false, // ❌ không hiển thị số
-          },
+          grid: { color: "rgba(0,0,0,0.03)", drawBorder: true },
+          ticks: { display: false },
+          suggestedMax: Math.max(...totals) * 1.1,
         },
       },
       animation: { duration: 600, easing: "easeOutQuart" },
@@ -2955,6 +2946,7 @@ function renderChartByAgeGender(dataByAgeGender) {
     plugins: [ChartDataLabels],
   });
 }
+
 const getLogo = (key, groupKey = "") => {
   const k = key.toLowerCase();
   if (groupKey === "byDevice") {
@@ -4010,38 +4002,55 @@ function renderRegionChart(data = []) {
   if (!ctx) return;
   const c2d = ctx.getContext("2d");
 
-  // ❌ Clear chart cũ
-  if (window.chart_region_total) {
-    window.chart_region_total.destroy();
-    window.chart_region_total = null;
+  if (window.chart_region_total instanceof Chart) {
+    try {
+      window.chart_region_total.destroy();
+    } catch (err) {
+      console.warn("⚠️ Chart destroy error:", err);
+    }
   }
+  window.chart_region_total = null;
 
-  // 🔹 Gom tổng spend theo region
   const regionSpend = {};
   data.forEach((d) => {
-    const region = d.region?.trim() || "Unknown";
+    let region = (d.region || "").trim();
+    if (!region || region.toUpperCase() === "UNKNOWN") return;
+
+    region = region
+      .replace(/\b(province|city|region|state|district|area|zone)\b/gi, "")
+      .replace(/\b(tỉnh|thành phố|tp|quận|huyện)\b/gi, "")
+      .replace(/\s+/g, " ")
+      .trim();
+
     const spend = parseFloat(d.spend || 0);
-    if (!region || region.toUpperCase() === "UNKNOWN" || spend <= 0) return;
-    regionSpend[region] = (regionSpend[region] || 0) + spend;
+    if (spend <= 0) return;
+
+    const key = region.toLowerCase();
+    regionSpend[key] = (regionSpend[key] || 0) + spend;
   });
 
   const totalSpend = Object.values(regionSpend).reduce((a, b) => a + b, 0);
   if (totalSpend === 0) return;
 
-  // 🔸 Lọc bỏ region < 2% tổng spend
+  // ✅ Lọc xuống đây
   const filtered = Object.entries(regionSpend).filter(
     ([_, v]) => (v / totalSpend) * 100 >= 2
   );
+  if (!filtered.length) return;
 
-  if (!filtered.length) return; // Nếu sau khi lọc trống thì thôi
+  // ✅ Chuẩn hoá label
+  const regions = filtered.map(([r]) =>
+    r
+      .toLowerCase()
+      .replace(/\b\w/g, (c) => c.toUpperCase())
+      .normalize("NFC")
+      .trim()
+  );
 
-  const regions = filtered.map(([r]) => r);
   const values = filtered.map(([_, v]) => Math.round(v));
 
-  // 🔸 Tìm region cao nhất
   const [maxRegion] = filtered.reduce((a, b) => (a[1] > b[1] ? a : b));
 
-  // 🎨 Gradient vàng & xám
   const gradientGold = c2d.createLinearGradient(0, 0, 0, 300);
   gradientGold.addColorStop(0, "rgba(255,169,0,1)");
   gradientGold.addColorStop(1, "rgba(255,169,0,0.4)");
@@ -4050,20 +4059,18 @@ function renderRegionChart(data = []) {
   gradientGray.addColorStop(0, "rgba(210,210,210,0.9)");
   gradientGray.addColorStop(1, "rgba(160,160,160,0.4)");
 
-  const bgColors = regions.map((r) =>
+  const bgColors = filtered.map(([r]) =>
     r === maxRegion ? gradientGold : gradientGray
   );
 
-  // ⚙️ Auto bar width giống renderGoalChart
   const isFew = regions.length < 3;
   const barWidth = isFew ? 0.35 : undefined;
   const catWidth = isFew ? 0.65 : undefined;
 
-  // 🎨 Chart config
   window.chart_region_total = new Chart(c2d, {
     type: "bar",
     data: {
-      labels: regions.map((r) => r.replace(/_/g, " ").toUpperCase()),
+      labels: regions,
       datasets: [
         {
           label: "Spend",
@@ -4087,7 +4094,7 @@ function renderRegionChart(data = []) {
         legend: { display: false },
         tooltip: {
           callbacks: {
-            title: (ctx) => `Region: ${ctx[0].label}`,
+            title: (ctx) => `${ctx[0].label}`,
             label: (ctx) => `Spend: ${formatMoneyShort(ctx.raw)}`,
           },
         },
@@ -4112,6 +4119,8 @@ function renderRegionChart(data = []) {
             font: { weight: "600", size: 9 },
             maxRotation: 0,
             minRotation: 0,
+            autoSkip: false, // ✅ không bỏ label nữa
+            maxTicksLimit: regions.length, // ✅ bắn full
           },
         },
         y: {
