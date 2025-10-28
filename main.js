@@ -4939,106 +4939,192 @@ function resetUIFilter() {
   }
 }
 
-const filterInputC = document.getElementById("campaign_filter");
-const filterBox = document.querySelector(".dom_campaign_filter");
-const filterList = filterBox.querySelector("ul");
-const filterBtn = document.getElementById("filter_button");
+// === Safe setup for campaign filter UI ===
+(function initCampaignFilterSafe() {
+  // Guard: ensure DOM exists
+  const filterInputC = document.getElementById("campaign_filter");
+  const filterBox = document.querySelector(".dom_campaign_filter");
+  const filterList = filterBox?.querySelector("ul");
+  const filterBtn = document.getElementById("filter_button");
 
-// ✅ Render 1 campaign <li>
-function formatCampaignHTML(c) {
-  const thumb = c?.adsets?.[0]?.ads?.[0]?.thumbnail || "";
-  const optGoal = c?.adsets?.[0]?.ads?.[0]?.optimization_goal;
-  const iconClass = getCampaignIcon(optGoal);
-  const isActiveClass = c._isActive ? "active" : "";
-
-  return `
-    <li data-id="${c.id}">
-      <p>
-        <img src="${thumb}" />
-        <span>
-        <span>${c.name}</span>
-        <span>ID:${c.id}</span>
-        </span>
-      </p>
-      <p>
-        <i class="${iconClass} ${isActiveClass}"></i>
-        ${optGoal || "Unknown"}
-      </p>
-    </li>
-  `;
-}
-
-// ✅ Render danh sách hoặc trả "No results"
-function renderFilteredCampaigns(list) {
-  console.log(list);
-
-  if (!list.length) {
-    filterList.innerHTML = `<li style="color:#999;padding:10px;text-align:center;">No results found</li>`;
-    filterBox.classList.add("active");
+  // If core DOM parts missing, bail out gracefully
+  if (!filterInputC || !filterBox || !filterList) {
+    console.warn(
+      "[campaign-filter] Required DOM elements not found — skipping setup."
+    );
     return;
   }
 
-  filterList.innerHTML = list.map(formatCampaignHTML).join("");
-  filterBox.classList.add("active");
-}
+  // Guard: ensure helpers exist (provide no-op fallbacks)
+  const safeGetCampaignIcon =
+    typeof getCampaignIcon === "function"
+      ? getCampaignIcon
+      : () => "fa-solid fa-bullseye"; // fallback icon class
 
-// ✅ Lọc theo _ALL_CAMPAIGNS
-function filterCampaigns() {
-  const keyword = filterInputC.value.trim().toLowerCase();
-  console.log(keyword);
+  const safeApplyCampaignFilter =
+    typeof applyCampaignFilter === "function"
+      ? applyCampaignFilter
+      : async (k) => {
+          console.warn(
+            "[campaign-filter] applyCampaignFilter missing. Keyword:",
+            k
+          );
+        };
 
-  if (!keyword) {
-    filterList.innerHTML = "";
-    filterBox.classList.remove("active");
-    return;
+  const safeDebounce =
+    typeof debounce === "function"
+      ? debounce
+      : (fn, d = 500) => {
+          let t;
+          return (...a) => {
+            clearTimeout(t);
+            t = setTimeout(() => fn(...a), d);
+          };
+        };
+
+  // ✅ Render 1 campaign <li>
+  function formatCampaignHTML(c) {
+    const thumb = c?.adsets?.[0]?.ads?.[0]?.thumbnail || "";
+    const optGoal = c?.adsets?.[0]?.ads?.[0]?.optimization_goal;
+    const iconClass = safeGetCampaignIcon(optGoal);
+    const isActiveClass = c._isActive ? "active" : "";
+
+    // escape name/id to avoid injection (basic)
+    const safeName = String(c?.name ?? "")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
+    const safeId = String(c?.id ?? "")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
+
+    return `
+      <li data-id="${safeId}">
+        <p>
+          <img src="${thumb}" alt="${safeName}" />
+          <span>
+            <span>${safeName}</span>
+            <span>ID:${safeId}</span>
+          </span>
+        </p>
+        <p>
+          <i class="${iconClass} ${isActiveClass}"></i>
+          ${optGoal || "Unknown"}
+        </p>
+      </li>
+    `;
   }
 
-  const filtered = window._ALL_CAMPAIGNS.filter((c) =>
-    c.name?.toLowerCase().includes(keyword)
-  );
+  // ✅ Render danh sách hoặc trả "No results"
+  function renderFilteredCampaigns(list = []) {
+    try {
+      if (!Array.isArray(list) || list.length === 0) {
+        filterList.innerHTML = `<li style="color:#999;padding:10px;text-align:center;">No results found</li>`;
+        filterBox.classList.add("active");
+        return;
+      }
 
-  renderFilteredCampaigns(filtered);
-}
-
-// ✅ Xài debounce có sẵn
-const debouncedSearch = debounce(filterCampaigns, 500);
-
-// Listener
-filterInputC.addEventListener("input", (e) => {
-  const keyword = e.target.value.trim();
-
-  if (keyword === "") {
-    // clear UI ngay lập tức
-    filterList.innerHTML = "";
-    filterBox.classList.remove("active");
-
-    // cancel any pending debounced call (if your debounce exposes a cancel, use it)
-    // nếu debounce không có cancel, gọi RESET ngay để chắc chắn
-    applyCampaignFilter("RESET");
-    return;
+      filterList.innerHTML = list.map(formatCampaignHTML).join("");
+      filterBox.classList.add("active");
+    } catch (err) {
+      console.error("[campaign-filter] renderFilteredCampaigns error:", err);
+    }
   }
 
-  // nếu không rỗng thì dùng debounce tìm kiếm
-  debouncedSearch();
-});
-filterBtn.addEventListener("click", filterCampaigns);
-filterInputC.addEventListener("keydown", (e) => {
-  if (e.key === "Enter") filterCampaigns();
-});
-filterList.addEventListener("click", (e) => {
-  const li = e.target.closest("li");
-  if (!li) return;
+  // ✅ Lọc theo _ALL_CAMPAIGNS (safe)
+  function filterCampaigns() {
+    try {
+      const keyword = filterInputC.value.trim().toLowerCase();
 
-  const id = li.dataset.id;
-  if (!id) return;
+      if (!keyword) {
+        filterList.innerHTML = "";
+        filterBox.classList.remove("active");
+        // call RESET only if applyCampaignFilter exists (we use safeApply)
+        safeApplyCampaignFilter("RESET");
+        return;
+      }
 
-  console.log("Clicked Campaign:", id);
+      const all = Array.isArray(window._ALL_CAMPAIGNS)
+        ? window._ALL_CAMPAIGNS
+        : [];
+      const filtered = all.filter((c) =>
+        String(c?.name || "")
+          .toLowerCase()
+          .includes(keyword)
+      );
 
-  // Filter đúng theo campaign ID
-  const keywordObj = window._ALL_CAMPAIGNS.find((c) => c.id === id);
-  if (keywordObj) {
-    filterBox.classList.remove("active"); // Ẩn list sau khi chọn
-    filterInputC.value = keywordObj.name; // Show đúng tên đã chọn
-    applyCampaignFilter(keywordObj.name);
+      renderFilteredCampaigns(filtered);
+    } catch (err) {
+      console.error("[campaign-filter] filterCampaigns error:", err);
+    }
   }
-});
+
+  // ✅ Debounced search (safe)
+  const debouncedSearch = safeDebounce(filterCampaigns, 500);
+
+  // --- Listeners ---
+  filterInputC.addEventListener("input", (e) => {
+    const keyword = e.target.value.trim();
+    if (keyword === "") {
+      // immediate reset when input cleared
+      filterList.innerHTML = "";
+      filterBox.classList.remove("active");
+      safeApplyCampaignFilter("RESET");
+      return;
+    }
+    debouncedSearch();
+  });
+
+  if (filterBtn) {
+    filterBtn.addEventListener("click", filterCampaigns);
+  }
+
+  filterInputC.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      // prevent accidental form submit if inside a form
+      e.preventDefault();
+      filterCampaigns();
+    }
+  });
+
+  // Click on list item => apply filter by the campaign's name (safe)
+  filterList.addEventListener("click", (e) => {
+    const li = e.target.closest("li[data-id]");
+    if (!li) return;
+
+    const id = li.getAttribute("data-id");
+    if (!id) return;
+
+    // find campaign safely
+    const all = Array.isArray(window._ALL_CAMPAIGNS)
+      ? window._ALL_CAMPAIGNS
+      : [];
+    const campaign = all.find((c) => String(c?.id) === String(id));
+    if (!campaign) {
+      console.warn(
+        "[campaign-filter] clicked campaign not found in _ALL_CAMPAIGNS:",
+        id
+      );
+      return;
+    }
+
+    // UX: close list, set input, and apply filter by campaign name
+    try {
+      filterBox.classList.remove("active");
+      filterList.innerHTML = "";
+      filterInputC.value = campaign.name || "";
+      safeApplyCampaignFilter(campaign.name || "");
+    } catch (err) {
+      console.error("[campaign-filter] error on campaign click:", err);
+    }
+  });
+
+  // Optional: click outside to close
+  document.addEventListener("click", (e) => {
+    if (!filterBox.contains(e.target)) {
+      filterBox.classList.remove("active");
+    }
+  });
+
+  // Done
+  console.debug("[campaign-filter] initialized safely");
+})();
