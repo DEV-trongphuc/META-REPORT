@@ -39,6 +39,7 @@ a {
   --textClr: #333;
   --fadeClr: #f8f8f8;
   --fadeClr500: #eeece8;
+  --fadeClrG: #fff5e6ee;
   --mainClr: #ffa900;
   --subClr: #262a53;
   --mainClr500: #58b1f01d;
@@ -88,19 +89,24 @@ html {
 }
 @media (max-width: 1700px) {
   html {
-    font-size: 40%; /* 12px */
+    font-size: 50%; /* 12px */
   }
 }
 @media (max-width: 1800px) {
   html {
-    font-size: 50%; /* 12px */
+    font-size: 55%; /* 12px */
   }
 }
 
 /* Laptop nhỏ hơn 1280px */
 @media (max-width: 1280px) {
   html {
-    font-size: 38%; /* 12px */
+    font-size: 40%; /* 12px */
+  }
+}
+@media (max-width: 1080px) {
+  html {
+    font-size: 30%; /* 12px */
   }
 }
 
@@ -254,7 +260,7 @@ html {
 }
 
 .interaction_list .dom_interaction_note:nth-child(9) {
-  background: #fff5e6ee;
+  background: var(--fadeClrG);
 }
 .green {
   color: green;
@@ -407,6 +413,16 @@ html {
 .dom_toplist > li {
   display: grid;
   grid-template-columns: 1fr 100px 100px 100px;
+  align-items: center;
+  background: rgb(255, 255, 255, 0.8);
+  padding: 1.5rem;
+  border-radius: 8px;
+  box-shadow: 0 0px 3px rgba(0, 0, 0, 0.2);
+}
+.dom_platform_abs_item.dom_toplist > li {
+  display: grid;
+
+  grid-template-columns: 1fr 100px 50px;
   align-items: center;
   background: rgb(255, 255, 255, 0.8);
   padding: 1.5rem;
@@ -2370,7 +2386,7 @@ tbody {
 .dom_platform_item {
   display: flex;
   flex-direction: column;
-  padding: 1.5rem 2rem;
+  padding: 1.3rem 2rem;
   border-radius: 15px;
   gap: 2rem;
   filter: grayscale(1);
@@ -2434,6 +2450,9 @@ tbody {
   width: 100%;
   display: flex;
   column-gap: 1rem;
+}
+.dom_active_report > div:nth-child(1) .dom_active_cp {
+  /* background-color: #fff9e7; */
 }
 
 .dom_active_cp {
@@ -2975,9 +2994,72 @@ tbody {
   font-size: 0.9rem;
   left: 0;
 }
-.dbudget {
+.dom_platform_inner,
+.dom_region_inner {
+  position: relative;
+}
+.dom_region_inner > h2,
+.dom_platform_inner > h2 {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.dom_region_inner.active .dom_platform_abs {
+  opacity: 1;
+  pointer-events: all;
+}
+.dom_title_button {
+  padding: 0.5rem 2rem;
+  border-radius: 5px;
+  font-size: 1.4rem;
+  background-color: #f3f3f3;
+  cursor: pointer;
+  box-shadow: 0 0 1px rgb(0, 0, 0, 0.1);
+  transition: 0.3s;
+}
+.dom_title_button:hover {
+  background-color: var(--mainClr);
+  color: white;
+}
+.dom_platform_abs {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  background-color: rgb(254, 254, 254, 1);
+  top: 0;
+  left: 0;
+  padding: 2rem;
+  border-radius: 15px;
+  opacity: 0;
+  pointer-events: none;
+}
+.dom_platform_inner.active > .dom_platform_abs {
+  opacity: 1;
+  pointer-events: all;
+}
+.dom_platform_abs_item.dom_toplist {
+  height: 32rem;
+  padding-bottom: 2rem;
+  margin-top: -1rem;
+}
+.dom_platform_abs_item.dom_toplist li {
+  background: unset;
+}
+.dom_platform_abs_item.dom_toplist img {
+  filter: grayscale(1);
+}
+.dom_platform_abs h2 {
+  font-size: 1.6rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-weight: bold;
+  padding-bottom: 2rem;
+}
+.dbudget > span {
   transform: translateY(0.5rem);
 }
+
 .ad_status.dbudget .status-value {
   font-weight: bold;
 }
@@ -3103,7 +3185,8 @@ tbody {
 .view_campaign_header .ad_status::after {
   display: none;
 }
-.dom_container .dom_dashboard {
+.dom_container.dashboard .dom_dashboard {
+  padding-bottom: 20rem;
 }
 
 .dom_detail_ad {
