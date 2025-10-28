@@ -1012,6 +1012,7 @@ async function loadDashboardData() {
   loadPlatformSummary();
   loadSpendPlatform();
   loadAgeGenderSpendChart();
+  loadRegionSpendChart();
   initializeYearData();
   fetchAdAccountInfo();
   resetYearDropdownToCurrentYear();
@@ -1616,6 +1617,7 @@ async function applyCampaignFilter(keyword) {
   const ids = filtered.map((c) => c.id).filter(Boolean);
   loadPlatformSummary(ids);
   loadSpendPlatform(ids);
+  loadRegionSpendChart(ids);
   loadAgeGenderSpendChart(ids);
   const dailyData = ids.length ? await fetchDailySpendByCampaignIDs(ids) : [];
   renderDetailDailyChart2(dailyData, "spend");
@@ -2953,51 +2955,49 @@ function renderChartByAgeGender(dataByAgeGender) {
     plugins: [ChartDataLabels],
   });
 }
+const getLogo = (key, groupKey = "") => {
+  const k = key.toLowerCase();
+  if (groupKey === "byDevice") {
+    if (
+      k.includes("iphone") ||
+      k.includes("ipod") ||
+      k.includes("ipad") ||
+      k.includes("macbook")
+    )
+      return "https://raw.githubusercontent.com/DEV-trongphuc/META-REPORT/refs/heads/main/logo_ip%20(1).png";
+    if (k.includes("android") || k.includes("mobile"))
+      return "https://upload.wikimedia.org/wikipedia/commons/d/d7/Android_robot.svg";
+    if (k.includes("desktop") || k.includes("pc"))
+      return "https://ms.codes/cdn/shop/articles/this-pc-computer-display-windows-11-icon.png?v=1709255180";
+  }
+  if (groupKey === "byAgeGender" || groupKey === "byRegion")
+    return "https://raw.githubusercontent.com/DEV-trongphuc/DOM_MISA_IDEAS_CRM/refs/heads/main/DOM_MKT%20(2).png";
+
+  if (k.includes("facebook"))
+    return "https://upload.wikimedia.org/wikipedia/commons/0/05/Facebook_Logo_%282019%29.png";
+  if (k.includes("messenger"))
+    return "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRemnhxz7XnQ1BiDuwUlmdQoYO9Wyko5-uOGQ&s";
+  if (k.includes("instagram"))
+    return "https://upload.wikimedia.org/wikipedia/commons/e/e7/Instagram_logo_2016.svg";
+
+  return "https://raw.githubusercontent.com/DEV-trongphuc/DOM_MISA_IDEAS_CRM/refs/heads/main/DOM_MKT%20(2).png";
+};
+const formatName = (key) =>
+  key
+    .replace(/[_-]/g, " ")
+    .replace(/\b\w/g, (c) => c.toUpperCase())
+    .trim();
 
 function renderChartByPlatform(allData) {
   const wrap = document.querySelector("#chart_by_platform .dom_toplist");
   if (!wrap || !allData) return;
   wrap.innerHTML = "";
 
-  const formatName = (key) =>
-    key
-      .replace(/[_-]/g, " ")
-      .replace(/\b\w/g, (c) => c.toUpperCase())
-      .trim();
-
   const sources = {
     byPlatform: "By Platform",
     byDevice: "By Device",
     byAgeGender: "By Age & Gender",
     byRegion: "By Region",
-  };
-
-  const getLogo = (key, groupKey = "") => {
-    const k = key.toLowerCase();
-    if (groupKey === "byDevice") {
-      if (
-        k.includes("iphone") ||
-        k.includes("ipod") ||
-        k.includes("ipad") ||
-        k.includes("macbook")
-      )
-        return "https://raw.githubusercontent.com/DEV-trongphuc/META-REPORT/refs/heads/main/logo_ip%20(1).png";
-      if (k.includes("android") || k.includes("mobile"))
-        return "https://upload.wikimedia.org/wikipedia/commons/d/d7/Android_robot.svg";
-      if (k.includes("desktop") || k.includes("pc"))
-        return "https://ms.codes/cdn/shop/articles/this-pc-computer-display-windows-11-icon.png?v=1709255180";
-    }
-    if (groupKey === "byAgeGender" || groupKey === "byRegion")
-      return "https://raw.githubusercontent.com/DEV-trongphuc/DOM_MISA_IDEAS_CRM/refs/heads/main/DOM_MKT%20(2).png";
-
-    if (k.includes("facebook"))
-      return "https://upload.wikimedia.org/wikipedia/commons/0/05/Facebook_Logo_%282019%29.png";
-    if (k.includes("messenger"))
-      return "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRemnhxz7XnQ1BiDuwUlmdQoYO9Wyko5-uOGQ&s";
-    if (k.includes("instagram"))
-      return "https://upload.wikimedia.org/wikipedia/commons/e/e7/Instagram_logo_2016.svg";
-
-    return "https://raw.githubusercontent.com/DEV-trongphuc/DOM_MISA_IDEAS_CRM/refs/heads/main/DOM_MKT%20(2).png";
   };
 
   let hasData = false;
@@ -3482,7 +3482,7 @@ async function fetchSpendByPlatform(campaignIds = []) {
         )}`
       : "";
 
-    const url = `${BASE_URL}/act_${ACCOUNT_ID}/insights?fields=spend&breakdowns=publisher_platform&time_range={"since":"${startDate}","until":"${endDate}"}${filtering}&access_token=${META_TOKEN}`;
+    const url = `${BASE_URL}/act_${ACCOUNT_ID}/insights?fields=spend&breakdowns=publisher_platform,platform_position&time_range={"since":"${startDate}","until":"${endDate}"}${filtering}&access_token=${META_TOKEN}`;
     const data = await fetchJSON(url);
     return data.data || [];
   } catch (err) {
@@ -3514,6 +3514,29 @@ async function fetchSpendByAgeGender(campaignIds = []) {
     return [];
   }
 }
+async function fetchSpendByRegion(campaignIds = []) {
+  try {
+    if (!ACCOUNT_ID) throw new Error("ACCOUNT_ID is required");
+
+    const filtering = campaignIds.length
+      ? `&filtering=${encodeURIComponent(
+          JSON.stringify([
+            { field: "campaign.id", operator: "IN", value: campaignIds },
+          ])
+        )}`
+      : "";
+
+    const url = `${BASE_URL}/act_${ACCOUNT_ID}/insights?fields=spend&breakdowns=region&time_range={"since":"${startDate}","until":"${endDate}"}${filtering}&access_token=${META_TOKEN}`;
+
+    const data = await fetchJSON(url);
+    const results = data.data || [];
+
+    return results;
+  } catch (err) {
+    console.error("❌ Error fetching spend by region:", err);
+    return [];
+  }
+}
 
 function summarizeSpendByPlatform(data) {
   const result = {
@@ -3532,6 +3555,78 @@ function summarizeSpendByPlatform(data) {
 
   return result;
 }
+function formatNamePst(publisher, position) {
+  // 🧩 Convert về lowercase để dễ check
+  const pub = (publisher || "").toLowerCase();
+  const pos = (position || "").toLowerCase();
+
+  // 🚫 Nếu position đã chứa tên platform rồi thì bỏ nối
+  let name;
+  if (pos.includes(pub)) {
+    name = position;
+  } else {
+    name = `${publisher}_${position}`;
+  }
+
+  // 🔤 Làm đẹp text
+  name = name
+    .replace(/[_-]/g, " ")
+    .replace(/\b\w/g, (c) => c.toUpperCase())
+    .trim();
+
+  return name;
+}
+function renderPlatformPosition(data) {
+  const wrap = document.querySelector(".dom_platform_abs .dom_toplist");
+  if (!wrap || !Array.isArray(data)) return;
+  wrap.innerHTML = "";
+
+  const positionMap = {};
+  let totalSpend = 0;
+
+  data.forEach((item) => {
+    const publisher = item.publisher_platform || "other";
+    const position = item.platform_position || "unknown";
+    const key = `${publisher}_${position}`;
+    const spend = +item.spend || 0;
+
+    totalSpend += spend;
+    if (!positionMap[key]) positionMap[key] = { spend: 0, publisher, position };
+    positionMap[key].spend += spend;
+  });
+
+  const positions = Object.entries(positionMap).sort(
+    (a, b) => b[1].spend - a[1].spend
+  );
+  const fragment = document.createDocumentFragment();
+
+  positions.forEach(([key, val]) => {
+    const { publisher, position, spend } = val;
+    const percent = totalSpend > 0 ? (spend / totalSpend) * 100 : 0;
+    const li = document.createElement("li");
+
+    li.innerHTML = `
+      <p>
+        <img src="${getLogo(publisher)}" alt="${publisher}" />
+        <span>${formatNamePst(publisher, position)}</span>
+      </p>
+      <p><span class="total_spent"><i class="fa-solid fa-money-bill"></i> ${spend.toLocaleString(
+        "vi-VN"
+      )}đ</span></p>
+      <p class="toplist_percent" style="color:rgb(226, 151, 0);background:rgba(254,169,0,0.05)">
+        ${percent.toFixed(1)}%
+      </p>
+    `;
+    fragment.appendChild(li);
+  });
+
+  if (!positions.length) {
+    wrap.innerHTML = `<li><p>Không có dữ liệu để hiển thị.</p></li>`;
+  } else {
+    wrap.appendChild(fragment);
+  }
+}
+
 function renderPlatformSpendUI(summary) {
   if (!summary) return;
 
@@ -3623,9 +3718,16 @@ function renderPlatformSpendUI(summary) {
 
 async function loadSpendPlatform(campaignIds = []) {
   const data = await fetchSpendByPlatform(campaignIds);
+  console.log(data);
   const summary = summarizeSpendByPlatform(data);
-  renderPlatformSpendUI(summary);
+  renderPlatformSpendUI(summary); // cũ
+  renderPlatformPosition(data); // mới
 }
+async function loadRegionSpendChart(campaignIds = []) {
+  const data = await fetchSpendByRegion(campaignIds);
+  renderRegionChart(data);
+}
+
 async function loadAgeGenderSpendChart(campaignIds = []) {
   const data = await fetchSpendByAgeGender(campaignIds);
   renderAgeGenderChart(data);
@@ -3901,6 +4003,132 @@ function renderAgeGenderChart(rawData = []) {
     plugins: [ChartDataLabels],
   });
 }
+function renderRegionChart(data = []) {
+  if (!Array.isArray(data) || !data.length) return;
+
+  const ctx = document.getElementById("region_chart");
+  if (!ctx) return;
+  const c2d = ctx.getContext("2d");
+
+  // ❌ Clear chart cũ
+  if (window.chart_region_total) {
+    window.chart_region_total.destroy();
+    window.chart_region_total = null;
+  }
+
+  // 🔹 Gom tổng spend theo region
+  const regionSpend = {};
+  data.forEach((d) => {
+    const region = d.region?.trim() || "Unknown";
+    const spend = parseFloat(d.spend || 0);
+    if (!region || region.toUpperCase() === "UNKNOWN" || spend <= 0) return;
+    regionSpend[region] = (regionSpend[region] || 0) + spend;
+  });
+
+  const totalSpend = Object.values(regionSpend).reduce((a, b) => a + b, 0);
+  if (totalSpend === 0) return;
+
+  // 🔸 Lọc bỏ region < 2% tổng spend
+  const filtered = Object.entries(regionSpend).filter(
+    ([_, v]) => (v / totalSpend) * 100 >= 2
+  );
+
+  if (!filtered.length) return; // Nếu sau khi lọc trống thì thôi
+
+  const regions = filtered.map(([r]) => r);
+  const values = filtered.map(([_, v]) => Math.round(v));
+
+  // 🔸 Tìm region cao nhất
+  const [maxRegion] = filtered.reduce((a, b) => (a[1] > b[1] ? a : b));
+
+  // 🎨 Gradient vàng & xám
+  const gradientGold = c2d.createLinearGradient(0, 0, 0, 300);
+  gradientGold.addColorStop(0, "rgba(255,169,0,1)");
+  gradientGold.addColorStop(1, "rgba(255,169,0,0.4)");
+
+  const gradientGray = c2d.createLinearGradient(0, 0, 0, 300);
+  gradientGray.addColorStop(0, "rgba(210,210,210,0.9)");
+  gradientGray.addColorStop(1, "rgba(160,160,160,0.4)");
+
+  const bgColors = regions.map((r) =>
+    r === maxRegion ? gradientGold : gradientGray
+  );
+
+  // ⚙️ Auto bar width giống renderGoalChart
+  const isFew = regions.length < 3;
+  const barWidth = isFew ? 0.35 : undefined;
+  const catWidth = isFew ? 0.65 : undefined;
+
+  // 🎨 Chart config
+  window.chart_region_total = new Chart(c2d, {
+    type: "bar",
+    data: {
+      labels: regions.map((r) => r.replace(/_/g, " ").toUpperCase()),
+      datasets: [
+        {
+          label: "Spend",
+          data: values,
+          backgroundColor: bgColors,
+          borderRadius: 8,
+          borderWidth: 0,
+          ...(isFew && {
+            barPercentage: barWidth,
+            categoryPercentage: catWidth,
+          }),
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      layout: { padding: { left: 10, right: 10 } },
+      animation: { duration: 600, easing: "easeOutQuart" },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            title: (ctx) => `Region: ${ctx[0].label}`,
+            label: (ctx) => `Spend: ${formatMoneyShort(ctx.raw)}`,
+          },
+        },
+        datalabels: {
+          anchor: "end",
+          align: "end",
+          offset: 2,
+          font: { size: 11, weight: "600" },
+          color: "#555",
+          formatter: (v) => (v > 0 ? formatMoneyShort(v) : ""),
+        },
+      },
+      scales: {
+        x: {
+          grid: {
+            color: "rgba(0,0,0,0.03)",
+            drawBorder: true,
+            borderColor: "rgba(0,0,0,0.05)",
+          },
+          ticks: {
+            color: "#666",
+            font: { weight: "600", size: 9 },
+            maxRotation: 0,
+            minRotation: 0,
+          },
+        },
+        y: {
+          beginAtZero: true,
+          grid: {
+            color: "rgba(0,0,0,0.03)",
+            drawBorder: true,
+            borderColor: "rgba(0,0,0,0.05)",
+          },
+          ticks: { display: false },
+          suggestedMax: Math.max(...values) * 1.1,
+        },
+      },
+    },
+    plugins: [ChartDataLabels],
+  });
+}
 
 // 🎯 Quick Filter Logic
 
@@ -4034,6 +4262,25 @@ document.addEventListener("DOMContentLoaded", () => {
   const mobileMenu = document.querySelector("#mobile_menu");
   const domSidebar = document.querySelector(".dom_sidebar");
 
+  const btnPlatform = document.querySelectorAll(".dom_title_button.platform");
+  const btnRegion = document.querySelectorAll(".dom_title_button.region");
+  const inner = document.querySelector(".dom_platform_inner");
+  const region = document.querySelector(".dom_region_inner");
+
+  if (btnPlatform && inner) {
+    btnPlatform.forEach((btn) => {
+      btn.addEventListener("click", () => {
+        inner.classList.toggle("active");
+      });
+    });
+  }
+  if (btnRegion && region) {
+    btnRegion.forEach((btn) => {
+      btn.addEventListener("click", () => {
+        region.classList.toggle("active");
+      });
+    });
+  }
   // Toggle Sidebar on mobile menu click
   mobileMenu.addEventListener("click", () => {
     domSidebar.classList.toggle("active");
@@ -4646,6 +4893,7 @@ async function reloadFullData() {
   loadPlatformSummary(ids);
   loadSpendPlatform(ids);
   loadAgeGenderSpendChart(ids);
+  loadRegionSpendChart(ids);
   const dailyData = await fetchDailySpendByCampaignIDs(ids);
   renderDetailDailyChart2(dailyData, "spend");
 
