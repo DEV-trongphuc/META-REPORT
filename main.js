@@ -2330,6 +2330,9 @@ function setupDetailDailyFilter2() {
     if (!qualitySelect.contains(e.target)) {
       list.classList.remove("active");
     }
+    if (!filterBox.contains(e.target)) {
+      filterBox.classList.remove("active");
+    }
   });
 }
 
@@ -4935,3 +4938,107 @@ function resetUIFilter() {
     }
   }
 }
+
+const filterInputC = document.getElementById("campaign_filter");
+const filterBox = document.querySelector(".dom_campaign_filter");
+const filterList = filterBox.querySelector("ul");
+const filterBtn = document.getElementById("filter_button");
+
+// ✅ Render 1 campaign <li>
+function formatCampaignHTML(c) {
+  const thumb = c?.adsets?.[0]?.ads?.[0]?.thumbnail || "";
+  const optGoal = c?.adsets?.[0]?.ads?.[0]?.optimization_goal;
+  const iconClass = getCampaignIcon(optGoal);
+  const isActiveClass = c._isActive ? "active" : "";
+
+  return `
+    <li data-id="${c.id}">
+      <p>
+        <img src="${thumb}" />
+        <span>
+        <span>${c.name}</span>
+        <span>ID:${c.id}</span>
+        </span>
+      </p>
+      <p>
+        <i class="${iconClass} ${isActiveClass}"></i>
+        ${optGoal || "Unknown"}
+      </p>
+    </li>
+  `;
+}
+
+// ✅ Render danh sách hoặc trả "No results"
+function renderFilteredCampaigns(list) {
+  console.log(list);
+
+  if (!list.length) {
+    filterList.innerHTML = `<li style="color:#999;padding:10px;text-align:center;">No results found</li>`;
+    filterBox.classList.add("active");
+    return;
+  }
+
+  filterList.innerHTML = list.map(formatCampaignHTML).join("");
+  filterBox.classList.add("active");
+}
+
+// ✅ Lọc theo _ALL_CAMPAIGNS
+function filterCampaigns() {
+  const keyword = filterInputC.value.trim().toLowerCase();
+  console.log(keyword);
+
+  if (!keyword) {
+    filterList.innerHTML = "";
+    filterBox.classList.remove("active");
+    return;
+  }
+
+  const filtered = window._ALL_CAMPAIGNS.filter((c) =>
+    c.name?.toLowerCase().includes(keyword)
+  );
+
+  renderFilteredCampaigns(filtered);
+}
+
+// ✅ Xài debounce có sẵn
+const debouncedSearch = debounce(filterCampaigns, 500);
+
+// Listener
+filterInputC.addEventListener("input", (e) => {
+  const keyword = e.target.value.trim();
+
+  if (keyword === "") {
+    // clear UI ngay lập tức
+    filterList.innerHTML = "";
+    filterBox.classList.remove("active");
+
+    // cancel any pending debounced call (if your debounce exposes a cancel, use it)
+    // nếu debounce không có cancel, gọi RESET ngay để chắc chắn
+    applyCampaignFilter("RESET");
+    return;
+  }
+
+  // nếu không rỗng thì dùng debounce tìm kiếm
+  debouncedSearch();
+});
+filterBtn.addEventListener("click", filterCampaigns);
+filterInputC.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") filterCampaigns();
+});
+filterList.addEventListener("click", (e) => {
+  const li = e.target.closest("li");
+  if (!li) return;
+
+  const id = li.dataset.id;
+  if (!id) return;
+
+  console.log("Clicked Campaign:", id);
+
+  // Filter đúng theo campaign ID
+  const keywordObj = window._ALL_CAMPAIGNS.find((c) => c.id === id);
+  if (keywordObj) {
+    filterBox.classList.remove("active"); // Ẩn list sau khi chọn
+    filterInputC.value = keywordObj.name; // Show đúng tên đã chọn
+    applyCampaignFilter(keywordObj.name);
+  }
+});
