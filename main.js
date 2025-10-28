@@ -1486,6 +1486,7 @@ async function showAdDetail(ad_id) {
       fetchAdsetActionsByPlatformPosition(ad_id),
       fetchAdsetActionsByDevice(ad_id),
       fetchAdDailyInsights(ad_id),
+      fetchAdPreview(ad_id),
     ]);
 
     // Kiểm tra xem dữ liệu đã sẵn sàng chưa
@@ -2329,9 +2330,6 @@ function setupDetailDailyFilter2() {
   document.addEventListener("click", (e) => {
     if (!qualitySelect.contains(e.target)) {
       list.classList.remove("active");
-    }
-    if (!filterBox.contains(e.target)) {
-      filterBox.classList.remove("active");
     }
   });
 }
@@ -4269,6 +4267,19 @@ if (quickFilterBox) {
   });
 }
 document.addEventListener("DOMContentLoaded", () => {
+  const previewBtn = document.getElementById("preview_button");
+
+  if (previewBtn) {
+    previewBtn.addEventListener("click", () => {
+      const header = previewBtn.closest(".dom_detail_header");
+      if (header) {
+        header.classList.toggle("active");
+
+        // Option: đổi hướng icon cho có vibe animation
+        previewBtn.classList.toggle("rotated");
+      }
+    });
+  }
   const menuItems = document.querySelectorAll(".dom_menu li");
   const container = document.querySelector(".dom_container");
   const mobileMenu = document.querySelector("#mobile_menu");
@@ -5128,3 +5139,68 @@ function resetUIFilter() {
   // Done
   console.debug("[campaign-filter] initialized safely");
 })();
+
+async function fetchBillingCharges() {
+  try {
+    if (!ACCOUNT_ID || !META_TOKEN)
+      throw new Error("Missing ACCOUNT_ID or token");
+    const filtering = encodeURIComponent(
+      JSON.stringify([
+        {
+          field: "event_type",
+          operator: "IN",
+          value: ["ad_account_billing_charge"],
+        },
+      ])
+    );
+
+    const url = `${BASE_URL}/act_${ACCOUNT_ID}/activities?fields=event_time,event_type,actor_name,object_type,object_name,extra_data&&limit=50&access_token=${META_TOKEN}`;
+
+    const res = await fetch(url);
+    const data = await res.json();
+
+    if (!data?.data?.length) {
+      console.warn(
+        "⚠️ Không có billing activity nào trong khoảng thời gian này."
+      );
+      return [];
+    }
+
+    console.log(data.data);
+
+    return data.data;
+  } catch (err) {
+    console.error("❌ Error fetching billing charges:", err);
+    return [];
+  }
+}
+// fetchBillingCharges();
+
+async function fetchAdPreview(adId) {
+  try {
+    if (!adId || !META_TOKEN) throw new Error("Missing adId or token");
+
+    const url = `${BASE_URL}/${adId}/previews?ad_format=DESKTOP_FEED_STANDARD&access_token=${META_TOKEN}`;
+    const res = await fetch(url);
+    const data = await res.json();
+
+    if (!data || !data.data?.length) {
+      console.warn("⚠️ No preview data found for this ad.");
+      return null;
+    }
+
+    // 📋 Preview HTML (iframe)
+    const html = data.data[0].body;
+    console.log("✅ Preview HTML:", html);
+
+    const previewBox = document.getElementById("preview_box");
+    if (previewBox) {
+      previewBox.innerHTML = html; // Meta trả về HTML iframe tự render
+    }
+
+    return html;
+  } catch (err) {
+    console.error("❌ Error fetching ad preview:", err);
+    return null;
+  }
+}
