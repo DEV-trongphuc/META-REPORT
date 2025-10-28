@@ -2897,7 +2897,7 @@ tbody {
 }
 .campaign_main .ad_name,
 .adset_item .ad_name {
-  font-weight: bold;
+  line-height: 1.6;
 }
 .ad_item .ad_name {
   cursor: pointer;
@@ -3728,4 +3728,72 @@ tbody {
   .dom_container.dashboard .dom_dashboard {
     padding-bottom: 100rem;
   }
+}
+.dom_header .dom_campaign_filter {
+  width: 50rem;
+  position: relative;
+  z-index: 9999;
+}
+.dom_header .dom_campaign_filter > div {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  background-color: var(--textClr);
+  height: 100%;
+  padding: 1rem 2rem;
+  color: white;
+  border-radius: 15px;
+  cursor: pointer;
+}
+.dom_header .dom_campaign_filter > ul {
+  position: absolute;
+  top: 100%;
+  transform: translateY(1rem);
+  left: 0;
+  width: 100%;
+  max-height: 40rem;
+  overflow-y: auto;
+  background-color: white;
+  border-radius: 15px;
+  box-shadow: 0 0 5px rgb(0, 0, 0, 0.1);
+  opacity: 0;
+  pointer-events: none;
+}
+.dom_campaign_filter.active > ul {
+  opacity: 1;
+  pointer-events: all;
+}
+.dom_header .dom_campaign_filter > ul li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 2rem;
+  transition: 0.3s;
+  cursor: pointer;
+}
+.dom_header .dom_campaign_filter > ul li:hover {
+  background-color: var(--fadeClr);
+}
+.dom_header .dom_campaign_filter > ul li img {
+  width: 5rem;
+  height: 5rem;
+  border-radius: 5px;
+}
+.dom_header .dom_campaign_filter > ul li > p:first-child {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+.dom_header .dom_campaign_filter > ul li > p i.active {
+  color: var(--mainClr);
+}
+.dom_header .dom_campaign_filter > ul li > p:first-child > span {
+  display: flex;
+  width: 80%;
+  flex-direction: column;
+  gap: 1rem;
+}
+.dom_header .dom_campaign_filter > ul li > p:last-child {
+  display: flex;
+  gap: 1rem;
 }
