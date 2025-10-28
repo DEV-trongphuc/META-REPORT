@@ -78,7 +78,7 @@
           </li>
           <li class="" data-view="ad_detail">
             <i class="fa-solid fa-list"></i>
-           <span>Campaign details</span>
+            <span>Campaign details</span>
           </li>
           <li class="" data-view="account">
             <i class="fa-solid fa-money-check"></i>
@@ -310,14 +310,29 @@
               </div>
             </div>
             <div
-              class="dom_inner dom_fade_item w35 box_shadow chart full trendline"
+              class="dom_inner dom_fade_item w35 box_shadow chart full trendline dom_region_inner"
             >
-              <h2>
-                <i class="fa-solid fa-chart-simple main_clr"></i> Optimization
-                goal
+              <h2 class="">
+                <span>
+                  <i class="fa-solid fa-chart-simple main_clr"></i> Optimization
+                  goal</span
+                >
+                <span class="dom_title_button region">Region Chart</span>
               </h2>
               <div>
                 <canvas id="goal_chart"></canvas>
+              </div>
+              <div class="dom_platform_abs">
+                <h2 class="">
+                  <span>
+                    <i class="fa-solid fa-chart-simple main_clr"></i> Region
+                    Spent</span
+                  >
+                  <span class="dom_title_button region">GOAL Chart</span>
+                </h2>
+                <div>
+                  <canvas id="region_chart"></canvas>
+                </div>
               </div>
             </div>
             <!-- <div class="dom_inner dom_fade_item w35 box_shadow chart">
@@ -379,7 +394,11 @@
               class="dom_inner dom_fade_item w33 dom_platform_inner box_shadow chart"
             >
               <h2 class="">
-                <i class="fa-solid fa-layer-group main_clr"></i> Spent Platform
+                <span>
+                  <i class="fa-solid fa-layer-group main_clr"></i> Spent
+                  Platform</span
+                >
+                <span class="dom_title_button platform">Details</span>
               </h2>
               <div class="dom_platform">
                 <div>
@@ -414,6 +433,16 @@
                 <div>
                   <canvas id="platform_chart"></canvas>
                 </div>
+              </div>
+              <div class="dom_platform_abs">
+                <h2 class="">
+                  <span>
+                    <i class="fa-solid fa-layer-group main_clr"></i> Platform
+                    Positions</span
+                  >
+                  <span class="dom_title_button platform">Platforms</span>
+                </h2>
+                <div class="dom_platform_abs_item dom_toplist"></div>
               </div>
             </div>
             <div
@@ -939,4 +968,3 @@
   <script src="./setup.js"></script>
   <script src="./main.js"></script>
 </html>
-
