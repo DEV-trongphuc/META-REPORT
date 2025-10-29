@@ -1619,7 +1619,7 @@ async function showAdDetail(ad_id) {
         (t, d) =>
           t +
           (d.actions?.lead ||
-            d.actions?.onsite_conversion.messaging_first_reply ||
+            d.actions?.onsite_conversion.messaging_conversation_replied_7d ||
             0),
         0
       ),
