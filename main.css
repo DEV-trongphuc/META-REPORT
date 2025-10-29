@@ -1099,7 +1099,10 @@ tbody {
   padding-bottom: 2rem;
 }
 .dom_inner h2 i {
-  padding-right: 1rem;
+  padding-right: 0.5rem;
+}
+.dom_title_button i {
+  opacity: 0.8;
 }
 #count_lead,
 .count_lead {
@@ -1151,7 +1154,7 @@ tbody {
   color: white;
   font-size: 1.5rem;
 }
-.dom_total_report > ul > li i {
+.dom_total_report > ul > li > span i {
   font-size: 1.3rem;
   margin-right: 5px;
   opacity: 0.5;
@@ -2350,7 +2353,7 @@ tbody {
   flex-direction: column;
   padding-right: 2rem;
   font-size: 1.2rem;
-  gap: 1.5rem;
+  gap: 1.2rem;
   background-color: var(--fadeClr);
 }
 .dom_campaign_filter > i {
@@ -2568,8 +2571,8 @@ tbody {
 .dom_total_report > ul > li:first-child i {
   opacity: 1 !important;
 }
-#detail_spent span,
-#spent > span {
+#detail_spent span:nth-child(1),
+#spent > span:nth-child(1) {
   font-size: 3rem;
   color: white;
 }
@@ -2711,8 +2714,14 @@ tbody {
   align-items: flex-end;
   position: relative;
   overflow: hidden;
+  transition: 0.3s ease;
 }
-
+.campaign_item.inactive {
+  opacity: 0.8;
+}
+.campaign_item.show {
+  opacity: 1;
+}
 .adset_item,
 .campaign_main,
 .ad_item {
@@ -3578,6 +3587,35 @@ tbody {
 }
 .dom_account .dom_total_report > ul li {
   padding: 2rem;
+}
+.dom_total_report > ul > li > p {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.dom_total_report > ul > li {
+  position: relative;
+}
+.dom_total_report > ul > li > p > span:nth-child(2) {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+  font-size: 1.1rem;
+  padding: 0.5rem 1rem;
+  border-radius: 10px;
+  color: #c47f00;
+  background-color: #ff990018;
+}
+.dom_total_report > ul > li > p > span:nth-child(2).decrease {
+  background-color: #b1060018;
+  color: rgba(192, 0, 0, 0.541);
+}
+.dom_total_report > ul > li > p > span:nth-child(2).increase {
+  background-color: #56b10018;
+  color: rgba(20, 99, 0, 0.952);
+}
+.dom_total_report > ul > li:first-child > p > span:nth-child(2) {
+  background-color: #ffffffee;
 }
 .dom_select.year_filter {
   background-color: #f3f3f3;
