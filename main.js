@@ -1517,18 +1517,6 @@ async function showAdDetail(ad_id) {
     // ================== Render Targeting ==================
     renderTargetingToDOM(targeting);
 
-    // ================== Render Interaction (Dùng byDate) ==================
-    // 💡 Sửa lỗi logic: Dùng 'byDate' data đã được xử lý (object keys là date)
-    // Cần đảm bảo hàm fetchAdDetailBatch trả về byDate đúng định dạng object { 'date': data }
-    // Nếu fetchAdDetailBatch trả về array, cần xử lý lại ở đây hoặc trong hàm renderInteraction
-
-    // Tạm giả định fetchAdDetailBatch đã xử lý byDate thành object:
-    // const processedByDate = processRawDailyData(byDate); // Bạn có thể cần hàm xử lý này
-    // renderInteraction(processedByDate);
-    // window.dataByDate = processedByDate; // Lưu data đã xử lý
-
-    // *** HOẶC nếu hàm renderInteraction/renderCharts chấp nhận array raw data ***
-    // Chuyển đổi dữ liệu insights về đúng định dạng object {date: {spend, actions...}} nếu cần
     const processedByDate = {};
     (byDate || []).forEach((item) => {
       const date = item.date_start;
@@ -1548,6 +1536,8 @@ async function showAdDetail(ad_id) {
 
     // Chuyển đổi các breakdown khác về dạng object {key: {spend, actions...}}
     const processBreakdown = (dataArray, keyField1, keyField2 = null) => {
+      console.log();
+
       const result = {};
       (dataArray || []).forEach((item) => {
         let key = item[keyField1] || "unknown";
@@ -1575,6 +1565,7 @@ async function showAdDetail(ad_id) {
       byHour,
       "hourly_stats_aggregated_by_advertiser_time_zone"
     );
+
     const processedByAgeGender = processBreakdown(byAgeGender, "age", "gender");
     const processedByRegion = processBreakdown(byRegion, "region");
     const processedByPlatform = processBreakdown(
@@ -1582,6 +1573,8 @@ async function showAdDetail(ad_id) {
       "publisher_platform",
       "platform_position"
     );
+    console.log(processedByAgeGender);
+
     const processedByDevice = processBreakdown(byDevice, "impression_device");
 
     renderInteraction(processedByDate); // Truyền dữ liệu đã xử lý
@@ -1618,8 +1611,10 @@ async function showAdDetail(ad_id) {
       results: Object.values(processedByDate).reduce(
         (t, d) =>
           t +
-          (d.actions?.lead ||
-            d.actions?.onsite_conversion.messaging_conversation_replied_7d ||
+          (d.actions?.["onsite_conversion.lead_grouped"] ||
+            d.actions?.[
+              "onsite_conversion.messaging_conversation_replied_7d"
+            ] ||
             0),
         0
       ),
@@ -1628,6 +1623,7 @@ async function showAdDetail(ad_id) {
     window.targetingData = targeting;
     window.processedByDate = processedByDate;
     window.processedByHour = processedByHour;
+
     window.processedByAgeGender = processedByAgeGender;
     window.processedByRegion = processedByRegion;
     window.processedByPlatform = processedByPlatform;
@@ -1721,6 +1717,7 @@ async function fetchAdDetailBatch(ad_id) {
 
     batchResponse.forEach((item, index) => {
       const name = batchRequests[index].name; // Lấy tên đã định danh
+      console.log(name);
 
       // Mặc định giá trị rỗng
       const defaultEmpty =
@@ -1738,6 +1735,7 @@ async function fetchAdDetailBatch(ad_id) {
             results[name] = body.data?.[0]?.body || null; // Đây là chuỗi HTML
           } else {
             // Tất cả các 'insights' call khác
+
             results[name] = body.data || [];
           }
         } catch (e) {
@@ -5691,9 +5689,8 @@ async function generateDeepReportDetailed({
   byAgeGender = {},
   byRegion = {},
   byPlatform = {},
-  byDevice = {},
   targeting = {},
-  goal = "",
+  goal = VIEW_GOAL,
 } = {}) {
   // -------------------------
   // Helpers (Sử dụng các hàm format toàn cục nếu có)
@@ -5724,25 +5721,17 @@ async function generateDeepReportDetailed({
     return Math.round(n);
   };
 
-  const formatPercent = (n) => `${(safeNumber(n) * 100).toFixed(02)}%`;
+  const formatPercent = (n) => `${(safeNumber(n) * 100).toFixed(2)}%`;
 
   // Hàm getResultsSafe (từ code của bạn, đã tốt)
-  const getResultsSafe = (dataSegment, goalParam = "") => {
+  const getResultsSafe = (dataSegment) => {
     if (window.getResults)
-      return safeNumber(window.getResults(dataSegment, goalParam));
+      return safeNumber(window.getResults(dataSegment, VIEW_GOAL));
     const actions = dataSegment?.actions || {};
-    const g = (goalParam || goal || "").toUpperCase();
+    const g = (VIEW_GOAL || goal || "").toUpperCase();
     if (g === "REACH") return safeNumber(dataSegment.reach || 0);
-    if (g === "LEAD" || g === "LEAD_GENERATION" || g === "QUALITY_LEAD") {
-      const leadKeys = [
-        "onsite_conversion.lead_grouped",
-        "lead",
-        "offsite_conversion.lead",
-        "onsite_web_lead",
-        "submit_form",
-        "leadgen",
-        "complete_registration",
-      ];
+    if (g === "LEAD_GENERATION" || g === "QUALITY_LEAD") {
+      const leadKeys = ["onsite_conversion.lead_grouped"];
       let leadSum = 0;
       for (const k of leadKeys) {
         if (actions[k]) leadSum += safeNumber(actions[k]);
@@ -5759,7 +5748,6 @@ async function generateDeepReportDetailed({
       "offsite_conversion.purchase",
       "purchase",
       "onsite_conversion.lead_grouped",
-      "lead",
       "onsite_conversion.messaging_conversation_replied_7d",
       "landing_page_view",
       "link_click",
@@ -5771,19 +5759,19 @@ async function generateDeepReportDetailed({
     return 0;
   };
 
-  const calculateCPR = (spend, result, goalParam = "") => {
+  const calculateCPR = (spend, result, VIEW_GOAL = "") => {
     spend = safeNumber(spend);
     result = safeNumber(result);
     if (spend <= 0 || result <= 0) return 0;
-    if ((goalParam || goal).toUpperCase() === "REACH")
+    if ((VIEW_GOAL || goal).toUpperCase() === "REACH")
       return (spend / result) * 1000;
     return spend / result;
   };
 
-  const formatCPR = (cprValue, goalParam = "") => {
+  const formatCPR = (cprValue, VIEW_GOAL = "") => {
     if (!cprValue || cprValue === 0) return "N/A";
     const formatted = formatMoney(Math.round(cprValue));
-    return (goalParam || goal).toUpperCase() === "REACH"
+    return (VIEW_GOAL || goal).toUpperCase() === "REACH"
       ? `${formatted} / 1000 reach`
       : formatted;
   };
@@ -5832,7 +5820,7 @@ async function generateDeepReportDetailed({
       const spend = safeNumber(item.spend);
       const impressions = safeNumber(item.impressions);
       const reach = safeNumber(item.reach);
-      const result = getResultsSafe(item, goal);
+      const result = getResults(item);
       const linkClicks = safeNumber(
         item.actions?.link_click || item.actions?.link_clicks || 0
       );
@@ -5855,7 +5843,6 @@ async function generateDeepReportDetailed({
   const byAgeGenderArr = computeBreakdownMetrics(byAgeGender);
   const byRegionArr = computeBreakdownMetrics(byRegion);
   const byPlatformArr = computeBreakdownMetrics(byPlatform);
-  const byDeviceArr = computeBreakdownMetrics(byDevice);
   const byHourArr = computeBreakdownMetrics(byHour);
 
   let totalSpend = 0,
@@ -6035,6 +6022,7 @@ async function generateDeepReportDetailed({
   // 1) Timing (Hours)
   (function () {
     const arr = byHourArr;
+
     if (!arr.length)
       return sections.push({ title: "Timing (Hourly)", note: "No data" });
     const formatList = (list) =>
@@ -6155,8 +6143,6 @@ async function generateDeepReportDetailed({
   };
 
   // Log ra console (Đã cập nhật)
-  console.group(`📑 Deep Report (Top 3) — Goal: ${summary.goal}`);
-  console.log("--- Tóm tắt Phễu ---");
   console.table([
     {
       Spend: summary.formatted.totalSpend,
@@ -6340,54 +6326,6 @@ function renderAdReportWithVibe(report) {
 /**
  * Tạo lưới KPI tóm tắt (Đã cập nhật)
  */
-function createKpiGrid(summary, delayStart = 1) {
-  console.log(summary);
-
-  if (!summary || !summary.formatted) return "";
-  const { formatted, goal } = summary;
-
-  return `
-        <h5 class="fade_in_item delay-${delayStart}"><i class="fa-solid fa-chart-pie"></i> Tóm tắt Phễu Hiệu suất</h5>
-        <div class="ai_kpi_grid fade_in_item delay-${delayStart + 1}">
-            <div class="kpi_item">
-                <span>Tổng chi phí</span>
-                <strong>${formatted.totalSpend || "N/A"}</strong>
-            </div>
-            <div class="kpi_item">
-                <span>Tổng kết quả (${goal || "N/A"})</span>
-                <strong>${formatted.totalResults || "N/A"}</strong>
-            </div>
-            <div class="kpi_item">
-                <span>CPR (Chi phí/Kết quả)</span>
-                <strong>${formatted.overallCPR || "N/A"}</strong>
-            </div>
-            <div class="kpi_item">
-                <span>CPM (Chi phí/1000 Lượt xem)</span>
-                <strong>${formatted.overallCPM || "N/A"}</strong>
-            </div>
-            <div class="kpi_item">
-                <span>CTR (Tỷ lệ Click)</span>
-                <strong class="${
-                  summary.overallCTR < 0.005 ? "metric-bad" : "metric-good"
-                }">${formatted.overallCTR || "N/A"}</strong>
-            </div>
-            <div class="kpi_item">
-                <span>CVR (Click -> Kết quả)</span>
-                <strong class="${
-                  summary.overallCVRProxy < 0.02 ? "metric-bad" : "metric-good"
-                }">${formatted.overallCVRProxy || "N/A"}</strong>
-            </div>
-            <div class="kpi_item">
-                <span>Tiếp cận (Reach)</span>
-                <strong>${summary.totalReach || "N/A"}</strong>
-            </div>
-            <div class="kpi_item">
-                <span>Tần suất (Freq)</span>
-                <strong>${formatted.overallFreq || "N/A"}</strong>
-            </div>
-        </div>
-    `;
-}
 
 /**
  * Tạo danh sách Insights/Đề xuất.
@@ -6568,39 +6506,39 @@ function createKpiGrid(summary, delayStart = 1) {
     <div class="ai_kpi_grid fade_in_item delay-${delayStart + 1}">
         <div class="kpi_item">
             <span>Tổng chi phí</span>
-            <strong>${formatted.totalSpend || "N/A"}</strong>
+            <b>${formatted.totalSpend || "N/A"}</b>
         </div>
         <div class="kpi_item">
-            <span>Tổng kết quả (${goal || "N/A"})</span>
-            <strong>${formatted.totalResults || "N/A"}</strong>
+            <span>Tổng kết quả</span>
+            <b>${formatted.totalResults || "N/A"} (${goal || "N/A"})</b>
         </div>
         <div class="kpi_item">
             <span>CPR (Chi phí/Kết quả)</span>
-            <strong>${formatted.overallCPR || "N/A"}</strong>
+            <b>${formatted.overallCPR || "N/A"}</b>
         </div>
         <div class="kpi_item">
             <span>CPM (Chi phí/1000 Lượt xem)</span>
-            <strong>${formatted.overallCPM || "N/A"}</strong>
+            <b>${formatted.overallCPM || "N/A"}</b>
         </div>
         <div class="kpi_item">
             <span>CTR (Tỷ lệ Click)</span>
-            <strong class="${
+            <b class="${
               summary.overallCTR < 0.005 ? "metric-bad" : "metric-good"
-            }">${formatted.overallCTR || "N/A"}</strong>
+            }">${formatted.overallCTR || "N/A"}</b>
         </div>
         <div class="kpi_item">
             <span>CVR (Click -> Kết quả)</span>
-             <strong class="${
+             <b class="${
                summary.overallCVRProxy < 0.02 ? "metric-bad" : "metric-good"
-             }">${formatted.overallCVRProxy || "N/A"}</strong>
+             }">${formatted.overallCVRProxy || "N/A"}</b>
         </div>
         <div class="kpi_item">
             <span>Tiếp cận (Reach)</span>
-            <strong>${formatted.totalReach || "N/A"}</strong>
+            <b>${summary.totalReach || "N/A"}</b>
         </div>
         <div class="kpi_item">
             <span>Tần suất (Freq)</span>
-            <strong>${formatted.overallFreq || "N/A"}</strong>
+            <b>${formatted.overallFreq || "N/A"}</b>
         </div>
     </div>
   `;
@@ -6663,40 +6601,6 @@ function createInsightList(recommendations, delayStart = 1) {
  * @param {object} summary - Object summary từ JSON.
  * @param {number} delayStart - Số delay bắt đầu cho animation.
  */
-function createKpiGrid(summary, delayStart = 1) {
-  if (!summary || !summary.formatted) return "";
-  const { formatted } = summary;
-
-  return `
-      <h5 class="fade_in_item delay-${delayStart}"><i class="fa-solid fa-chart-pie"></i> Tóm tắt Hiệu suất</h5>
-      <div class="ai_kpi_grid fade_in_item delay-${delayStart + 1}">
-          <div class="kpi_item">
-              <span>Tổng chi phí</span>
-              <b>${formatted.totalSpend || "N/A"}</b>
-          </div>
-          <div class="kpi_item">
-              <span>Tổng kết quả (${summary.goal || "N/A"})</span>
-              <b>${formatted.totalResults || "N/A"}</b>
-          </div>
-          <div class="kpi_item">
-              <span>CPR</span>
-              <b>${formatted.overallCPR || "N/A"}</b>
-          </div>
-          <div class="kpi_item">
-              <span>CPM (trên Reach)</span>
-              <b>${formatted.overallCPM || "N/A"}</b>
-          </div>
-           <div class="kpi_item">
-              <span>Tiếp cận (Reach)</span>
-              <b>${formatted.totalReach || "N/A"}</b>
-          </div>
-          <div class="kpi_item">
-              <span>Tần suất (Freq)</span>
-              <b>${formatted.overallFreq || "N/A"}</b>
-          </div>
-      </div>
-  `;
-}
 
 /**
  * Tạo danh sách Insights/Đề xuất.
