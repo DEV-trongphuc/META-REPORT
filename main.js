@@ -6110,21 +6110,21 @@ async function generateDeepReportDetailed({
   })();
 
   // 5) Device
-  (function () {
-    const arr = byDeviceArr;
-    if (!arr.length) return sections.push({ title: "Device", note: "No data" });
-    sections.push({
-      title: "Device",
-      topSpend: topN(arr, (x) => x.spend, N_TOP),
-      topResult: topN(arr, (x) => x.result, N_TOP), // <<< THÊM Top Result
-      bestCpr: topN(
-        arr.filter((x) => x.cpr > 0),
-        (x) => x.cpr,
-        N_TOP,
-        true
-      ),
-    });
-  })();
+  // (function () {
+  //   const arr = byDeviceArr;
+  //   if (!arr.length) return sections.push({ title: "Device", note: "No data" });
+  //   sections.push({
+  //     title: "Device",
+  //     topSpend: topN(arr, (x) => x.spend, N_TOP),
+  //     topResult: topN(arr, (x) => x.result, N_TOP), // <<< THÊM Top Result
+  //     bestCpr: topN(
+  //       arr.filter((x) => x.cpr > 0),
+  //       (x) => x.cpr,
+  //       N_TOP,
+  //       true
+  //     ),
+  //   });
+  // })();
 
   // 6) Creative (Section rỗng, chỉ có insight)
   sections.push({
