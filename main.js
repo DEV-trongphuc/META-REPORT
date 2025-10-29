@@ -983,15 +983,10 @@ function initDashboard() {
   setupDetailDailyFilter2();
   setupFilterDropdown();
   setupYearDropdown();
-
-  // ⭐ TỐI ƯU: Gọi addListeners MỘT LẦN DUY NHẤT
   addListeners();
-
   const { start, end } = getDateRange("last_7days");
   startDate = start;
   endDate = end;
-
-  // Có thể add thêm listener hoặc setup UI khác ở đây
 }
 
 // 🧠 Hàm chỉ để load lại data (gọi khi đổi account/filter)
@@ -1025,8 +1020,8 @@ async function loadDashboardData() {
 
 // 🚀 Hàm chính gọi khi load trang lần đầu
 async function main() {
-  renderYears();
   initDashboard();
+  renderYears();
   await loadDashboardData();
 }
 
@@ -1812,7 +1807,16 @@ async function applyCampaignFilter(keyword) {
   // 🚩 Nếu filter = "RESET" thì load full data
   if (keyword && keyword.toUpperCase() === "RESET") {
     renderCampaignView(window._ALL_CAMPAIGNS); // FULL_CAMPAIGN
-    await reloadFullData(); // gọi 1 hàm load lại toàn bộ
+    const allAds = window._ALL_CAMPAIGNS.flatMap((c) =>
+      c.adsets.flatMap((as) =>
+        (as.ads || []).map((ad) => ({
+          optimization_goal: as.optimization_goal,
+          insights: { spend: ad.spend || 0 },
+        }))
+      )
+    );
+    renderGoalChart(allAds);
+    await loadAllDashboardCharts();
     return;
   }
 
@@ -3569,62 +3573,141 @@ function setupDetailDailyFilter() {
   });
 }
 
-function updatePlatformSummaryUI(data) {
-  if (!data) return;
+/**
+ * Cập nhật UI tóm tắt tổng quan, bao gồm so sánh với kỳ trước.
+ */
+function updatePlatformSummaryUI(currentData, previousData = []) {
+  // Thêm previousData và giá trị mặc định
+  // --- Helper function để xử lý một object/array data ---
 
-  // ⚠️ Trường hợp fetchPlatformStats trả về array
-  if (Array.isArray(data)) data = data[0] || {};
+  const processData = (data) => {
+    // Đảm bảo data là object, lấy phần tử đầu nếu là array
+    const insights = Array.isArray(data) ? data[0] || {} : data || {};
 
-  // Chuyển actions[] thành object để dễ truy cập key
-  const act = {};
-  (data.actions || []).forEach(({ action_type, value }) => {
-    act[action_type] = (act[action_type] || 0) + (+value || 0);
-  });
+    // Chuyển actions array thành object để dễ truy cập
+    const actionsObj = {};
+    (insights.actions || []).forEach(({ action_type, value }) => {
+      actionsObj[action_type] = (actionsObj[action_type] || 0) + (+value || 0);
+    });
 
-  const totalSpend = +data.spend || 0;
-  const totalReach = +data.reach || 0;
-  const totalImpression = +data.impressions || 0;
+    // Trích xuất các chỉ số chính
+    return {
+      spend: +insights.spend || 0,
+      reach: +insights.reach || 0,
+      message:
+        actionsObj["onsite_conversion.messaging_conversation_replied_7d"] || 0,
+      lead: actionsObj["onsite_conversion.lead_grouped"] || 0,
+      // Các chỉ số phụ (nếu cần tính toán so sánh sau này)
+      like:
+        (actionsObj["like"] || 0) +
+        (actionsObj["page_follow"] || 0) +
+        (actionsObj["page_like"] || 0),
+      reaction: actionsObj["post_reaction"] || 0,
+      comment: actionsObj["comment"] || 0,
+      share: (actionsObj["post"] || 0) + (actionsObj["share"] || 0),
+      click: actionsObj["link_click"] || 0,
+      view: (actionsObj["video_view"] || 0) + (actionsObj["photo_view"] || 0),
+    };
+  };
 
-  const totalLike = act["like"] || 0;
-  const totalFollow = act["page_follow"] || act["page_like"] || 0;
-  const totalReaction = act["post_reaction"] || 0;
-  const totalComment = act["comment"] || 0;
-  const totalShare = act["post"] || act["share"] || 0;
-  const totalClick = act["link_click"] || 0;
-  const totalView = act["video_view"] || act["photo_view"] || 0;
-  const totalMessage =
-    act["onsite_conversion.messaging_conversation_replied_7d"] || 0;
-  const totalLead =
-    act["lead"] ||
-    act["onsite_web_lead"] ||
-    act["onsite_conversion.lead_grouped"] ||
-    0;
+  // --- Xử lý dữ liệu cho kỳ hiện tại và kỳ trước ---
+  const currentMetrics = processData(currentData);
+  const previousMetrics = processData(previousData);
+  console.log(previousMetrics);
 
-  // --- Render UI ---
-  document.querySelector(
-    "#spent span"
-  ).textContent = `${totalSpend.toLocaleString("vi-VN")}đ`;
-  document.querySelector("#reach span").textContent =
-    totalReach.toLocaleString("vi-VN");
-  document.querySelector("#message span").textContent =
-    totalMessage.toLocaleString("vi-VN");
-  document.querySelector("#lead span").textContent =
-    totalLead.toLocaleString("vi-VN");
+  // --- Helper function tính toán % thay đổi và xác định trạng thái ---
+  const calculateChange = (current, previous) => {
+    const change = ((current - previous) / previous) * 100;
+    let type = "equal";
+    let icon = "fa-solid fa-equals";
+    let colorClass = "equal";
 
+    if (change > 0) {
+      type = "increase";
+      icon = "fa-solid fa-caret-up";
+      colorClass = "increase";
+    } else if (change < 0) {
+      type = "decrease";
+      icon = "fa-solid fa-caret-down";
+      colorClass = "decrease";
+    }
+
+    return { percentage: change, type, icon, colorClass };
+  };
+
+  // --- Helper function để render một chỉ số và % thay đổi ---
+  const renderMetric = (
+    id,
+    currentValue,
+    previousValue,
+    isCurrency = false
+  ) => {
+    let titleText = ` ${previousValue.toLocaleString("vi-VN")} - (${
+      previousData?.[0].date_start
+    } to ${previousData?.[0].date_stop})`;
+    const valueEl = document.querySelector(`#${id} span:first-child`);
+    const changeEl = document.querySelector(`#${id} span:last-child`);
+    changeEl.setAttribute("title", titleText);
+    if (!valueEl || !changeEl) {
+      console.warn(`Không tìm thấy element cho ID: ${id}`);
+      return;
+    }
+
+    // Định dạng giá trị hiện tại
+    valueEl.textContent = isCurrency
+      ? formatMoney(currentValue)
+      : formatNumber(currentValue);
+
+    // Tính toán và hiển thị thay đổi
+    const changeInfo = calculateChange(currentValue, previousValue);
+
+    changeEl.textContent = ""; // Xóa nội dung cũ
+    changeEl.className = ""; // Xóa class cũ
+
+    let percentageText = "";
+    if (changeInfo.type === "new") {
+      percentageText = "Mới"; // Hoặc để trống nếu muốn
+    } else if (changeInfo.percentage !== null) {
+      percentageText = `${
+        changeInfo.percentage >= 0 ? "+" : ""
+      }${changeInfo.percentage.toFixed(1)}%`;
+    } else {
+      percentageText = "N/A"; // Trường hợp cả 2 là 0
+    }
+
+    changeEl.appendChild(document.createTextNode(` ${percentageText}`)); // Thêm khoảng trắng
+
+    // Thêm class màu sắc
+    changeEl.classList.add(changeInfo.colorClass);
+  };
+
+  // --- Render các chỉ số chính với so sánh ---
+  renderMetric("spent", currentMetrics.spend, previousMetrics.spend, true); // true vì là tiền tệ
+  renderMetric("reach", currentMetrics.reach, previousMetrics.reach);
+  renderMetric("message", currentMetrics.message, previousMetrics.message);
+  renderMetric("lead", currentMetrics.lead, previousMetrics.lead);
+
+  // --- Render các chỉ số phụ (không cần so sánh theo UI mới) ---
   document.querySelector(".dom_interaction_reaction").textContent =
-    totalReaction.toLocaleString("vi-VN");
-  document.querySelector(".dom_interaction_like").textContent = (
-    totalLike + totalFollow
-  ).toLocaleString("vi-VN");
-  document.querySelector(".dom_interaction_comment").textContent =
-    totalComment.toLocaleString("vi-VN");
-  document.querySelector(".dom_interaction_share").textContent =
-    totalShare.toLocaleString("vi-VN");
-  document.querySelector(".dom_interaction_click").textContent =
-    totalClick.toLocaleString("vi-VN");
-  document.querySelector(".dom_interaction_view").textContent =
-    totalView.toLocaleString("vi-VN");
+    formatNumber(currentMetrics.reaction);
+  document.querySelector(".dom_interaction_like").textContent = formatNumber(
+    currentMetrics.like
+  ); // Đã gộp like+follow trong processData
+  document.querySelector(".dom_interaction_comment").textContent = formatNumber(
+    currentMetrics.comment
+  );
+  document.querySelector(".dom_interaction_share").textContent = formatNumber(
+    currentMetrics.share
+  );
+  document.querySelector(".dom_interaction_click").textContent = formatNumber(
+    currentMetrics.click
+  );
+  document.querySelector(".dom_interaction_view").textContent = formatNumber(
+    currentMetrics.view
+  );
 }
+
+// --- Các hàm format cũ (giữ nguyên hoặc đảm bảo chúng tồn tại) ---
 async function fetchPlatformStats(campaignIds = []) {
   try {
     if (!ACCOUNT_ID) throw new Error("ACCOUNT_ID is required");
@@ -3743,14 +3826,31 @@ async function fetchDailySpendByCampaignIDs(campaignIds = []) {
 }
 
 //  batch
-/**
- * ⭐ TỐI ƯU: Thay thế 5 hàm fetch... bằng 1 hàm Batch Request duy nhất.
- * Hàm này sẽ gọi 1 lần để lấy tất cả 5 loại insights.
- */
 async function fetchDashboardInsightsBatch(campaignIds = []) {
   if (!ACCOUNT_ID) throw new Error("ACCOUNT_ID is required");
 
-  // 1. Chuẩn bị các tham số chung
+  // --- 1. TÍNH KHOẢNG THỜI GIAN TRƯỚC ---
+  const currentStartDate = new Date(startDate + "T00:00:00");
+  const currentEndDate = new Date(endDate + "T00:00:00");
+  const durationMillis = currentEndDate.getTime() - currentStartDate.getTime();
+  const durationDays = durationMillis / (1000 * 60 * 60 * 24) + 1;
+
+  const previousEndDate = new Date(currentStartDate);
+  previousEndDate.setDate(previousEndDate.getDate());
+
+  const previousStartDate = new Date(previousEndDate);
+  previousStartDate.setDate(previousStartDate.getDate() - durationDays + 1);
+
+  const formatDate = (date) => date.toISOString().slice(0, 10);
+  const prevStartDateStr = formatDate(previousStartDate);
+  const prevEndDateStr = formatDate(previousEndDate);
+
+  console.log(`Current Range: ${startDate} to ${endDate}`);
+  console.log(
+    `Previous Range for Stats: ${prevStartDateStr} to ${prevEndDateStr}`
+  );
+  // --- KẾT THÚC BƯỚC 1 ---
+
   const filtering = campaignIds.length
     ? `&filtering=${encodeURIComponent(
         JSON.stringify([
@@ -3758,51 +3858,57 @@ async function fetchDashboardInsightsBatch(campaignIds = []) {
         ])
       )}`
     : "";
-
-  const timeRange = `&time_range={"since":"${startDate}","until":"${endDate}"}`;
   const commonEndpoint = `act_${ACCOUNT_ID}/insights`;
 
-  // 2. Định nghĩa 5 "yêu cầu con" (relative URLs)
-  // Thêm thuộc tính 'name' để dễ dàng map kết quả trả về
+  // Time range strings
+  const currentTimeRange = `&time_range={"since":"${startDate}","until":"${endDate}"}`;
+  const previousTimeRange = `&time_range={"since":"${prevStartDateStr}","until":"${prevEndDateStr}"}`; // <<< DÙNG NGÀY TRƯỚC
+
+  // --- 2. ĐỊNH NGHĨA REQUESTS (Chỉ thêm platformStats_previous) ---
   const batchRequests = [
+    // --- Dữ liệu kỳ hiện tại (Giữ nguyên) ---
     {
       method: "GET",
-      name: "platformStats", // Tên để định danh kết quả
-      relative_url: `${commonEndpoint}?fields=spend,impressions,reach,actions${timeRange}${filtering}`,
+      name: "platformStats",
+      relative_url: `${commonEndpoint}?fields=spend,impressions,reach,actions${currentTimeRange}${filtering}`,
     },
     {
       method: "GET",
       name: "spendByPlatform",
-      relative_url: `${commonEndpoint}?fields=spend&breakdowns=publisher_platform,platform_position${timeRange}${filtering}`,
+      relative_url: `${commonEndpoint}?fields=spend&breakdowns=publisher_platform,platform_position${currentTimeRange}${filtering}`,
     },
     {
       method: "GET",
       name: "spendByAgeGender",
-      relative_url: `${commonEndpoint}?fields=spend&breakdowns=age,gender${timeRange}${filtering}`,
+      relative_url: `${commonEndpoint}?fields=spend&breakdowns=age,gender${currentTimeRange}${filtering}`,
     },
     {
       method: "GET",
       name: "spendByRegion",
-      relative_url: `${commonEndpoint}?fields=spend&breakdowns=region${timeRange}${filtering}`,
+      relative_url: `${commonEndpoint}?fields=spend&breakdowns=region${currentTimeRange}${filtering}`,
     },
     {
       method: "GET",
       name: "dailySpend",
-      relative_url: `${commonEndpoint}?fields=spend,impressions,reach,actions,campaign_name,campaign_id&time_increment=1${timeRange}${filtering}`,
+      relative_url: `${commonEndpoint}?fields=spend,impressions,reach,actions,campaign_name,campaign_id&time_increment=1${currentTimeRange}${filtering}`,
     },
-  ];
 
-  // 3. Xây dựng body cho batch request
+    // --- Dữ liệu kỳ trước (Chỉ thêm platformStats) ---
+    {
+      method: "GET",
+      name: "platformStats_previous",
+      relative_url: `${commonEndpoint}?fields=spend,impressions,reach,actions${previousTimeRange}${filtering}`,
+    }, // <<< CHỈ THÊM CÁI NÀY
+  ];
+  // --- KẾT THÚC BƯỚC 2 ---
+
   const fbBatchBody = {
     access_token: META_TOKEN,
     batch: batchRequests,
-    include_headers: false, // Ta chỉ cần body
+    include_headers: false,
   };
-
-  // Giả định 'headers' đã được định nghĩa ở đâu đó (từ hàm fetchAdsAndInsights)
   const headers = { "Content-Type": "application/json" };
 
-  // 4. Gọi API
   try {
     const batchResponse = await fetchJSON(BASE_URL, {
       method: "POST",
@@ -3811,57 +3917,58 @@ async function fetchDashboardInsightsBatch(campaignIds = []) {
     });
 
     if (!Array.isArray(batchResponse)) {
-      throw new Error("Batch response (insights) was not an array");
+      throw new Error(
+        "Batch response (insights + prev stats) was not an array"
+      );
     }
 
-    // 5. Bóc tách kết quả trả về thành một object có tên
+    // --- 3. XỬ LÝ KẾT QUẢ ---
     const results = {};
     batchResponse.forEach((item, index) => {
-      const requestName = batchRequests[index].name; // Lấy tên đã định danh
-
+      const requestName = batchRequests[index].name;
       if (item && item.code === 200) {
         try {
           const body = JSON.parse(item.body);
-          results[requestName] = body.data || []; // Dữ liệu nằm trong 'body.data'
+          results[requestName] = body.data || [];
         } catch (e) {
           console.warn(
             `⚠️ Failed to parse batch response for ${requestName}`,
             e
           );
-          results[requestName] = []; // Gán mảng rỗng nếu lỗi parse
+          results[requestName] = [];
         }
       } else {
         console.warn(
           `⚠️ Batch request for ${requestName} failed with code ${item?.code}`
         );
-        results[requestName] = []; // Gán mảng rỗng nếu API lỗi
+        results[requestName] = [];
       }
     });
-
+    // --- KẾT THÚC BƯỚC 3 ---
+    console.log("Batch Results (Current & Previous Stats):", results);
     return results;
   } catch (err) {
-    console.error("❌ Fatal error during dashboard insights batch fetch:", err);
-    // Trả về cấu trúc rỗng để tránh lỗi ở các hàm render
+    console.error(
+      "❌ Fatal error during dashboard insights batch fetch (with prev stats):",
+      err
+    );
+    // Trả về cấu trúc rỗng
     return {
       platformStats: [],
       spendByPlatform: [],
       spendByAgeGender: [],
       spendByRegion: [],
       dailySpend: [],
+      platformStats_previous: [], // << Thêm key rỗng cho trường hợp lỗi
     };
   }
 }
-
 /**
  * Hàm workflow mới:
  * 1. Gọi fetchDashboardInsightsBatch MỘT LẦN.
  * 2. Phân phối kết quả cho các hàm RENDER (thay vì các hàm load... riêng lẻ).
  */
 async function loadAllDashboardCharts(campaignIds = []) {
-  console.log(
-    ">>> Bắt đầu loadAllDashboardCharts",
-    new Date().toLocaleTimeString()
-  ); // <-- THÊM DÒNG NÀY
   // 1. Hiển thị loading (nếu cần)
   const loading = document.querySelector(".loading");
   if (loading) loading.classList.add("active");
@@ -3869,12 +3976,13 @@ async function loadAllDashboardCharts(campaignIds = []) {
   try {
     // 2. Gọi HÀM BATCH MỚI (1 request duy nhất)
     const results = await fetchDashboardInsightsBatch(campaignIds);
-
     // 3. Phân phối data đến các hàm RENDER/UPDATE UI (không fetch nữa)
-
     // 3.1. Platform Stats (Summary)
-    updatePlatformSummaryUI(results.platformStats);
-
+    updatePlatformSummaryUI(
+      results.platformStats,
+      results.platformStats_previous
+    );
+    DAILY_DATA = results.dailySpend;
     // 3.2. Spend by Platform
     const summary = summarizeSpendByPlatform(results.spendByPlatform);
     renderPlatformSpendUI(summary);
@@ -4134,7 +4242,6 @@ function initDateSelector() {
 
       // 🔥 Refresh dashboard
       reloadDashboard();
-      resetUIFilter();
     });
   });
 
@@ -4164,7 +4271,6 @@ function initDateSelector() {
 
     // 🚀 Reload dashboard
     reloadDashboard();
-    resetUIFilter();
   });
 }
 
@@ -4224,6 +4330,7 @@ function reloadDashboard() {
   // loadDailyChart();
   // loadPlatformSummary();
   // loadSpendPlatform();
+  resetUIFilter();
   loadAllDashboardCharts();
   loadCampaignList().finally(() => {
     if (loading) loading.classList.remove("active");
@@ -5278,26 +5385,26 @@ function resetYearDropdownToCurrentYear() {
   // Đóng dropdown năm
   yearList.classList.remove("active");
 }
-async function reloadFullData() {
-  const ids = []; // rỗng => full data
-  loadPlatformSummary(ids);
-  loadSpendPlatform(ids);
-  loadAgeGenderSpendChart(ids);
-  loadRegionSpendChart(ids);
-  const dailyData = await fetchDailySpendByCampaignIDs(ids);
-  renderDetailDailyChart2(dailyData, "spend");
+// async function reloadFullData() {
+//   const ids = []; // rỗng => full data
+//   loadPlatformSummary(ids);
+//   loadSpendPlatform(ids);
+//   loadAgeGenderSpendChart(ids);
+//   loadRegionSpendChart(ids);
+//   const dailyData = await fetchDailySpendByCampaignIDs(ids);
+//   renderDetailDailyChart2(dailyData, "spend");
 
-  // render lại chart mục tiêu
-  const allAds = window._ALL_CAMPAIGNS.flatMap((c) =>
-    c.adsets.flatMap((as) =>
-      (as.ads || []).map((ad) => ({
-        optimization_goal: as.optimization_goal,
-        insights: { spend: ad.spend || 0 },
-      }))
-    )
-  );
-  renderGoalChart(allAds);
-}
+//   // render lại chart mục tiêu
+//   const allAds = window._ALL_CAMPAIGNS.flatMap((c) =>
+//     c.adsets.flatMap((as) =>
+//       (as.ads || []).map((ad) => ({
+//         optimization_goal: as.optimization_goal,
+//         insights: { spend: ad.spend || 0 },
+//       }))
+//     )
+//   );
+//   renderGoalChart(allAds);
+// }
 function resetUIFilter() {
   // ✅ 1. Reset quick filter dropdown về Ampersand
   const quickFilter = document.querySelector(".quick_filter_detail");
