@@ -1150,6 +1150,10 @@ tbody {
   color: white;
   font-weight: bold;
 }
+/* .dom_account .dom_total_report > ul > li:nth-child(2) {
+  color: white;
+  font-weight: bold;
+} */
 .dom_total_report > ul > li:first-child > span > i {
   color: white;
   font-size: 1.5rem;
@@ -2566,8 +2570,10 @@ tbody {
   padding: 2rem;
   gap: 2rem;
   color: white;
-  background: linear-gradient(135deg, var(--mainClr) 0%, #d88200ee 100%);
+  /* background: linear-gradient(135deg, #663d00ee, #d88200ee 100%) !important; */
+  background: linear-gradient(-90deg, var(--mainClr) 0%, #ca7900ee 100%);
 }
+
 .dom_total_report > ul > li:first-child i {
   opacity: 1 !important;
 }
@@ -3581,6 +3587,7 @@ tbody {
 .dom_account .dom_inner.chart {
   height: 45rem !important;
 }
+
 .dom_account .dom_inner h2 {
   font-size: 2rem;
   opacity: 0.8;
@@ -3637,8 +3644,8 @@ tbody {
   opacity: 0.8;
 }
 .dom_account .dom_total_report > ul #detail_balance {
-  font-size: 3rem;
-  color: white;
+  font-size: 2.5rem;
+  /* color: white; */
 }
 #detail_method {
   display: flex;
@@ -3648,6 +3655,16 @@ tbody {
 .interaction_list .dom_interaction_note:nth-child(5) > span:last-child {
   font-size: 2.5rem;
   opacity: 1 !important;
+}
+.payment_card {
+  background: linear-gradient(135deg, #663d00ee, #d88200ee 100%) !important;
+  height: 15rem;
+  color: white !important;
+}
+#detail_method {
+  justify-content: flex-end;
+  color: rgba(255, 255, 255, 0.9) !important;
+  font-size: 1.6rem;
 }
 @media (max-width: 800px) {
   .campaign_item,
