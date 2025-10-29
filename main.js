@@ -1008,11 +1008,12 @@ async function loadDashboardData() {
   if (loading) loading.classList.add("active");
 
   // 🔁 Chạy song song các luồng
-  loadDailyChart();
-  loadPlatformSummary();
-  loadSpendPlatform();
-  loadAgeGenderSpendChart();
-  loadRegionSpendChart();
+  // loadDailyChart();
+  // loadPlatformSummary();
+  // loadSpendPlatform();
+  // loadAgeGenderSpendChart();
+  // loadRegionSpendChart();
+  loadAllDashboardCharts();
   initializeYearData();
   fetchAdAccountInfo();
   resetYearDropdownToCurrentYear();
@@ -1025,9 +1026,7 @@ async function loadDashboardData() {
 // 🚀 Hàm chính gọi khi load trang lần đầu
 async function main() {
   renderYears();
-  initDashboard(); // <-- addListeners() được gọi bên trong hàm này
-  initializeYearData();
-  fetchAdAccountInfo();
+  initDashboard();
   await loadDashboardData();
 }
 
@@ -1224,6 +1223,7 @@ async function handleViewClick(e, type = "ad") {
 
   try {
     if (type === "ad") {
+      // await fetchAdDetailBatch(id);
       await showAdDetail(id);
     } else {
       console.log("🔍 Xem chi tiết adset:", id, { spend, goal, result, cpr });
@@ -1442,35 +1442,48 @@ async function fetchAdDailyInsights(ad_id) {
 }
 
 // ===================== HIỂN THỊ CHI TIẾT AD =====================
+// ===================== HIỂN THỊ CHI TIẾT AD (ĐÃ SỬA ĐỔI) =====================
 async function showAdDetail(ad_id) {
   if (!ad_id) return;
 
   const detailBox = document.querySelector(".dom_detail");
   if (!detailBox) return;
-  detailBox.classList.add("active");
+  // Không cần add active ở đây nữa, vì handleViewClick đã làm rồi
 
-  // Hủy các chart cũ chỉ một lần
+  // Hủy các chart cũ (Giữ nguyên)
+  // --- 1. Hủy các chart cũ ---
   const chartsToDestroy = [
-    window.detail_spent_chart_instance,
-    window.chart_by_hour_chart,
-    window.chart_by_age_gender_chart,
-    window.chart_by_region_chart,
-    window.chart_by_device_chart,
-    window.chart_by_platform_chart,
+    window.detail_spent_chart_instance, // Chart daily trend trong detail
+    window.chartByHourInstance, // Chart theo giờ (sửa tên biến)
+    window.chart_by_age_gender_instance, // Chart tuổi/giới tính
+    window.chart_by_region_instance, // Chart vùng miền
+    window.chart_by_device_instance, // Chart thiết bị (doughnut)
   ];
 
-  chartsToDestroy.forEach((chart) => chart?.destroy());
+  chartsToDestroy.forEach((chart) => {
+    if (chart && typeof chart.destroy === "function") {
+      try {
+        chart.destroy();
+      } catch (e) {
+        console.warn("Lỗi khi hủy chart:", e);
+      }
+    }
+  });
+
+  // Gán lại null cho các instance đã hủy
   window.detail_spent_chart_instance = null;
-  // Gán lại null cho tất cả các instance đã destroy
-  window.chart_by_hour_chart = null;
-  window.chart_by_age_gender_chart = null;
-  window.chart_by_region_chart = null;
-  window.chart_by_device_chart = null;
-  window.chart_by_platform_chart = null;
+  window.chartByHourInstance = null;
+  window.chart_by_age_gender_instance = null;
+  window.chart_by_region_instance = null;
+  window.chart_by_device_instance = null;
 
   try {
-    // Fetch tất cả API song song
-    const [
+    // ⭐ THAY ĐỔI CHÍNH: Gọi hàm batch MỘT LẦN ở đây
+    const results = await fetchAdDetailBatch(ad_id);
+    console.log(results);
+
+    // Bóc tách kết quả từ object 'results'
+    const {
       targeting,
       byHour,
       byAgeGender,
@@ -1478,18 +1491,10 @@ async function showAdDetail(ad_id) {
       byPlatform,
       byDevice,
       byDate,
-    ] = await Promise.all([
-      fetchAdsetTargeting(ad_id),
-      fetchAdsetActionsByHour(ad_id),
-      fetchAdsetActionsByAgeGender(ad_id),
-      fetchAdsetActionsByRegion(ad_id),
-      fetchAdsetActionsByPlatformPosition(ad_id),
-      fetchAdsetActionsByDevice(ad_id),
-      fetchAdDailyInsights(ad_id),
-      fetchAdPreview(ad_id),
-    ]);
+      adPreview,
+    } = results;
 
-    // Kiểm tra xem dữ liệu đã sẵn sàng chưa
+    // Kiểm tra dữ liệu CƠ BẢN
     if (
       !targeting ||
       !byHour ||
@@ -1499,38 +1504,245 @@ async function showAdDetail(ad_id) {
       !byDevice ||
       !byDate
     ) {
-      console.error("❌ Missing required data for ad_id:", ad_id);
+      console.error(
+        "❌ Dữ liệu chi tiết ad bị thiếu sau khi fetch batch:",
+        ad_id
+      );
+      // Có thể hiển thị thông báo lỗi phù hợp hơn
       return;
+    }
+
+    // ⭐ Render Ad Preview
+    const previewBox = document.getElementById("preview_box");
+    if (previewBox) {
+      previewBox.innerHTML = adPreview || "";
     }
 
     // ================== Render Targeting ==================
     renderTargetingToDOM(targeting);
 
-    // ================== Render Interaction ==================
-    renderInteraction(byDevice); // Note: Original code uses byDevice, but byDate seems more correct for total interactions. Keeping as-is.
-    window.dataByDate = byDate; // Lưu trữ dữ liệu cho việc vẽ chart
+    // ================== Render Interaction (Dùng byDate) ==================
+    // 💡 Sửa lỗi logic: Dùng 'byDate' data đã được xử lý (object keys là date)
+    // Cần đảm bảo hàm fetchAdDetailBatch trả về byDate đúng định dạng object { 'date': data }
+    // Nếu fetchAdDetailBatch trả về array, cần xử lý lại ở đây hoặc trong hàm renderInteraction
+
+    // Tạm giả định fetchAdDetailBatch đã xử lý byDate thành object:
+    // const processedByDate = processRawDailyData(byDate); // Bạn có thể cần hàm xử lý này
+    // renderInteraction(processedByDate);
+    // window.dataByDate = processedByDate; // Lưu data đã xử lý
+
+    // *** HOẶC nếu hàm renderInteraction/renderCharts chấp nhận array raw data ***
+    // Chuyển đổi dữ liệu insights về đúng định dạng object {date: {spend, actions...}} nếu cần
+    const processedByDate = {};
+    (byDate || []).forEach((item) => {
+      const date = item.date_start;
+      if (date) {
+        processedByDate[date] = {
+          spend: parseFloat(item.spend || 0),
+          impressions: parseInt(item.impressions || 0),
+          reach: parseInt(item.reach || 0),
+          actions: item.actions
+            ? Object.fromEntries(
+                item.actions.map((a) => [a.action_type, parseInt(a.value || 0)])
+              )
+            : {},
+        };
+      }
+    });
+
+    // Chuyển đổi các breakdown khác về dạng object {key: {spend, actions...}}
+    const processBreakdown = (dataArray, keyField1, keyField2 = null) => {
+      const result = {};
+      (dataArray || []).forEach((item) => {
+        let key = item[keyField1] || "unknown";
+        if (keyField2) {
+          key = `${key}_${item[keyField2] || "unknown"}`;
+        }
+        if (!result[key]) {
+          result[key] = { spend: 0, impressions: 0, reach: 0, actions: {} };
+        }
+        result[key].spend += parseFloat(item.spend || 0);
+        result[key].impressions += parseInt(item.impressions || 0);
+        result[key].reach += parseInt(item.reach || 0);
+        if (item.actions) {
+          item.actions.forEach((a) => {
+            result[key].actions[a.action_type] =
+              (result[key].actions[a.action_type] || 0) +
+              parseInt(a.value || 0);
+          });
+        }
+      });
+      return result;
+    };
+
+    const processedByHour = processBreakdown(
+      byHour,
+      "hourly_stats_aggregated_by_advertiser_time_zone"
+    );
+    const processedByAgeGender = processBreakdown(byAgeGender, "age", "gender");
+    const processedByRegion = processBreakdown(byRegion, "region");
+    const processedByPlatform = processBreakdown(
+      byPlatform,
+      "publisher_platform",
+      "platform_position"
+    );
+    const processedByDevice = processBreakdown(byDevice, "impression_device");
+
+    renderInteraction(processedByDate); // Truyền dữ liệu đã xử lý
+    window.dataByDate = processedByDate; // Lưu data đã xử lý
 
     // ================== Render Chart ==================
+    // Truyền dữ liệu đã xử lý vào hàm render
     renderCharts({
-      byHour,
-      byAgeGender,
-      byRegion,
-      byPlatform,
-      byDevice,
-      byDate,
+      byHour: processedByHour,
+      byAgeGender: processedByAgeGender,
+      byRegion: processedByRegion,
+      byPlatform: processedByPlatform, // Dữ liệu này có thể chưa được xử lý đúng dạng object mong đợi bởi renderChartByPlatform
+      byDevice: processedByDevice,
+      byDate: processedByDate,
     });
 
+    // Hàm này cần dữ liệu đã được xử lý thành object, KHÔNG phải array raw
     renderChartByPlatform({
-      byAgeGender,
-      byRegion,
-      byPlatform,
-      byDevice,
+      // Hàm này render list, không phải chart
+      byAgeGender: processedByAgeGender,
+      byRegion: processedByRegion,
+      byPlatform: processedByPlatform,
+      byDevice: processedByDevice,
     });
   } catch (err) {
-    console.error("❌ Error loading ad detail:", err);
+    console.error("❌ Lỗi khi load/render chi tiết ad (batch):", err);
+  }
+  // Phần finally tắt loading nằm trong handleViewClick
+}
+/**
+ * ⭐ TỐI ƯU: Hàm Batch Request mới.
+ * Thay thế 8 hàm fetch...() riêng lẻ khi xem chi tiết ad.
+ */
+async function fetchAdDetailBatch(ad_id) {
+  if (!ad_id) throw new Error("ad_id is required for batch fetch");
+
+  // 1. Chuẩn bị các tham số chung
+  const timeRangeParam = `&time_range[since]=${startDate}&time_range[until]=${endDate}`;
+
+  // 2. Định nghĩa 8 "yêu cầu con" (relative URLs)
+  const batchRequests = [
+    // 2.1. Targeting
+    {
+      method: "GET",
+      name: "targeting",
+      relative_url: `${ad_id}?fields=targeting`,
+    },
+    // 2.2. Insights: By Hour
+    {
+      method: "GET",
+      name: "byHour",
+      relative_url: `${ad_id}/insights?fields=spend,impressions,reach,actions&breakdowns=hourly_stats_aggregated_by_advertiser_time_zone${timeRangeParam}`,
+    },
+    // 2.3. Insights: By Age/Gender
+    {
+      method: "GET",
+      name: "byAgeGender",
+      relative_url: `${ad_id}/insights?fields=spend,impressions,reach,actions&breakdowns=age,gender${timeRangeParam}`,
+    },
+    // 2.4. Insights: By Region
+    {
+      method: "GET",
+      name: "byRegion",
+      relative_url: `${ad_id}/insights?fields=spend,impressions,reach,actions&breakdowns=region${timeRangeParam}`,
+    },
+    // 2.5. Insights: By Platform/Position
+    {
+      method: "GET",
+      name: "byPlatform",
+      relative_url: `${ad_id}/insights?fields=spend,impressions,reach,actions&breakdowns=publisher_platform,platform_position${timeRangeParam}`,
+    },
+    // 2.6. Insights: By Device
+    {
+      method: "GET",
+      name: "byDevice",
+      relative_url: `${ad_id}/insights?fields=spend,impressions,reach,actions&breakdowns=impression_device${timeRangeParam}`,
+    },
+    // 2.7. Insights: By Date (Daily)
+    {
+      method: "GET",
+      name: "byDate",
+      relative_url: `${ad_id}/insights?fields=spend,impressions,reach,actions&time_increment=1${timeRangeParam}`,
+    },
+    // 2.8. Ad Preview
+    {
+      method: "GET",
+      name: "adPreview",
+      relative_url: `${ad_id}/previews?ad_format=DESKTOP_FEED_STANDARD`,
+    },
+  ];
+
+  // 3. Gửi Batch Request
+  const headers = { "Content-Type": "application/json" };
+  const fbBatchBody = {
+    access_token: META_TOKEN,
+    batch: batchRequests,
+    include_headers: false,
+  };
+
+  try {
+    const batchResponse = await fetchJSON(BASE_URL, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(fbBatchBody),
+    });
+
+    // 4. Bóc tách kết quả
+    const results = {};
+    if (!Array.isArray(batchResponse)) {
+      throw new Error("Batch response (ad detail) was not an array");
+    }
+
+    batchResponse.forEach((item, index) => {
+      const name = batchRequests[index].name; // Lấy tên đã định danh
+
+      // Mặc định giá trị rỗng
+      const defaultEmpty =
+        name === "targeting" || name === "adPreview" ? null : [];
+      results[name] = defaultEmpty;
+
+      if (item && item.code === 200) {
+        try {
+          const body = JSON.parse(item.body);
+
+          // Xử lý các cấu trúc trả về khác nhau
+          if (name === "targeting") {
+            results[name] = body.targeting || {};
+          } else if (name === "adPreview") {
+            results[name] = body.data?.[0]?.body || null; // Đây là chuỗi HTML
+          } else {
+            // Tất cả các 'insights' call khác
+            results[name] = body.data || [];
+          }
+        } catch (e) {
+          console.warn(`⚠️ Failed to parse batch response for ${name}`, e);
+        }
+      } else {
+        console.warn(`⚠️ Batch request for ${name} failed.`, item);
+      }
+    });
+
+    return results;
+  } catch (err) {
+    console.error("❌ Fatal error during ad detail batch fetch:", err);
+    // Trả về cấu trúc rỗng
+    return {
+      targeting: null,
+      byHour: [],
+      byAgeGender: [],
+      byRegion: [],
+      byPlatform: [],
+      byDevice: [],
+      byDate: [],
+      adPreview: null,
+    };
   }
 }
-
 // ================== LỌC THEO TỪ KHÓA ==================
 function debounce(fn, delay = 500) {
   let timeout;
@@ -1616,13 +1828,14 @@ async function applyCampaignFilter(keyword) {
 
   // 🔹 Lấy ID campaign hợp lệ để gọi API (lọc bỏ null)
   const ids = filtered.map((c) => c.id).filter(Boolean);
-  loadPlatformSummary(ids);
-  loadSpendPlatform(ids);
-  loadRegionSpendChart(ids);
-  loadAgeGenderSpendChart(ids);
-  const dailyData = ids.length ? await fetchDailySpendByCampaignIDs(ids) : [];
-  renderDetailDailyChart2(dailyData, "spend");
-
+  // loadPlatformSummary(ids);
+  // loadSpendPlatform(ids);
+  // loadRegionSpendChart(ids);
+  // loadAgeGenderSpendChart(ids);
+  // loadAllDashboardCharts(ids)
+  // const dailyData = ids.length ? await fetchDailySpendByCampaignIDs(ids) : [];
+  // renderDetailDailyChart2(dailyData, "spend");
+  await loadAllDashboardCharts(ids); // Pass mảng ids đã lọc
   // 🔹 Render lại goal chart (dựa theo ad-level)
   const allAds = filtered.flatMap((c) =>
     c.adsets.flatMap((as) =>
@@ -1682,30 +1895,6 @@ function buildDailyDataFromCampaigns(campaigns) {
 }
 
 // ================== LẤY DAILY SPEND THEO CAMPAIGN ==================
-async function fetchDailySpendByCampaignIDs(campaignIds = []) {
-  const loading = document.querySelector(".loading");
-  if (loading) loading.classList.add("active");
-  try {
-    if (!ACCOUNT_ID) throw new Error("ACCOUNT_ID is required");
-
-    const filtering = encodeURIComponent(
-      JSON.stringify([
-        { field: "campaign.id", operator: "IN", value: campaignIds },
-      ])
-    );
-
-    const url = `${BASE_URL}/act_${ACCOUNT_ID}/insights?fields=spend,impressions,reach,actions,campaign_name,campaign_id&time_increment=1&filtering=${filtering}&time_range={"since":"${startDate}","until":"${endDate}"}&access_token=${META_TOKEN}`;
-
-    const data = await fetchJSON(url);
-    const results = data.data || [];
-
-    if (loading) loading.classList.remove("active");
-    return results;
-  } catch (err) {
-    console.error("❌ Error fetching daily spend by campaign IDs", err);
-    return [];
-  }
-}
 
 // ================== Tổng hợp dữ liệu ==================
 function calcTotal(data, key) {
@@ -3380,28 +3569,6 @@ function setupDetailDailyFilter() {
   });
 }
 
-async function fetchPlatformStats(campaignIds = []) {
-  try {
-    if (!ACCOUNT_ID) throw new Error("ACCOUNT_ID is required");
-
-    const filtering = campaignIds.length
-      ? `&filtering=${encodeURIComponent(
-          JSON.stringify([
-            { field: "campaign.id", operator: "IN", value: campaignIds },
-          ])
-        )}`
-      : "";
-    const url = `${BASE_URL}/act_${ACCOUNT_ID}/insights?fields=spend,impressions,reach,actions&time_range={"since":"${startDate}","until":"${endDate}"}${filtering}&access_token=${META_TOKEN}`;
-
-    const data = await fetchJSON(url);
-
-    return data.data || [];
-  } catch (err) {
-    console.error("❌ Error fetching platform stats:", err);
-    return [];
-  }
-}
-
 function updatePlatformSummaryUI(data) {
   if (!data) return;
 
@@ -3458,7 +3625,27 @@ function updatePlatformSummaryUI(data) {
   document.querySelector(".dom_interaction_view").textContent =
     totalView.toLocaleString("vi-VN");
 }
+async function fetchPlatformStats(campaignIds = []) {
+  try {
+    if (!ACCOUNT_ID) throw new Error("ACCOUNT_ID is required");
 
+    const filtering = campaignIds.length
+      ? `&filtering=${encodeURIComponent(
+          JSON.stringify([
+            { field: "campaign.id", operator: "IN", value: campaignIds },
+          ])
+        )}`
+      : "";
+    const url = `${BASE_URL}/act_${ACCOUNT_ID}/insights?fields=spend,impressions,reach,actions&time_range={"since":"${startDate}","until":"${endDate}"}${filtering}&access_token=${META_TOKEN}`;
+
+    const data = await fetchJSON(url);
+
+    return data.data || [];
+  } catch (err) {
+    console.error("❌ Error fetching platform stats:", err);
+    return [];
+  }
+}
 async function loadPlatformSummary(campaignIds = []) {
   const data = await fetchPlatformStats(campaignIds);
   updatePlatformSummaryUI(data);
@@ -3530,7 +3717,193 @@ async function fetchSpendByRegion(campaignIds = []) {
     return [];
   }
 }
+async function fetchDailySpendByCampaignIDs(campaignIds = []) {
+  const loading = document.querySelector(".loading");
+  if (loading) loading.classList.add("active");
+  try {
+    if (!ACCOUNT_ID) throw new Error("ACCOUNT_ID is required");
 
+    const filtering = encodeURIComponent(
+      JSON.stringify([
+        { field: "campaign.id", operator: "IN", value: campaignIds },
+      ])
+    );
+
+    const url = `${BASE_URL}/act_${ACCOUNT_ID}/insights?fields=spend,impressions,reach,actions,campaign_name,campaign_id&time_increment=1&filtering=${filtering}&time_range={"since":"${startDate}","until":"${endDate}"}&access_token=${META_TOKEN}`;
+
+    const data = await fetchJSON(url);
+    const results = data.data || [];
+
+    if (loading) loading.classList.remove("active");
+    return results;
+  } catch (err) {
+    console.error("❌ Error fetching daily spend by campaign IDs", err);
+    return [];
+  }
+}
+
+//  batch
+/**
+ * ⭐ TỐI ƯU: Thay thế 5 hàm fetch... bằng 1 hàm Batch Request duy nhất.
+ * Hàm này sẽ gọi 1 lần để lấy tất cả 5 loại insights.
+ */
+async function fetchDashboardInsightsBatch(campaignIds = []) {
+  if (!ACCOUNT_ID) throw new Error("ACCOUNT_ID is required");
+
+  // 1. Chuẩn bị các tham số chung
+  const filtering = campaignIds.length
+    ? `&filtering=${encodeURIComponent(
+        JSON.stringify([
+          { field: "campaign.id", operator: "IN", value: campaignIds },
+        ])
+      )}`
+    : "";
+
+  const timeRange = `&time_range={"since":"${startDate}","until":"${endDate}"}`;
+  const commonEndpoint = `act_${ACCOUNT_ID}/insights`;
+
+  // 2. Định nghĩa 5 "yêu cầu con" (relative URLs)
+  // Thêm thuộc tính 'name' để dễ dàng map kết quả trả về
+  const batchRequests = [
+    {
+      method: "GET",
+      name: "platformStats", // Tên để định danh kết quả
+      relative_url: `${commonEndpoint}?fields=spend,impressions,reach,actions${timeRange}${filtering}`,
+    },
+    {
+      method: "GET",
+      name: "spendByPlatform",
+      relative_url: `${commonEndpoint}?fields=spend&breakdowns=publisher_platform,platform_position${timeRange}${filtering}`,
+    },
+    {
+      method: "GET",
+      name: "spendByAgeGender",
+      relative_url: `${commonEndpoint}?fields=spend&breakdowns=age,gender${timeRange}${filtering}`,
+    },
+    {
+      method: "GET",
+      name: "spendByRegion",
+      relative_url: `${commonEndpoint}?fields=spend&breakdowns=region${timeRange}${filtering}`,
+    },
+    {
+      method: "GET",
+      name: "dailySpend",
+      relative_url: `${commonEndpoint}?fields=spend,impressions,reach,actions,campaign_name,campaign_id&time_increment=1${timeRange}${filtering}`,
+    },
+  ];
+
+  // 3. Xây dựng body cho batch request
+  const fbBatchBody = {
+    access_token: META_TOKEN,
+    batch: batchRequests,
+    include_headers: false, // Ta chỉ cần body
+  };
+
+  // Giả định 'headers' đã được định nghĩa ở đâu đó (từ hàm fetchAdsAndInsights)
+  const headers = { "Content-Type": "application/json" };
+
+  // 4. Gọi API
+  try {
+    const batchResponse = await fetchJSON(BASE_URL, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(fbBatchBody),
+    });
+
+    if (!Array.isArray(batchResponse)) {
+      throw new Error("Batch response (insights) was not an array");
+    }
+
+    // 5. Bóc tách kết quả trả về thành một object có tên
+    const results = {};
+    batchResponse.forEach((item, index) => {
+      const requestName = batchRequests[index].name; // Lấy tên đã định danh
+
+      if (item && item.code === 200) {
+        try {
+          const body = JSON.parse(item.body);
+          results[requestName] = body.data || []; // Dữ liệu nằm trong 'body.data'
+        } catch (e) {
+          console.warn(
+            `⚠️ Failed to parse batch response for ${requestName}`,
+            e
+          );
+          results[requestName] = []; // Gán mảng rỗng nếu lỗi parse
+        }
+      } else {
+        console.warn(
+          `⚠️ Batch request for ${requestName} failed with code ${item?.code}`
+        );
+        results[requestName] = []; // Gán mảng rỗng nếu API lỗi
+      }
+    });
+
+    return results;
+  } catch (err) {
+    console.error("❌ Fatal error during dashboard insights batch fetch:", err);
+    // Trả về cấu trúc rỗng để tránh lỗi ở các hàm render
+    return {
+      platformStats: [],
+      spendByPlatform: [],
+      spendByAgeGender: [],
+      spendByRegion: [],
+      dailySpend: [],
+    };
+  }
+}
+
+/**
+ * Hàm workflow mới:
+ * 1. Gọi fetchDashboardInsightsBatch MỘT LẦN.
+ * 2. Phân phối kết quả cho các hàm RENDER (thay vì các hàm load... riêng lẻ).
+ */
+async function loadAllDashboardCharts(campaignIds = []) {
+  console.log(
+    ">>> Bắt đầu loadAllDashboardCharts",
+    new Date().toLocaleTimeString()
+  ); // <-- THÊM DÒNG NÀY
+  // 1. Hiển thị loading (nếu cần)
+  const loading = document.querySelector(".loading");
+  if (loading) loading.classList.add("active");
+
+  try {
+    // 2. Gọi HÀM BATCH MỚI (1 request duy nhất)
+    const results = await fetchDashboardInsightsBatch(campaignIds);
+
+    // 3. Phân phối data đến các hàm RENDER/UPDATE UI (không fetch nữa)
+
+    // 3.1. Platform Stats (Summary)
+    updatePlatformSummaryUI(results.platformStats);
+
+    // 3.2. Spend by Platform
+    const summary = summarizeSpendByPlatform(results.spendByPlatform);
+    renderPlatformSpendUI(summary);
+    renderPlatformPosition(results.spendByPlatform);
+
+    // 3.3. Spend by Age/Gender
+    renderAgeGenderChart(results.spendByAgeGender);
+
+    // 3.4. Spend by Region
+    renderRegionChart(results.spendByRegion);
+
+    // 3.5. Daily Spend
+    // Lưu ý: hàm fetchDailySpendByAccount của bạn giờ cũng được thay thế
+    // bằng results.dailySpend (khi campaignIds rỗng)
+    renderDetailDailyChart2(results.dailySpend, "spend"); // "spend" là default
+  } catch (err) {
+    console.error("❌ Lỗi khi tải dữ liệu charts dashboard:", err);
+  } finally {
+    if (loading) loading.classList.remove("active");
+  }
+}
+
+async function loadSpendPlatform(campaignIds = []) {
+  const data = await fetchSpendByPlatform(campaignIds);
+  console.log(data);
+  const summary = summarizeSpendByPlatform(data);
+  renderPlatformSpendUI(summary); // cũ
+  renderPlatformPosition(data); // mới
+}
 function summarizeSpendByPlatform(data) {
   const result = {
     facebook: 0,
@@ -3709,13 +4082,6 @@ function renderPlatformSpendUI(summary) {
   });
 }
 
-async function loadSpendPlatform(campaignIds = []) {
-  const data = await fetchSpendByPlatform(campaignIds);
-  console.log(data);
-  const summary = summarizeSpendByPlatform(data);
-  renderPlatformSpendUI(summary); // cũ
-  renderPlatformPosition(data); // mới
-}
 async function loadRegionSpendChart(campaignIds = []) {
   const data = await fetchSpendByRegion(campaignIds);
   renderRegionChart(data);
@@ -3855,9 +4221,10 @@ function reloadDashboard() {
   const selectedText = document.querySelector(".quick_filter .dom_selected");
   selectedText.textContent = "Quick filter"; // Đặt lại text filter về mặc định
   // Gọi các hàm load dữ liệu
-  loadDailyChart();
-  loadPlatformSummary();
-  loadSpendPlatform();
+  // loadDailyChart();
+  // loadPlatformSummary();
+  // loadSpendPlatform();
+  loadAllDashboardCharts();
   loadCampaignList().finally(() => {
     if (loading) loading.classList.remove("active");
   });
@@ -4420,7 +4787,7 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 async function fetchAdAccountInfo() {
-  const url = `${BASE_URL}/act_${ACCOUNT_ID}?fields=id,funding_source_details,name,balance,currency,amount_spent&access_token=${META_TOKEN}`;
+  const url = `${BASE_URL}/act_${ACCOUNT_ID}?fields=id,funding_source_details,name,balance&access_token=${META_TOKEN}`;
 
   try {
     const data = await fetchJSON(url);
