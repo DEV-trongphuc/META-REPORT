@@ -984,6 +984,7 @@ function initDashboard() {
   setupFilterDropdown();
   setupYearDropdown();
   addListeners();
+  setupAIReportModal();
   const { start, end } = getDateRange("last_7days");
   startDate = start;
   endDate = end;
@@ -1198,7 +1199,7 @@ async function handleViewClick(e, type = "ad") {
     // Cập nhật header
     const img = domDetail.querySelector(".dom_detail_header img");
     const idEl = domDetail.querySelector(".dom_detail_id");
-    const viewPostBtn = domDetail.querySelector(".view_post_btn");
+    // const viewPostBtn = domDetail.querySelector(".view_post_btn");
 
     if (img) img.src = thumb;
     if (idEl)
@@ -1206,10 +1207,10 @@ async function handleViewClick(e, type = "ad") {
     <span>${name}</span> <span> ID: ${id}</span>
    `;
 
-    if (viewPostBtn) {
-      viewPostBtn.href = postUrl;
-      viewPostBtn.style.display = postUrl === "#" ? "none" : "inline-block";
-    }
+    // if (viewPostBtn) {
+    //   viewPostBtn.href = postUrl;
+    //   viewPostBtn.style.display = postUrl === "#" ? "none" : "inline-block";
+    // }
   }
 
   // --- Loading overlay ---
@@ -1605,6 +1606,31 @@ async function showAdDetail(ad_id) {
       byPlatform: processedByPlatform,
       byDevice: processedByDevice,
     });
+    // ✅ Lưu toàn bộ data vào global để Deep Report AI sử dụng
+    window.campaignSummaryData = {
+      spend: Object.values(processedByDate).reduce((t, d) => t + d.spend, 0),
+      impressions: Object.values(processedByDate).reduce(
+        (t, d) => t + d.impressions,
+        0
+      ),
+      reach: Object.values(processedByDate).reduce((t, d) => t + d.reach, 0),
+      // ✅ Lấy results chủ lực từ actions
+      results: Object.values(processedByDate).reduce(
+        (t, d) =>
+          t +
+          (d.actions?.lead ||
+            d.actions?.onsite_conversion.messaging_first_reply ||
+            0),
+        0
+      ),
+    };
+
+    window.targetingData = targeting;
+    window.processedByDate = processedByDate;
+    window.processedByHour = processedByHour;
+    window.processedByAgeGender = processedByAgeGender;
+    window.processedByRegion = processedByRegion;
+    window.processedByPlatform = processedByPlatform;
   } catch (err) {
     console.error("❌ Lỗi khi load/render chi tiết ad (batch):", err);
   }
@@ -3219,7 +3245,7 @@ function renderChartByPlatform(allData) {
     // Divider group
     const divider = document.createElement("li");
     divider.className = "blank";
-    divider.innerHTML = `<p><strong>${groupLabel}</strong></p>`;
+    divider.innerHTML = `<p><b>${groupLabel}</b></p>`;
     fragment.appendChild(divider);
 
     items.forEach((p) => {
@@ -3294,7 +3320,7 @@ function renderDeepCPR(allData) {
 
     const divider = document.createElement("li");
     divider.className = "blank";
-    divider.innerHTML = `<p><strong>${groupName}</strong></p>`;
+    divider.innerHTML = `<p><b>${groupName}</b></p>`;
     fragment.appendChild(divider);
 
     const minCPR = groupItems[0].cpr;
@@ -3308,7 +3334,7 @@ function renderDeepCPR(allData) {
 
       const li = document.createElement("li");
       li.innerHTML = `
-        <p><strong>${formatDeepName(p.key)}</strong></p>
+        <p><b>${formatDeepName(p.key)}</b></p>
         <p class="toplist_percent" style="color:${color};background:${bg}">
           ${formatMoney(p.cpr)} ${p.goal === "REACH" ? "" : ""}
         </p>
@@ -3408,8 +3434,8 @@ function renderDetailDailyChart2(dataByDate, type = currentDetailDailyType) {
 
   const displayIndices = calculateIndicesToShow(chartData, 5);
   const gLine = ctx.getContext("2d").createLinearGradient(0, 0, 0, 400);
-  gLine.addColorStop(0, "rgba(255,169,0,0.25)");
-  gLine.addColorStop(1, "rgba(255,171,0,0.05)");
+  gLine.addColorStop(0, "rgba(255,169,0,0.15)");
+  gLine.addColorStop(1, "rgba(255,171,0,0.01)");
 
   if (window.detail_spent_chart_instance2) {
     const chart = window.detail_spent_chart_instance2;
@@ -5614,42 +5640,6 @@ function resetUIFilter() {
   console.debug("[campaign-filter] initialized safely");
 })();
 
-async function fetchBillingCharges() {
-  try {
-    if (!ACCOUNT_ID || !META_TOKEN)
-      throw new Error("Missing ACCOUNT_ID or token");
-    const filtering = encodeURIComponent(
-      JSON.stringify([
-        {
-          field: "event_type",
-          operator: "IN",
-          value: ["ad_account_billing_charge"],
-        },
-      ])
-    );
-
-    const url = `${BASE_URL}/act_${ACCOUNT_ID}/activities?fields=event_time,event_type,actor_name,object_type,object_name,extra_data&&limit=50&access_token=${META_TOKEN}`;
-
-    const res = await fetch(url);
-    const data = await res.json();
-
-    if (!data?.data?.length) {
-      console.warn(
-        "⚠️ Không có billing activity nào trong khoảng thời gian này."
-      );
-      return [];
-    }
-
-    console.log(data.data);
-
-    return data.data;
-  } catch (err) {
-    console.error("❌ Error fetching billing charges:", err);
-    return [];
-  }
-}
-// fetchBillingCharges();
-
 async function fetchAdPreview(adId) {
   try {
     if (!adId || !META_TOKEN) throw new Error("Missing adId or token");
@@ -5677,4 +5667,1239 @@ async function fetchAdPreview(adId) {
     console.error("❌ Error fetching ad preview:", err);
     return null;
   }
+}
+
+/**
+ * ===================================================================
+ * HÀM PHÂN TÍCH CHUYÊN SÂU (PHIÊN BẢN NÂNG CẤP)
+ * Tập trung vào Phễu, Mâu thuẫn & Cơ hội, thay vì liệt kê Top 3.
+ * ===================================================================
+ */
+
+/**
+ * ===================================================================
+ * HÀM PHÂN TÍCH CHUYÊN SÂU (PHIÊN BẢN NÂNG CẤP V2)
+ * ===================================================================
+ * - Giữ lại Top 3 Spend, Top 3 Result, Top 3 Best CPR.
+ * - Loại bỏ hoàn toàn "Worst CPR" (CPR Kém nhất).
+ * - Format giờ thành "2h - 3h".
+ * - Nâng cấp Insights (Phễu, Creative, Hook, Mâu thuẫn)
+ */
+async function generateDeepReportDetailed({
+  byDate = {},
+  byHour = {},
+  byAgeGender = {},
+  byRegion = {},
+  byPlatform = {},
+  byDevice = {},
+  targeting = {},
+  goal = "",
+} = {}) {
+  // -------------------------
+  // Helpers (Sử dụng các hàm format toàn cục nếu có)
+  // -------------------------
+  const safeNumber = (v) =>
+    typeof v === "number" && !Number.isNaN(v) ? v : +v || 0;
+
+  const formatMoney = (n) => {
+    if (typeof window !== "undefined" && window.formatMoney)
+      return window.formatMoney(n);
+    try {
+      return n === 0
+        ? "0đ"
+        : n.toLocaleString("vi-VN", {
+            style: "currency",
+            currency: "VND",
+            maximumFractionDigits: 0,
+          });
+    } catch {
+      return `${Math.round(n)}đ`;
+    }
+  };
+
+  const formatNumber = (n) => {
+    if (typeof window !== "undefined" && window.formatNumber)
+      return window.formatNumber(n);
+    if (n === null || typeof n === "undefined" || Number.isNaN(+n)) return 0;
+    return Math.round(n);
+  };
+
+  const formatPercent = (n) => `${(safeNumber(n) * 100).toFixed(02)}%`;
+
+  // Hàm getResultsSafe (từ code của bạn, đã tốt)
+  const getResultsSafe = (dataSegment, goalParam = "") => {
+    if (window.getResults)
+      return safeNumber(window.getResults(dataSegment, goalParam));
+    const actions = dataSegment?.actions || {};
+    const g = (goalParam || goal || "").toUpperCase();
+    if (g === "REACH") return safeNumber(dataSegment.reach || 0);
+    if (g === "LEAD" || g === "LEAD_GENERATION" || g === "QUALITY_LEAD") {
+      const leadKeys = [
+        "onsite_conversion.lead_grouped",
+        "lead",
+        "offsite_conversion.lead",
+        "onsite_web_lead",
+        "submit_form",
+        "leadgen",
+        "complete_registration",
+      ];
+      let leadSum = 0;
+      for (const k of leadKeys) {
+        if (actions[k]) leadSum += safeNumber(actions[k]);
+      }
+      if (leadSum > 0) return leadSum;
+    }
+    if (g === "REPLIES" || g === "MESSAGE") {
+      if (actions["onsite_conversion.messaging_conversation_replied_7d"])
+        return safeNumber(
+          actions["onsite_conversion.messaging_conversation_replied_7d"]
+        );
+    }
+    const preferred = [
+      "offsite_conversion.purchase",
+      "purchase",
+      "onsite_conversion.lead_grouped",
+      "lead",
+      "onsite_conversion.messaging_conversation_replied_7d",
+      "landing_page_view",
+      "link_click",
+      "post_engagement",
+    ];
+    for (const k of preferred) {
+      if (actions[k]) return safeNumber(actions[k]);
+    }
+    return 0;
+  };
+
+  const calculateCPR = (spend, result, goalParam = "") => {
+    spend = safeNumber(spend);
+    result = safeNumber(result);
+    if (spend <= 0 || result <= 0) return 0;
+    if ((goalParam || goal).toUpperCase() === "REACH")
+      return (spend / result) * 1000;
+    return spend / result;
+  };
+
+  const formatCPR = (cprValue, goalParam = "") => {
+    if (!cprValue || cprValue === 0) return "N/A";
+    const formatted = formatMoney(Math.round(cprValue));
+    return (goalParam || goal).toUpperCase() === "REACH"
+      ? `${formatted} / 1000 reach`
+      : formatted;
+  };
+
+  const topN = (arr, keyFn, n = 3, asc = false) => {
+    const copy = (arr || []).slice();
+    copy.sort((x, y) => {
+      const vx = keyFn(x),
+        vy = keyFn(y);
+      return asc ? vx - vy : vy - vx;
+    });
+    return copy.slice(0, n);
+  };
+
+  // <<< THAY ĐỔI: Hàm format tên/key
+  const formatKeyName = (key, type) => {
+    if (!key) return "N/A";
+    try {
+      if (type === "hour") {
+        const hour = parseInt((key || "0").split(":")[0], 10);
+        if (isNaN(hour)) return key;
+        return `${hour}h - ${hour + 1}h`; // Format 2h - 3h
+      }
+      if (type === "platform" || type === "age_gender") {
+        return (key || "")
+          .replace(/_/g, " ")
+          .replace(/\b\w/g, (c) => c.toUpperCase());
+      }
+    } catch (e) {
+      console.warn("Lỗi format key:", key, e);
+      return key; // Trả về key gốc nếu lỗi
+    }
+    return key; // Default cho Region
+  };
+
+  const toArray = (obj) =>
+    Object.entries(obj || {}).map(([k, v]) => ({ key: k, ...v }));
+
+  // -------------------------
+  // Tính toán Metrics Phễu (Funnel Metrics)
+  // -------------------------
+
+  const computeBreakdownMetrics = (keyedObj) => {
+    const arr = toArray(keyedObj);
+    return arr.map((item) => {
+      const spend = safeNumber(item.spend);
+      const impressions = safeNumber(item.impressions);
+      const reach = safeNumber(item.reach);
+      const result = getResultsSafe(item, goal);
+      const linkClicks = safeNumber(
+        item.actions?.link_click || item.actions?.link_clicks || 0
+      );
+      return {
+        key: item.key,
+        spend,
+        impressions,
+        reach,
+        result,
+        linkClicks,
+        cpr: calculateCPR(spend, result, goal),
+        cpm: impressions > 0 ? (spend / impressions) * 1000 : 0,
+        ctr: impressions > 0 ? linkClicks / impressions : 0, // Tỷ lệ Click
+        cvr_proxy: linkClicks > 0 ? result / linkClicks : 0, // Tỷ lệ Chuyển đổi từ Click
+      };
+    });
+  };
+
+  const byDateArr = computeBreakdownMetrics(byDate);
+  const byAgeGenderArr = computeBreakdownMetrics(byAgeGender);
+  const byRegionArr = computeBreakdownMetrics(byRegion);
+  const byPlatformArr = computeBreakdownMetrics(byPlatform);
+  const byDeviceArr = computeBreakdownMetrics(byDevice);
+  const byHourArr = computeBreakdownMetrics(byHour);
+
+  let totalSpend = 0,
+    totalImpressions = 0,
+    totalReach = 0,
+    totalResults = 0,
+    totalLinkClicks = 0;
+  byDateArr.forEach((d) => {
+    totalSpend += d.spend;
+    totalImpressions += d.impressions;
+    totalReach += d.reach;
+    totalResults += d.result;
+    totalLinkClicks += d.linkClicks;
+  });
+
+  const overallCPR = calculateCPR(totalSpend, totalResults, goal);
+  const overallCPM =
+    totalImpressions > 0 ? (totalSpend / totalImpressions) * 1000 : 0;
+  const overallFreq = totalReach > 0 ? totalImpressions / totalReach : 0;
+  const overallCTR =
+    totalImpressions > 0 ? totalLinkClicks / totalImpressions : 0;
+  const overallCVRProxy =
+    totalLinkClicks > 0 ? totalResults / totalLinkClicks : 0;
+
+  const summary = {
+    goal: goal || "Not specified",
+    totalSpend,
+    totalImpressions,
+    totalReach,
+    totalResults,
+    totalLinkClicks,
+    overallCPR,
+    overallCPM,
+    overallFreq,
+    overallCTR,
+    overallCVRProxy,
+    formatted: {
+      totalSpend: formatMoney(totalSpend),
+      totalResults: formatNumber(totalResults),
+      overallCPR: formatCPR(overallCPR, goal),
+      overallCPM: formatMoney(Math.round(overallCPM)),
+      overallFreq: overallFreq.toFixed(2),
+      overallCTR: formatPercent(overallCTR),
+      overallCVRProxy: formatPercent(overallCVRProxy),
+    },
+  };
+
+  // -------------------------
+  // TẠO INSIGHTS (Trọng tâm của chuyên gia)
+  // -------------------------
+  const recommendations = [];
+
+  // 1. Phân tích Phễu (Funnel Analysis) - Nâng cấp theo yêu cầu
+  (function analyzeFunnel() {
+    const LOW_CTR_THRESHOLD = 0.005; // 0.5%
+    const LOW_CVR_THRESHOLD = 0.02; // 2%
+
+    if (totalResults === 0 && totalLinkClicks === 0 && totalImpressions > 0) {
+      recommendations.push({
+        area: "Creative & Hook",
+        reason: `Quảng cáo đã chạy (CPM: ${summary.formatted.overallCPM}) nhưng có **CTR (Tỷ lệ click) cực thấp (${summary.formatted.overallCTR})**.`,
+        action: `Đây là dấu hiệu **Creative (Hình ảnh/Video/Copy) không hiệu quả** hoặc **Targeting sai** hoàn toàn. Nội dung "hook" (điểm thu hút) 3 giây đầu tiên đã thất bại. Cần A/B test khẩn cấp creative mới, đặc biệt là hook.`,
+      });
+    } else if (totalResults === 0 && totalLinkClicks > 0) {
+      recommendations.push({
+        area: "Landing Page & Offer",
+        reason: `Quảng cáo thu hút được người click (CTR: ${summary.formatted.overallCTR}) nhưng **không tạo ra BẤT KỲ kết quả nào (CVR: 0.00%)**.`,
+        action: `Vấn đề nghiêm trọng nằm ở *sau khi click*. Kiểm tra ngay: 1. **Alignment**: Lời hứa trên quảng cáo có khớp với nội dung landing page không? 2. **Form Friction**: Form đăng ký có quá dài, khó hiểu, hoặc yêu cầu thông tin nhạy cảm không? 3. **Tốc độ tải trang** (Page Speed).`,
+      });
+    } else if (overallCTR < LOW_CTR_THRESHOLD) {
+      recommendations.push({
+        area: "Creative (CTR)",
+        reason: `Tỷ lệ Click (CTR) đang ở mức rất thấp (${summary.formatted.overallCTR}).`,
+        action: `Creative chưa đủ thu hút. Tập trung cải thiện **Hook** (3 giây đầu video / ảnh chính) và **CTA (Call-to-Action)**. Đảm bảo quảng cáo nổi bật trên newsfeed.`,
+      });
+    } else if (
+      overallCVRProxy < LOW_CVR_THRESHOLD &&
+      overallCTR >= LOW_CTR_THRESHOLD
+    ) {
+      recommendations.push({
+        area: "Landing Page (CVR)",
+        reason: `CTR ở mức chấp nhận được (${summary.formatted.overallCTR}) nhưng **Tỷ lệ Chuyển đổi (CVR) sau click rất thấp (${summary.formatted.overallCVRProxy})**.`,
+        action: `Người dùng quan tâm (click) nhưng không chuyển đổi. Tối ưu **Landing Page**: 1. Tăng tốc độ tải trang. 2. Đảm bảo thông điệp khớp 100% với quảng cáo. 3. Đơn giản hóa Form đăng ký.`,
+      });
+    } else if (
+      overallCTR >= LOW_CTR_THRESHOLD &&
+      overallCVRProxy >= LOW_CVR_THRESHOLD
+    ) {
+      // <<< THAY ĐỔI: Thêm insight "TỐT"
+      recommendations.push({
+        area: "Funnel Performance",
+        reason: `Phễu hoạt động tốt: CTR (${summary.formatted.overallCTR}) và CVR (${summary.formatted.overallCVRProxy}) đều ở mức chấp nhận được.`,
+        action: `Tiếp tục theo dõi. Có thể bắt đầu test A/B các creative/offer mới để tìm điểm tối ưu hơn nữa (scale-up).`,
+      });
+    }
+  })();
+
+  // 2. Phân tích Tần suất (Frequency)
+  (function analyzeFrequency() {
+    if (overallFreq > 2.5) {
+      recommendations.push({
+        area: "Frequency (Mỏi quảng cáo)",
+        reason: `Tần suất trung bình cao (${summary.formatted.overallFreq}). Khách hàng có thể đã thấy quảng cáo này quá nhiều.`,
+        action: `Chuẩn bị làm mới creative (nội dung/hình ảnh) để tránh "mỏi quảng cáo". Xem xét loại trừ tệp những người đã tương tác/click nhưng không chuyển đổi.`,
+      });
+    }
+  })();
+
+  // 3. Phân tích Mâu thuẫn Ngân sách (Budget Mismatch)
+  (function analyzeBudgetMismatch() {
+    if (totalResults === 0) return;
+    const topSpendSegment = topN(byAgeGenderArr, (x) => x.spend, 1)[0];
+    const bestCprSegment = topN(
+      byAgeGenderArr.filter((x) => x.cpr > 0),
+      (x) => x.cpr,
+      1,
+      true
+    )[0];
+
+    if (
+      topSpendSegment &&
+      bestCprSegment &&
+      topSpendSegment.key !== bestCprSegment.key
+    ) {
+      recommendations.push({
+        area: "Budget Mismatch (Age/Gender)",
+        reason: `Ngân sách đang tập trung nhiều nhất vào nhóm <b>${formatKeyName(
+          topSpendSegment.key,
+          "age_gender"
+        )}</b> (CPR: ${formatCPR(topSpendSegment.cpr, goal)}).`,
+        action: `Tuy nhiên, nhóm hiệu quả nhất (CPR rẻ nhất) lại là <b>${formatKeyName(
+          bestCprSegment.key,
+          "age_gender"
+        )}</b> (CPR: ${formatCPR(
+          bestCprSegment.cpr,
+          goal
+        )}). Cân nhắc *chuyển dịch ngân sách* từ nhóm kém hiệu quả sang nhóm hiệu quả nhất.`,
+      });
+    }
+  })();
+
+  // 4. Phân tích Cơ hội Bỏ lỡ (Untapped Opportunity)
+  (function analyzeOpportunity() {
+    if (totalResults === 0) return;
+    const bestCprPlatforms = topN(
+      byPlatformArr.filter((x) => x.cpr > 0),
+      (x) => x.cpr,
+      3,
+      true
+    );
+    const lowSpendOpportunities = bestCprPlatforms.filter(
+      (p) => p.spend < totalSpend * 0.1
+    );
+
+    if (lowSpendOpportunities.length > 0) {
+      const opportunity = lowSpendOpportunities[0];
+      recommendations.push({
+        area: "Untapped Opportunity (Placement)",
+        reason: `Vị trí <b>${formatKeyName(
+          opportunity.key,
+          "platform"
+        )}</b> đang có CPR cực kỳ tốt (${formatCPR(
+          opportunity.cpr,
+          goal
+        )}) nhưng mới chỉ tiêu ${formatMoney(opportunity.spend)}.`,
+        action: `Đây là một "mỏ vàng" chưa khai thác. <b>Tạo chiến dịch riêng (CBO) hoặc nhóm quảng cáo riêng</b> chỉ nhắm vào vị trí này và tăng ngân sách cho nó để scale.`,
+      });
+    }
+  })();
+
+  // -------------------------
+  // Tạo Sections Data (Giữ lại Best CPR)
+  // -------------------------
+  const N_TOP = 3; // Đã định nghĩa ở trên
+  const sections = [];
+
+  // 1) Timing (Hours)
+  (function () {
+    const arr = byHourArr;
+    if (!arr.length)
+      return sections.push({ title: "Timing (Hourly)", note: "No data" });
+    const formatList = (list) =>
+      list.map((item) => ({ ...item, key: formatKeyName(item.key, "hour") }));
+    sections.push({
+      title: "Timing (Hourly)",
+      topSpend: formatList(topN(arr, (x) => x.spend, N_TOP)),
+      topResult: formatList(topN(arr, (x) => x.result, N_TOP)),
+      bestCpr: formatList(
+        topN(
+          arr.filter((x) => x.cpr > 0),
+          (x) => x.cpr,
+          N_TOP,
+          true
+        )
+      ),
+    });
+  })();
+
+  // 2) Age & Gender
+  (function () {
+    const arr = byAgeGenderArr;
+    if (!arr.length)
+      return sections.push({ title: "Age & Gender", note: "No data" });
+    const formatList = (list) =>
+      list.map((item) => ({
+        ...item,
+        key: formatKeyName(item.key, "age_gender"),
+      }));
+    sections.push({
+      title: "Age & Gender",
+      topSpend: formatList(topN(arr, (x) => x.spend, N_TOP)),
+      topResult: formatList(topN(arr, (x) => x.result, N_TOP)), // <<< THÊM Top Result
+      bestCpr: formatList(
+        topN(
+          arr.filter((x) => x.cpr > 0),
+          (x) => x.cpr,
+          N_TOP,
+          true
+        )
+      ),
+    });
+  })();
+
+  // 3) Region
+  (function () {
+    const arr = byRegionArr;
+    if (!arr.length) return sections.push({ title: "Region", note: "No data" });
+    sections.push({
+      title: "Region",
+      topSpend: topN(arr, (x) => x.spend, N_TOP),
+      topResult: topN(arr, (x) => x.result, N_TOP), // <<< THÊM Top Result
+      bestCpr: topN(
+        arr.filter((x) => x.cpr > 0),
+        (x) => x.cpr,
+        N_TOP,
+        true
+      ),
+    });
+  })();
+
+  // 4) Platform & Placement
+  (function () {
+    const arr = byPlatformArr;
+    if (!arr.length)
+      return sections.push({ title: "Platform & Placement", note: "No data" });
+    const formatList = (list) =>
+      list.map((item) => ({
+        ...item,
+        key: formatKeyName(item.key, "platform"),
+      }));
+    sections.push({
+      title: "Platform & Placement",
+      topSpend: formatList(topN(arr, (x) => x.spend, N_TOP)),
+      topResult: formatList(topN(arr, (x) => x.result, N_TOP)), // <<< THÊM Top Result
+      bestCpr: formatList(
+        topN(
+          arr.filter((x) => x.cpr > 0),
+          (x) => x.cpr,
+          N_TOP,
+          true
+        )
+      ),
+    });
+  })();
+
+  // 5) Device
+  (function () {
+    const arr = byDeviceArr;
+    if (!arr.length) return sections.push({ title: "Device", note: "No data" });
+    sections.push({
+      title: "Device",
+      topSpend: topN(arr, (x) => x.spend, N_TOP),
+      topResult: topN(arr, (x) => x.result, N_TOP), // <<< THÊM Top Result
+      bestCpr: topN(
+        arr.filter((x) => x.cpr > 0),
+        (x) => x.cpr,
+        N_TOP,
+        true
+      ),
+    });
+  })();
+
+  // 6) Creative (Section rỗng, chỉ có insight)
+  sections.push({
+    title: "Creative & Frequency",
+    note: "Phân tích đã được gộp trong phần Đề xuất.",
+  });
+
+  // -------------------------
+  // Trả về Report Object (ĐÃ CẬP NHẬT)
+  // -------------------------
+  const reportObject = {
+    generatedAt: new Date().toISOString(),
+    summary,
+    recommendations, // Chỉ trả về insight
+    sections, // <<< THAY ĐỔI: Trả về sections (chứa Top 3)
+  };
+
+  // Log ra console (Đã cập nhật)
+  console.group(`📑 Deep Report (Top 3) — Goal: ${summary.goal}`);
+  console.log("--- Tóm tắt Phễu ---");
+  console.table([
+    {
+      Spend: summary.formatted.totalSpend,
+      Results: summary.formatted.totalResults,
+      CPR: summary.formatted.overallCPR,
+      CPM: summary.formatted.overallCPM,
+      CTR: summary.formatted.overallCTR,
+      CVR_Click: summary.formatted.overallCVRProxy,
+      Freq: summary.formatted.overallFreq,
+    },
+  ]);
+
+  sections.forEach((sec) => {
+    console.groupCollapsed(`🔹 ${sec.title}`);
+    if (sec.note) {
+      console.log(sec.note);
+    } else {
+      if (sec.topSpend) {
+        console.log("Top 3 Chi tiêu (Spend):");
+        console.table(
+          sec.topSpend.map((s) => ({
+            Key: s.key,
+            Spend: formatMoney(s.spend),
+            Results: s.result,
+            CPR: formatCPR(s.cpr, goal),
+          }))
+        );
+      }
+      if (sec.topResult) {
+        console.log("Top 3 Kết quả (Result):");
+        console.table(
+          sec.topResult.map((s) => ({
+            Key: s.key,
+            Spend: formatMoney(s.spend),
+            Results: s.result,
+            CPR: formatCPR(s.cpr, goal),
+          }))
+        );
+      }
+      if (sec.bestCpr) {
+        console.log("Top 3 CPR Tốt nhất (Best CPR):");
+        console.table(
+          sec.bestCpr.map((s) => ({
+            Key: s.key,
+            Spend: formatMoney(s.spend),
+            Results: s.result,
+            CPR: formatCPR(s.cpr, goal),
+          }))
+        );
+      }
+      // Đã bỏ worstCpr
+    }
+    console.groupEnd();
+  });
+
+  console.group("✅ Recommendations");
+  if (recommendations.length === 0) {
+    console.log("Hiệu suất ổn định, chưa có đề xuất rõ ràng.");
+  } else {
+    recommendations.forEach((r, idx) => {
+      console.log(`${idx + 1}. [${r.area}] ${r.reason}`);
+      console.log(`   → Đề xuất: ${r.action}`);
+    });
+  }
+  console.groupEnd();
+  console.groupEnd();
+
+  return reportObject;
+}
+
+async function runDeepReport() {
+  const report = await generateDeepReportDetailed({
+    meta: window.campaignSummaryData,
+    byDate: window.dataByDate,
+    byHour: window.processedByHour,
+    byAgeGender: window.processedByAgeGender,
+    byRegion: window.processedByRegion,
+    byPlatform: window.processedByPlatform,
+    byDevice: window.processedByDevice,
+    targeting: window.targetingData,
+    goal: VIEW_GOAL,
+  });
+  renderAdReportWithVibe(report);
+}
+/**
+ * ===================================================================
+ * HÀM RENDER CHÍNH
+ * Render dữ liệu JSON báo cáo quảng cáo theo "vibe" của VTCI.
+ * ===================================================================
+ */
+
+// Đảm bảo bạn đã có 2 hàm này ở đâu đó
+// const formatMoney = (v) => v != null && !isNaN(v) ? Math.round(v).toLocaleString("vi-VN") + "đ" : "0đ";
+// const formatNumber = (v) => v != null && !isNaN(v) ? Math.round(v).toLocaleString("vi-VN") : "0";
+
+/**
+ * Render báo cáo vào UI.
+ * @param {object} rawReportData - Đối tượng JSON thô bạn đã cung cấp.
+ */
+/**
+ * ===================================================================
+ * HÀM RENDER UI (PHIÊN BẢN NÂNG CẤP V2)
+ * ===================================================================
+ */
+
+/**
+ * Render báo cáo vào UI.
+ * @param {object} report - Đối tượng report đã được generate.
+ */
+function renderAdReportWithVibe(report) {
+  console.log("Rendering Ad Report (V2)...", report);
+  const container = document.querySelector(".dom_ai_report_content");
+  if (!container) {
+    console.error("Không tìm thấy container .dom_ai_report_content");
+    return;
+  }
+
+  const adNameEl = document.querySelector(".dom_detail_id > span:first-child");
+  const adName = adNameEl ? adNameEl.textContent.trim() : "Quảng cáo";
+
+  const { summary, recommendations, sections, generatedAt } = report;
+
+  const html = [];
+  let delay = 1;
+
+  // --- Bắt đầu khối báo cáo ---
+  html.push('<div class="ai_report_block ads">');
+  html.push(
+    `<h4><i class="fa-solid fa-magnifying-glass-chart"></i> Phân tích: ${adName}</h4>`
+  );
+  html.push('<div class="ai_report_inner"><section class="ai_section">');
+
+  // --- 1. Phần Tóm tắt Phễu (Funnel KPI Grid) ---
+  html.push(createKpiGrid(summary, delay));
+  delay += 2;
+
+  // --- 2. Phần Insights & Đề xuất ---
+  html.push(createInsightList(recommendations, delay));
+  delay += 2;
+
+  // --- 3. Phần Breakdown (Sections) ---
+  if (sections) {
+    for (const section of sections) {
+      // Bỏ qua section "Creative" vì nó chỉ có insight (đã hiển thị ở trên)
+      if (section.title.includes("Creative")) {
+        continue;
+      }
+
+      let type = "default";
+      if (section.title.includes("Timing")) type = "hour";
+      else if (section.title.includes("Age & Gender")) type = "age";
+      else if (section.title.includes("Region")) type = "region";
+      else if (section.title.includes("Platform")) type = "platform";
+      else if (section.title.includes("Device")) type = "device";
+
+      // <<< THAY ĐỔI: Gọi hàm render breakdown MỚI
+      html.push(createBreakdownSection(section, type, delay));
+      delay += 4; // Tăng delay cho mỗi section
+    }
+  }
+
+  // --- Kết thúc khối báo cáo ---
+  html.push("</section></div>");
+  html.push(
+    `<small class="timestamp">Generated: ${new Date(generatedAt).toLocaleString(
+      "vi-VN"
+    )}</small>`
+  );
+  html.push("</div>");
+
+  container.innerHTML = html.join("");
+
+  // Kích hoạt animation
+  setTimeout(() => {
+    container
+      .querySelectorAll(".fade_in_item")
+      .forEach((el, i) => setTimeout(() => el.classList.add("show"), i * 200));
+  }, 3000);
+}
+
+/**
+ * Tạo lưới KPI tóm tắt (Đã cập nhật)
+ */
+function createKpiGrid(summary, delayStart = 1) {
+  console.log(summary);
+
+  if (!summary || !summary.formatted) return "";
+  const { formatted, goal } = summary;
+
+  return `
+        <h5 class="fade_in_item delay-${delayStart}"><i class="fa-solid fa-chart-pie"></i> Tóm tắt Phễu Hiệu suất</h5>
+        <div class="ai_kpi_grid fade_in_item delay-${delayStart + 1}">
+            <div class="kpi_item">
+                <span>Tổng chi phí</span>
+                <strong>${formatted.totalSpend || "N/A"}</strong>
+            </div>
+            <div class="kpi_item">
+                <span>Tổng kết quả (${goal || "N/A"})</span>
+                <strong>${formatted.totalResults || "N/A"}</strong>
+            </div>
+            <div class="kpi_item">
+                <span>CPR (Chi phí/Kết quả)</span>
+                <strong>${formatted.overallCPR || "N/A"}</strong>
+            </div>
+            <div class="kpi_item">
+                <span>CPM (Chi phí/1000 Lượt xem)</span>
+                <strong>${formatted.overallCPM || "N/A"}</strong>
+            </div>
+            <div class="kpi_item">
+                <span>CTR (Tỷ lệ Click)</span>
+                <strong class="${
+                  summary.overallCTR < 0.005 ? "metric-bad" : "metric-good"
+                }">${formatted.overallCTR || "N/A"}</strong>
+            </div>
+            <div class="kpi_item">
+                <span>CVR (Click -> Kết quả)</span>
+                <strong class="${
+                  summary.overallCVRProxy < 0.02 ? "metric-bad" : "metric-good"
+                }">${formatted.overallCVRProxy || "N/A"}</strong>
+            </div>
+            <div class="kpi_item">
+                <span>Tiếp cận (Reach)</span>
+                <strong>${summary.totalReach || "N/A"}</strong>
+            </div>
+            <div class="kpi_item">
+                <span>Tần suất (Freq)</span>
+                <strong>${formatted.overallFreq || "N/A"}</strong>
+            </div>
+        </div>
+    `;
+}
+
+/**
+ * Tạo danh sách Insights/Đề xuất.
+ */
+function createInsightList(recommendations, delayStart = 1) {
+  let listItems =
+    '<li><i class="fa-solid fa-check-circle" style="color:#28a745;"></i> <strong>[TỔNG QUAN]</strong> Hiệu suất ổn định, chưa phát hiện vấn đề nghiêm trọng.</li>';
+
+  if (recommendations && recommendations.length > 0) {
+    listItems = recommendations
+      .map((rec) => {
+        let icon = "fa-solid fa-lightbulb";
+        let color = "#ffc107"; // Vàng
+        if (
+          rec.area.includes("Mismatch") ||
+          rec.reason.includes("thấp") ||
+          rec.reason.includes("cao") ||
+          rec.area.includes("Creative")
+        ) {
+          icon = "fa-solid fa-triangle-exclamation";
+          color = "#e17055"; // Đỏ cam
+        } else if (
+          rec.area.includes("Opportunity") ||
+          rec.reason.includes("tốt nhất")
+        ) {
+          icon = "fa-solid fa-wand-magic-sparkles";
+          color = "#007bff"; // Xanh dương
+        } else if (rec.area.includes("Funnel Performance")) {
+          icon = "fa-solid fa-check-circle";
+          color = "#28a745"; // Xanh lá
+        }
+
+        return `<li><i class="${icon}" style="color:${color};"></i> <strong>[${
+          rec.area
+        }]</strong> ${
+          rec.reason
+        }<br><span class="recommendation-action">→ Đề xuất: ${
+          rec.action || ""
+        }</span></li>`;
+      })
+      .join("");
+  }
+
+  return `
+        <h5 class="fade_in_item delay-${delayStart}"><i class="fa-solid fa-user-check"></i> Đề xuất từ Chuyên gia</h5>
+        <ul class="insight_list fade_in_item delay-${delayStart + 1}">
+            ${listItems}
+        </ul>
+    `;
+}
+
+/**
+ * <<< THAY ĐỔI: Hàm tạo section breakdown MỚI
+ * Tạo một section breakdown đầy đủ (Tiêu đề + 3 bảng).
+ */
+function createBreakdownSection(section, type, delayStart = 1) {
+  if (!section || section.note === "No data") {
+    return ""; // Bỏ qua nếu section không có data
+  }
+
+  const icon = getIconForType(type);
+  const hasResults =
+    (section.topResult && section.topResult.length > 0) ||
+    (section.bestCpr && section.bestCpr.length > 0);
+
+  return `
+        <h5 class="fade_in_item delay-${delayStart}"><i class="${icon}"></i> Phân tích ${
+    section.title
+  }</h5>
+        
+        <div class="fade_in_item delay-${delayStart + 1}">
+            <h6>Top 3 Chi tiêu (Spend)</h6>
+            ${createBreakdownTable(section.topSpend, type)}
+        </div>
+        
+        ${
+          hasResults
+            ? `
+            <div class="fade_in_item delay-${delayStart + 2}">
+                <h6>Top 3 Kết quả (Result)</h6>
+                ${createBreakdownTable(section.topResult, type)}
+            </div>
+            
+            <div class="fade_in_item delay-${delayStart + 3}">
+                <h6>Top 3 CPR Tốt nhất (Best CPR)</h6>
+                ${createBreakdownTable(section.bestCpr, type)}
+            </div>
+        `
+            : `
+            <div class="fade_in_item delay-${delayStart + 2}">
+                <p class="no-result-note"><i class="fa-solid fa-info-circle"></i> Không có dữ liệu Kết quả (Result) để phân tích CPR cho mục này.</p>
+            </div>
+        `
+        }
+    `;
+}
+
+/**
+ * Tạo HTML cho một bảng 'mini_table'.
+ */
+function createBreakdownTable(dataArray, type) {
+  if (!dataArray || dataArray.length === 0)
+    return '<p class="no-result-note" style="margin-left: 0;">Không có dữ liệu.</p>';
+
+  // Dùng hàm formatMoney và formatNumber (đảm bảo chúng tồn tại)
+  const formatMoneySafe = (n) =>
+    window.formatMoney ? window.formatMoney(n) : `${Math.round(n || 0)}đ`;
+  const formatNumberSafe = (n) =>
+    window.formatNumber ? window.formatNumber(n) : Math.round(n || 0);
+  const formatCPRSafe = (n, goal) =>
+    window.formatCPR
+      ? window.formatCPR(n, goal)
+      : n > 0
+      ? formatMoneySafe(n)
+      : "N/A";
+
+  const rows = dataArray
+    .map(
+      (item) => `
+        <tr>
+            <td>${item.key}</td> <td>${formatMoneySafe(item.spend)}</td>
+            <td>${formatNumberSafe(item.result)}</td>
+            <td>${formatCPRSafe(item.cpr, item.goal)}</td>
+            <td>${formatMoneySafe(item.cpm)}</td>
+        </tr>
+    `
+    )
+    .join("");
+
+  return `
+        <table class="mini_table">
+            <thead>
+                <tr>
+                    <th>Phân khúc</th>
+                    <th>Chi phí</th>
+                    <th>Kết quả</th>
+                    <th>CPR</th>
+                    <th>CPM</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${rows}
+            </tbody>
+        </table>
+    `;
+}
+
+/**
+ * Helper lấy icon Font Awesome dựa trên loại breakdown.
+ */
+function getIconForType(type) {
+  switch (type) {
+    case "hour":
+      return "fa-solid fa-clock";
+    case "age":
+      return "fa-solid fa-users";
+    case "region":
+      return "fa-solid fa-map-location-dot";
+    case "platform":
+      return "fa-solid fa-laptop-device";
+    case "device":
+      return "fa-solid fa-mobile-screen-button";
+    default:
+      return "fa-solid fa-chart-bar";
+  }
+}
+
+/**
+ * Tạo lưới KPI tóm tắt (Đã cập nhật
+ */
+function createKpiGrid(summary, delayStart = 1) {
+  if (!summary || !summary.formatted) return "";
+  const { formatted, goal } = summary;
+
+  // Thêm CTR và CVR vào lưới KPI
+  return `
+    <h5 class="fade_in_item delay-${delayStart}"><i class="fa-solid fa-chart-pie"></i> Tóm tắt Phễu Hiệu suất</h5>
+    <div class="ai_kpi_grid fade_in_item delay-${delayStart + 1}">
+        <div class="kpi_item">
+            <span>Tổng chi phí</span>
+            <strong>${formatted.totalSpend || "N/A"}</strong>
+        </div>
+        <div class="kpi_item">
+            <span>Tổng kết quả (${goal || "N/A"})</span>
+            <strong>${formatted.totalResults || "N/A"}</strong>
+        </div>
+        <div class="kpi_item">
+            <span>CPR (Chi phí/Kết quả)</span>
+            <strong>${formatted.overallCPR || "N/A"}</strong>
+        </div>
+        <div class="kpi_item">
+            <span>CPM (Chi phí/1000 Lượt xem)</span>
+            <strong>${formatted.overallCPM || "N/A"}</strong>
+        </div>
+        <div class="kpi_item">
+            <span>CTR (Tỷ lệ Click)</span>
+            <strong class="${
+              summary.overallCTR < 0.005 ? "metric-bad" : "metric-good"
+            }">${formatted.overallCTR || "N/A"}</strong>
+        </div>
+        <div class="kpi_item">
+            <span>CVR (Click -> Kết quả)</span>
+             <strong class="${
+               summary.overallCVRProxy < 0.02 ? "metric-bad" : "metric-good"
+             }">${formatted.overallCVRProxy || "N/A"}</strong>
+        </div>
+        <div class="kpi_item">
+            <span>Tiếp cận (Reach)</span>
+            <strong>${formatted.totalReach || "N/A"}</strong>
+        </div>
+        <div class="kpi_item">
+            <span>Tần suất (Freq)</span>
+            <strong>${formatted.overallFreq || "N/A"}</strong>
+        </div>
+    </div>
+  `;
+}
+
+/**
+ * Tạo danh sách Insights/Đề xuất.
+ */
+function createInsightList(recommendations, delayStart = 1) {
+  let listItems =
+    '<li><i class="fa-solid fa-check-circle" style="color:#28a745;"></i> <strong>[TỔNG QUAN]</strong> Hiệu suất ổn định, chưa phát hiện vấn đề nghiêm trọng.</li>';
+
+  if (recommendations && recommendations.length > 0) {
+    listItems = recommendations
+      .map((rec) => {
+        // Xác định icon và màu
+        let icon = "fa-solid fa-lightbulb"; // Insight (Vàng)
+        let color = "#ffc107";
+        if (
+          rec.area.includes("Mismatch") ||
+          rec.reason.includes("thấp") ||
+          rec.reason.includes("cao")
+        ) {
+          icon = "fa-solid fa-triangle-exclamation"; // Vấn đề (Đỏ cam)
+          color = "#e17055";
+        } else if (
+          rec.area.includes("Opportunity") ||
+          rec.reason.includes("tốt nhất")
+        ) {
+          icon = "fa-solid fa-wand-magic-sparkles"; // Cơ hội (Xanh dương)
+          color = "#007bff";
+        }
+
+        return `<li><i class="${icon}" style="color:${color};"></i> <strong>[${
+          rec.area
+        }]</strong> ${
+          rec.reason
+        }<br><span class="recommendation-action">→ Đề xuất: ${
+          rec.action || ""
+        }</span></li>`;
+      })
+      .join("");
+  }
+
+  return `
+    <h5 class="fade_in_item delay-${delayStart}"><i class="fa-solid fa-user-check"></i> Đề xuất từ Chuyên gia</h5>
+    <ul class="insight_list fade_in_item delay-${delayStart + 1}">
+        ${listItems}
+    </ul>
+  `;
+}
+/**
+ * ===================================================================
+ * CÁC HÀM HELPER CHO VIỆC RENDER
+ * ===================================================================
+ */
+
+/**
+ * Tạo lưới KPI tóm tắt.
+ * @param {object} summary - Object summary từ JSON.
+ * @param {number} delayStart - Số delay bắt đầu cho animation.
+ */
+function createKpiGrid(summary, delayStart = 1) {
+  if (!summary || !summary.formatted) return "";
+  const { formatted } = summary;
+
+  return `
+      <h5 class="fade_in_item delay-${delayStart}"><i class="fa-solid fa-chart-pie"></i> Tóm tắt Hiệu suất</h5>
+      <div class="ai_kpi_grid fade_in_item delay-${delayStart + 1}">
+          <div class="kpi_item">
+              <span>Tổng chi phí</span>
+              <b>${formatted.totalSpend || "N/A"}</b>
+          </div>
+          <div class="kpi_item">
+              <span>Tổng kết quả (${summary.goal || "N/A"})</span>
+              <b>${formatted.totalResults || "N/A"}</b>
+          </div>
+          <div class="kpi_item">
+              <span>CPR</span>
+              <b>${formatted.overallCPR || "N/A"}</b>
+          </div>
+          <div class="kpi_item">
+              <span>CPM (trên Reach)</span>
+              <b>${formatted.overallCPM || "N/A"}</b>
+          </div>
+           <div class="kpi_item">
+              <span>Tiếp cận (Reach)</span>
+              <b>${formatted.totalReach || "N/A"}</b>
+          </div>
+          <div class="kpi_item">
+              <span>Tần suất (Freq)</span>
+              <b>${formatted.overallFreq || "N/A"}</b>
+          </div>
+      </div>
+  `;
+}
+
+/**
+ * Tạo danh sách Insights/Đề xuất.
+ * @param {Array} recommendations - Mảng recommendations từ JSON.
+ * @param {number} delayStart - Số delay bắt đầu cho animation.
+ */
+function createInsightList(recommendations, delayStart = 1) {
+  let listItems = "<li>Không có đề xuất nổi bật.</li>"; // Mặc định
+
+  if (recommendations && recommendations.length > 0) {
+    listItems = recommendations
+      .map((rec) => {
+        // Xác định icon và màu dựa trên reason/area
+        let icon = "fa-solid fa-lightbulb";
+        let color = "#007bff"; // Màu xanh dương mặc định
+        if (rec.reason.includes("thấp")) {
+          icon = "fa-solid fa-triangle-exclamation";
+          color = "#e17055"; // Màu đỏ cam
+        }
+
+        return `<li><i class="${icon}" style="color:${color}"></i> <b>[${
+          rec.area
+        }]</b> ${rec.reason} ${rec.action || ""}</li>`;
+      })
+      .join("");
+  }
+
+  return `
+      <h5 class="fade_in_item delay-${delayStart}"><i class="fa-solid fa-lightbulb"></i> Insights & Đề xuất</h5>
+      <ul class="insight_list fade_in_item delay-${delayStart + 1}">
+          ${listItems}
+      </ul>
+  `;
+}
+
+function createBreakdownSection(section, type, delayStart = 1) {
+  if (!section || section.note === "No data") {
+    return ""; // Bỏ qua nếu section không có data
+  }
+
+  const icon = getIconForType(type); // Lấy icon dựa trên loại
+
+  // Dữ liệu JSON có result=0 và cpr=0 ở mọi nơi.
+  // Nếu không có kết quả, bảng 'Best CPR' và 'Worst CPR' sẽ giống hệt nhau
+  // và không có ý nghĩa. Chúng ta sẽ chỉ hiển thị 'Top Spend' trong trường hợp này.
+  const hasResults = parseFloat(section.topSpend[0]?.result || 0) > 0; // Kiểm tra xem có kết quả nào không
+
+  return `
+      <h5 class="fade_in_item delay-${delayStart}"><i class="${icon}"></i> Phân tích ${
+    section.title
+  }</h5>
+      
+      <div class="fade_in_item delay-${delayStart + 1}">
+          <h6>Top chi tiêu (Spend)</h6>
+          ${createBreakdownTable(section.topSpend, type)}
+      </div>
+      
+      ${
+        hasResults
+          ? `
+          <div class="fade_in_item delay-${delayStart + 2}">
+              <h6>Top CPR Tốt nhất (Best CPR)</h6>
+              ${createBreakdownTable(section.bestCpr, type)}
+          </div>
+         
+      `
+          : `
+          <div class="fade_in_item delay-${delayStart + 2}">
+              <p class="no-result-note"><i class="fa-solid fa-info-circle"></i> Không có dữ liệu Kết quả (Result) để phân tích CPR cho mục này.</p>
+          </div>
+      `
+      }
+  `;
+}
+
+/**
+ * Tạo HTML cho một bảng 'mini_table'.
+ * @param {Array} dataArray - Mảng dữ liệu (ví dụ: section.topSpend).
+ * @param {string} type - 'hour', 'age', 'region', 'platform'.
+ */
+function createBreakdownTable(dataArray, type) {
+  if (!dataArray || dataArray.length === 0) return "<p>Không có dữ liệu.</p>";
+
+  const rows = dataArray
+    .map(
+      (item) => `
+      <tr>
+          <td>${formatKeyName(item.key, type)}</td>
+          <td>${formatMoney(item.spend)}</td>
+          <td>${formatNumber(item.result)}</td>
+          <td>${item.cpr === 0 ? "N/A" : formatMoney(item.cpr)}</td>
+          <td>${formatMoney(item.cpm)}</td>
+      </tr>
+  `
+    )
+    .join("");
+
+  return `
+      <table class="mini_table">
+          <thead>
+              <tr>
+                  <th>Phân khúc</th>
+                  <th>Chi phí</th>
+                  <th>Kết quả</th>
+                  <th>CPR</th>
+                  <th>CPM</th>
+              </tr>
+          </thead>
+          <tbody>
+              ${rows}
+          </tbody>
+      </table>
+  `;
+}
+
+/**
+ * Helper lấy icon Font Awesome dựa trên loại breakdown.
+ */
+function getIconForType(type) {
+  switch (type) {
+    case "hour":
+      return "fa-solid fa-clock";
+    case "age":
+      return "fa-solid fa-users";
+    case "region":
+      return "fa-solid fa-map-location-dot";
+    case "platform":
+      return "fa-solid fa-laptop-device";
+    default:
+      return "fa-solid fa-chart-bar";
+  }
+}
+
+/**
+ * Helper làm đẹp tên (key) của breakdown.
+ */
+function formatKeyName(key, type) {
+  if (!key) return "N/A";
+  return key
+    .replace(/_/g, " ")
+    .replace(
+      /\b(facebook|instagram)\b/gi,
+      (match) => match.charAt(0).toUpperCase() + match.slice(1)
+    ) // Viết hoa Facebook, Instagram
+    .replace("unknown", "Không xác định");
+}
+
+function setupAIReportModal() {
+  // 1. Tìm các phần tử DOM cần thiết
+  const openButton = document.querySelector(".ai_report_compare");
+  const reportContainer = document.querySelector(".dom_ai_report");
+  const closeButton = reportContainer.querySelector(".dom_ai_report_close");
+  const reportTitle = reportContainer.querySelector("h3");
+
+  // 2. Kiểm tra xem các phần tử có tồn tại không
+  if (!openButton || !reportContainer || !closeButton || !reportTitle) {
+    console.warn(
+      "Không tìm thấy các phần tử AI Report (nút mở, container, nút đóng hoặc tiêu đề)."
+    );
+    return;
+  }
+
+  // 3. Gán sự kiện Click cho nút MỞ report
+  openButton.addEventListener("click", (e) => {
+    e.preventDefault(); // Ngăn hành vi mặc định (nếu là thẻ <a>)
+
+    // Lấy ngày tháng từ .dom_date
+    const dateEl = document.querySelector(".dom_date");
+    const dateText = dateEl ? dateEl.textContent.trim() : "N/A";
+
+    // Cập nhật tiêu đề
+    reportTitle.innerHTML = `
+    
+    <p><img src="https://ideas-crm-dashboard.vercel.app/logotarget.png">
+      <span>DOM AI REPORT </span></p>
+    <p class="report_time">${dateText}</p>
+   `;
+
+    // Hiển thị modal
+    reportContainer.classList.add("active");
+
+    // Gọi hàm chạy phân tích
+    if (typeof runDeepReport === "function") {
+      runDeepReport(); // Gọi hàm của bạn
+    } else {
+      console.error("Hàm runDeepReport() không được định nghĩa.");
+      // Hiển thị lỗi trên UI nếu cần
+      const contentEl = reportContainer.querySelector(".dom_ai_report_content");
+      if (contentEl) {
+        contentEl.innerHTML =
+          '<p style="color:red; padding: 20px;">Lỗi: Không tìm thấy hàm runDeepReport().</p>';
+      }
+    }
+  });
+
+  // 4. Gán sự kiện Click cho nút ĐÓNG report
+  closeButton.addEventListener("click", () => {
+    reportContainer.classList.remove("active");
+
+    // Tùy chọn: Xóa nội dung report cũ khi đóng
+    const contentEl = reportContainer.querySelector(".dom_ai_report_content");
+    if (contentEl) {
+      contentEl.innerHTML = ""; // Xóa nội dung để lần sau load lại
+    }
+  });
 }
