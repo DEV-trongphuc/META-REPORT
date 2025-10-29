@@ -4925,9 +4925,9 @@ async function fetchAdAccountInfo() {
       vat * 1
     ).toLocaleString("vi-VN")}đ`;
     document.getElementById("detail_method").innerHTML = paymentMethodDisplay;
-    document.getElementById("detail_paid").innerHTML = `${(
-      amountSpent * 1
-    ).toLocaleString("vi-VN")}đ`;
+    // document.getElementById("detail_paid").innerHTML = `${(
+    //   amountSpent * 1
+    // ).toLocaleString("vi-VN")}đ`;
 
     return data;
   } catch (error) {
