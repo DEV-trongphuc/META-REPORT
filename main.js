@@ -3666,9 +3666,12 @@ function updatePlatformSummaryUI(currentData, previousData = []) {
     previousValue,
     isCurrency = false
   ) => {
+    console.log(previousValue);
+    console.log(previousData);
+
     let titleText = ` ${previousValue.toLocaleString("vi-VN")} - (${
-      previousData?.[0].date_start
-    } to ${previousData?.[0].date_stop})`;
+      previousData?.[0]?.date_start
+    } to ${previousData?.[0]?.date_stop})`;
     const valueEl = document.querySelector(`#${id} span:first-child`);
     const changeEl = document.querySelector(`#${id} span:last-child`);
     changeEl.setAttribute("title", titleText);
