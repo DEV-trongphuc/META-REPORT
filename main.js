@@ -1021,8 +1021,8 @@ async function loadDashboardData() {
 
 // 🚀 Hàm chính gọi khi load trang lần đầu
 async function main() {
-  initDashboard();
   renderYears();
+  initDashboard();
   await loadDashboardData();
 }
 
@@ -5231,6 +5231,8 @@ async function initializeYearData() {
  */
 function setupFilterDropdown() {
   const actionFilter = document.querySelector(".dom_select.year_filter");
+  console.log(actionFilter);
+
   if (!actionFilter) return;
 
   const actionList = actionFilter.querySelector("ul.dom_select_show");
@@ -5240,6 +5242,7 @@ function setupFilterDropdown() {
   // Xử lý đóng/mở
   actionFilter.addEventListener("click", (e) => {
     e.stopPropagation();
+
     const isActive = actionList.classList.contains("active");
     document.querySelectorAll(".dom_select_show.active").forEach((ul) => {
       if (ul !== actionList) ul.classList.remove("active");
@@ -5257,8 +5260,8 @@ function setupFilterDropdown() {
         actionList.classList.remove("active");
         return;
       }
+      console.log(li);
 
-      // Cập nhật UI
       actionItems.forEach((el) => el.classList.remove("active"));
       actionList
         .querySelectorAll(".radio_box")
