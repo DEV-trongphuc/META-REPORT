@@ -1011,7 +1011,7 @@ async function loadDashboardData() {
   // loadRegionSpendChart();
   loadAllDashboardCharts();
   initializeYearData();
-  fetchAdAccountInfo();
+
   resetYearDropdownToCurrentYear();
   resetFilterDropdownTo("spend");
   loadCampaignList().finally(() => {
@@ -1491,22 +1491,22 @@ async function showAdDetail(ad_id) {
     } = results;
 
     // Kiểm tra dữ liệu CƠ BẢN
-    if (
-      !targeting ||
-      !byHour ||
-      !byAgeGender ||
-      !byRegion ||
-      !byPlatform ||
-      !byDevice ||
-      !byDate
-    ) {
-      console.error(
-        "❌ Dữ liệu chi tiết ad bị thiếu sau khi fetch batch:",
-        ad_id
-      );
-      // Có thể hiển thị thông báo lỗi phù hợp hơn
-      return;
-    }
+    // if (
+    //   !targeting ||
+    //   !byHour ||
+    //   !byAgeGender ||
+    //   !byRegion ||
+    //   !byPlatform ||
+    //   !byDevice ||
+    //   !byDate
+    // ) {
+    //   console.error(
+    //     "❌ Dữ liệu chi tiết ad bị thiếu sau khi fetch batch:",
+    //     ad_id
+    //   );
+    //   // Có thể hiển thị thông báo lỗi phù hợp hơn
+    //   return;
+    // }
 
     // ⭐ Render Ad Preview
     const previewBox = document.getElementById("preview_box");
@@ -4826,6 +4826,11 @@ document.addEventListener("DOMContentLoaded", () => {
       // Add new view class based on the clicked item
       const view = li.getAttribute("data-view");
       container.classList.add(view);
+
+      // 👉 Nếu là nút account thì mới fetch
+      if (view === "account") {
+        fetchAdAccountInfo();
+      }
 
       // Close the sidebar on mobile after a menu click
       domSidebar.classList.remove("active");
