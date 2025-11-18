@@ -45,7 +45,7 @@ const resultMapping = {
   PROFILE_VISIT: "link_click",
   LINK_CLICKS: "link_click",
   LANDING_PAGE_VIEWS: "link_click",
-  REPLIES: "onsite_conversion.messaging_conversation_replied_7d",
+  REPLIES: "onsite_conversion.total_messaging_connection",
   IMPRESSIONS: "impressions",
   PAGE_LIKES: "follows",
   DEFAULT: "reach", // Fallback
@@ -445,7 +445,7 @@ function groupByCampaign(adsets) {
       const actions = ins.actions;
       const messageCount = safeGetActionValue(
         actions,
-        "onsite_conversion.messaging_conversation_replied_7d"
+        "onsite_conversion.total_messaging_connection"
       );
       const leadCount =
         safeGetActionValue(actions, "lead") +
@@ -1613,7 +1613,7 @@ async function showAdDetail(ad_id) {
           t +
           (d.actions?.["onsite_conversion.lead_grouped"] ||
             d.actions?.[
-              "onsite_conversion.messaging_conversation_replied_7d"
+              "onsite_conversion.total_messaging_connection"
             ] ||
             0),
         0
@@ -2224,7 +2224,7 @@ function renderInteraction(byDate) {
       icon: "fa-solid fa-video", // Icon was fa-video, assuming typo, kept as-is
     },
     {
-      key: "onsite_conversion.messaging_conversation_replied_7d",
+      key: "onsite_conversion.total_messaging_connection",
       label: "Messages",
       icon: "fa-solid fa-message",
     },
@@ -2360,7 +2360,7 @@ function renderDetailDailyChart(dataByDate, type = currentDetailDailyType) {
     if (type === "reach") return item.reach || 0;
     if (type === "message")
       return (
-        item.actions["onsite_conversion.messaging_conversation_replied_7d"] || 0
+        item.actions["onsite_conversion.total_messaging_connection"] || 0
       );
     return 0;
   });
@@ -3385,7 +3385,7 @@ function getChartValue(item, type) {
 
   const typeMap = {
     lead: ["lead", "onsite_conversion.lead_grouped"],
-    message: ["onsite_conversion.messaging_conversation_replied_7d"],
+    message: ["onsite_conversion.total_messaging_connection"],
     like: ["like"],
     spend: ["spend"],
     reach: ["reach"],
@@ -3619,7 +3619,7 @@ function updatePlatformSummaryUI(currentData, previousData = []) {
       spend: +insights.spend || 0,
       reach: +insights.reach || 0,
       message:
-        actionsObj["onsite_conversion.messaging_conversation_replied_7d"] || 0,
+        actionsObj["onsite_conversion.total_messaging_connection"] || 0,
       lead: actionsObj["onsite_conversion.lead_grouped"] || 0,
       // Các chỉ số phụ (nếu cần tính toán so sánh sau này)
       like:
@@ -5069,7 +5069,7 @@ function processMonthlyData(data) {
           case "onsite_conversion.lead_grouped":
             monthsData[month].lead += value;
             break;
-          case "onsite_conversion.messaging_conversation_replied_7d":
+          case "onsite_conversion.total_messaging_connection":
             monthsData[month].message += value;
             break;
           case "like":
@@ -5750,16 +5750,16 @@ async function generateDeepReportDetailed({
       if (leadSum > 0) return leadSum;
     }
     if (g === "REPLIES" || g === "MESSAGE") {
-      if (actions["onsite_conversion.messaging_conversation_replied_7d"])
+      if (actions["onsite_conversion.total_messaging_connection"])
         return safeNumber(
-          actions["onsite_conversion.messaging_conversation_replied_7d"]
+          actions["onsite_conversion.total_messaging_connection"]
         );
     }
     const preferred = [
       "offsite_conversion.purchase",
       "purchase",
       "onsite_conversion.lead_grouped",
-      "onsite_conversion.messaging_conversation_replied_7d",
+      "onsite_conversion.total_messaging_connection",
       "landing_page_view",
       "link_click",
       "post_engagement",
