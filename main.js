@@ -681,8 +681,14 @@ function renderCampaignView(data) {
         adsetStatusText = `<span class="status-label">COMPLETE</span>`;
       } else if (hasActiveAd && dailyBudget > 0) {
         adsetStatusClass = "active dbudget";
+        const d = as.start_time ? new Date(as.start_time) : null;
+        const startDate = d
+          ? `${String(d.getDate()).padStart(2, "0")}-${String(
+              d.getMonth() + 1
+            ).padStart(2, "0")}-${d.getFullYear()}`
+          : "";
         adsetStatusText = `
-          <span class="status-label">Daily Budget</span>
+          <span class="status-label">Daily Budget: START ${startDate}</span>
           <span class="status-value">${dailyBudget.toLocaleString(
             "vi-VN"
           )}đ</span>`;
@@ -6818,3 +6824,4 @@ function setupAIReportModal() {
     }
   });
 }
+
