@@ -418,6 +418,7 @@ function groupByCampaign(adsets) {
         message: 0,
         ads: [],
         end_time: as.ads?.[0]?.adset?.end_time || null,
+        start_time: as.ads?.[0]?.adset?.start_time || null,
         daily_budget: as.ads?.[0]?.adset?.daily_budget || 0,
         lifetime_budget: as.ads?.[0]?.adset?.lifetime_budget || 0,
       };
