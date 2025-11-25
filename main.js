@@ -703,12 +703,12 @@ function renderCampaignView(data) {
           label = `<span class="status-label">Daily Budget</span>`;
           value = `<span class="status-value">${dailyBudget.toLocaleString("vi-VN")}đ</span>`;
           timeText = endDate
-            ? `<i class="fa-solid fa-calendar-days"></i> ${startDate} to ${endDate}`
+            ? `<i class="fa-regular fa-clock" style="opacity: 0.5"></i> ${startDate} to ${endDate}`
             : `START: ${startDate}`;
         } else if (lifetimeBudget > 0) {
           label = `<span class="status-label">Lifetime Budget</span>`;
           value = `<span class="status-value">${lifetimeBudget.toLocaleString("vi-VN")}đ</span>`;
-          timeText = `<i class="fa-solid fa-calendar-days"></i> ${startDate} to ${endDate}`;
+          timeText = `<i class="fa-regular fa-clock" style="opacity: 0.5"></i> ${startDate} to ${endDate}`;
         }
       
         adsetStatusText = `
