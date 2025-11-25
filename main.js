@@ -255,7 +255,7 @@ async function fetchAdsAndInsights(adsetIds, onBatchProcessedCallback) {
         method: "GET",
         relative_url:
           `${adsetId}/ads?fields=id,name,effective_status,adset_id,` +
-          `adset{end_time,daily_budget,lifetime_budget},` +
+          `adset{end_time,start_time,daily_budget,lifetime_budget},` +
           `creative{thumbnail_url,instagram_permalink_url,effective_object_story_id},` +
           `insights.time_range({since:'${startDate}',until:'${endDate}'}){spend,impressions,reach,actions,optimization_goal}`,
       }));
@@ -310,6 +310,7 @@ async function fetchAdsAndInsights(adsetIds, onBatchProcessedCallback) {
               daily_budget: adset.daily_budget || 0,
               lifetime_budget: adset.lifetime_budget ?? null,
               end_time: adset.end_time ?? null,
+              start_time: adset.start_time ?? null,
             },
             creative: {
               thumbnail_url: creative.thumbnail_url ?? null,
@@ -1619,9 +1620,7 @@ async function showAdDetail(ad_id) {
         (t, d) =>
           t +
           (d.actions?.["onsite_conversion.lead_grouped"] ||
-            d.actions?.[
-              "onsite_conversion.total_messaging_connection"
-            ] ||
+            d.actions?.["onsite_conversion.total_messaging_connection"] ||
             0),
         0
       ),
@@ -2366,9 +2365,7 @@ function renderDetailDailyChart(dataByDate, type = currentDetailDailyType) {
     if (type === "lead") return getResults(item);
     if (type === "reach") return item.reach || 0;
     if (type === "message")
-      return (
-        item.actions["onsite_conversion.total_messaging_connection"] || 0
-      );
+      return item.actions["onsite_conversion.total_messaging_connection"] || 0;
     return 0;
   });
 
@@ -3625,8 +3622,7 @@ function updatePlatformSummaryUI(currentData, previousData = []) {
     return {
       spend: +insights.spend || 0,
       reach: +insights.reach || 0,
-      message:
-        actionsObj["onsite_conversion.total_messaging_connection"] || 0,
+      message: actionsObj["onsite_conversion.total_messaging_connection"] || 0,
       lead: actionsObj["onsite_conversion.lead_grouped"] || 0,
       // Các chỉ số phụ (nếu cần tính toán so sánh sau này)
       like:
@@ -6825,4 +6821,3 @@ function setupAIReportModal() {
     }
   });
 }
-
