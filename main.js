@@ -695,7 +695,7 @@ function renderCampaignView(data) {
         let value = "";
         let timeText = "";
       
-        if (isEnded) { adsetStatusClass = "complete"; adsetStatusText = <span class="status-label">COMPLETE</span>; } else if (dailyBudget > 0) {
+        if (isEnded) { adsetStatusClass = "complete"; adsetStatusText = `<span class="status-label">COMPLETE</span>`; } else if (dailyBudget > 0) {
         adsetStatusClass = "active budget";
 
           label = `<span class="status-label">Daily Budget</span>`;
