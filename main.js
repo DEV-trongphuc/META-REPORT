@@ -678,36 +678,45 @@ function renderCampaignView(data) {
       const dailyBudget = +as.daily_budget || 0;
       const lifetimeBudget = +as.lifetime_budget || 0;
 
-      if (isEnded) {
-        adsetStatusClass = "complete";
-        adsetStatusText = `<span class="status-label">COMPLETE</span>`;
-      } else if (hasActiveAd && dailyBudget > 0) {
-        adsetStatusClass = "active dbudget";
-        const d = as.start_time ? new Date(as.start_time) : null;
-        const startDate = d
-          ? `${String(d.getDate()).padStart(2, "0")}-${String(
-              d.getMonth() + 1
-            ).padStart(2, "0")}-${d.getFullYear()}`
-          : "";
-        adsetStatusText = `
-          <span class="status-label">Daily Budget: START ${startDate}</span>
-          <span class="status-value">${dailyBudget.toLocaleString(
-            "vi-VN"
-          )}đ</span>`;
-      } else if (hasActiveAd && lifetimeBudget > 0) {
+      const formatDate = (dateStr) => {
+        if (!dateStr) return "";
+        const d = new Date(dateStr);
+        return `${String(d.getDate()).padStart(2, "0")}-${String(
+          d.getMonth() + 1
+        ).padStart(2, "0")}-${d.getFullYear()}`;
+      };
+      
+      if (isEnded || (hasActiveAd && dailyBudget > 0) || (hasActiveAd && lifetimeBudget > 0)) {
         adsetStatusClass = "active budget";
-        const d = as.end_time ? new Date(as.end_time) : null;
-        const endDate = d
-          ? `${String(d.getDate()).padStart(2, "0")}-${String(
-              d.getMonth() + 1
-            ).padStart(2, "0")}-${d.getFullYear()}`
-          : "";
+      
+        const startDate = formatDate(as.start_time);
+        const endDate = formatDate(as.end_time);
+      
+        let label = "";
+        let value = "";
+        let timeText = "";
+      
+        if (isEnded) {
+          // COMPLETE: ko có label
+          label = "";
+          timeText = startDate || endDate ? `TIME: ${startDate} → ${endDate}` : "";
+        } else if (dailyBudget > 0) {
+          label = `<span class="status-label">Daily Budget</span>`;
+          value = `<span class="status-value">${dailyBudget.toLocaleString("vi-VN")}đ</span>`;
+          timeText = endDate
+            ? `TIME: ${startDate} → ${endDate}`
+            : `START: ${startDate}`;
+        } else if (lifetimeBudget > 0) {
+          label = `<span class="status-label">Lifetime Budget</span>`;
+          value = `<span class="status-value">${lifetimeBudget.toLocaleString("vi-VN")}đ</span>`;
+          timeText = `TIME: ${startDate} → ${endDate}`;
+        }
+      
         adsetStatusText = `
-          <span class="status-label">Lifetime Budget</span>
-          <span class="status-value">${lifetimeBudget.toLocaleString(
-            "vi-VN"
-          )}đ</span>
-          <span class="status-date">END ${endDate}</span>`;
+          ${label}
+          ${value}
+          ${timeText ? `<span class="status-date">${timeText}</span>` : ""}
+        `;
       } else if (hasActiveAd) {
         adsetStatusClass = "active";
         adsetStatusText = `<span>ACTIVE</span>`;
@@ -715,6 +724,7 @@ function renderCampaignView(data) {
         adsetStatusClass = "inactive";
         adsetStatusText = `<span>INACTIVE</span>`;
       }
+      
 
       const adsetCpr =
         as.result > 0
