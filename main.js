@@ -685,32 +685,44 @@ function renderCampaignView(data) {
           d.getMonth() + 1
         ).padStart(2, "0")}-${d.getFullYear()}`;
       };
-      
-      if (isEnded) {
-        adsetStatusClass = "complete";
-        adsetStatusText = `<span class="status-label">COMPLETE</span>`;
-      } else if (hasActiveAd && (dailyBudget > 0 || lifetimeBudget > 0)) {
-        adsetStatusClass = "active budget";
-      
-        const startDate = formatDate(as.start_time);
+      const startDate = formatDate(as.start_time);
         const endDate = formatDate(as.end_time);
-      
         let label = "";
         let value = "";
         let timeText = "";
+      if (isEnded) {
+        adsetStatusClass = "complete budget";
+        // adsetStatusText = `<span class="status-label">COMPLETE</span>`;
+        // adsetStatusClass = "active budget";
+        label = `<span class="status-label"></span>`;
+        value = `<span class="status-value">COMPLETE</span>`;
+        timeText = `<i class="fa-regular fa-clock" style="opacity: 0.5"></i> ${startDate} to ${endDate}`;
+
+        adsetStatusText = `
+          ${label}
+          ${value}
+          ${timeText ? `<span class="status-date">${timeText}</span>` : ""}
+        `;
+      } else if (hasActiveAd && (dailyBudget > 0 || lifetimeBudget > 0)) {
+        adsetStatusClass = "active budget";
       
+
         if (dailyBudget > 0) {
           label = `<span class="status-label">Daily Budget</span>`;
-          value = `<span class="status-value">${dailyBudget.toLocaleString("vi-VN")}đ</span>`;
+          value = `<span class="status-value">${dailyBudget.toLocaleString(
+            "vi-VN"
+          )}đ</span>`;
           timeText = endDate
             ? `<i class="fa-regular fa-clock" style="opacity: 0.5"></i> ${startDate} to ${endDate}`
-            : `START: ${startDate}`;
+            : `<i class="fa-regular fa-clock" style="opacity: 0.5"></i> START: ${startDate}`;
         } else if (lifetimeBudget > 0) {
           label = `<span class="status-label">Lifetime Budget</span>`;
-          value = `<span class="status-value">${lifetimeBudget.toLocaleString("vi-VN")}đ</span>`;
+          value = `<span class="status-value">${lifetimeBudget.toLocaleString(
+            "vi-VN"
+          )}đ</span>`;
           timeText = `<i class="fa-regular fa-clock" style="opacity: 0.5"></i> ${startDate} to ${endDate}`;
         }
-      
+
         adsetStatusText = `
           ${label}
           ${value}
@@ -720,10 +732,17 @@ function renderCampaignView(data) {
         adsetStatusClass = "active";
         adsetStatusText = `<span>ACTIVE</span>`;
       } else {
-        adsetStatusClass = "inactive";
-        adsetStatusText = `<span>INACTIVE</span>`;
-      }
+        adsetStatusClass = "inactive budget";
       
+        label = `<span class="status-label"></span>`;
+        value = `<span class="status-value">INACTIVE</span>`;
+        timeText = `<i class="fa-regular fa-clock" style="opacity: 0.5"></i> ${startDate} to ${endDate}`;
+        adsetStatusText = `
+          ${label}
+          ${value}
+          ${timeText ? `<span class="status-date">${timeText}</span>` : ""}
+        `;
+      }
 
       const adsetCpr =
         as.result > 0
