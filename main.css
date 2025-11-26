@@ -3910,3 +3910,10 @@ tbody {
   display: flex;
   gap: 1rem;
 }
+
+.ad_status.complete {
+  margin-bottom: 1rem;
+}
+.ad_status.complete::after {
+transform: translateY(-1.5rem);
+}
