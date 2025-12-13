@@ -94,7 +94,7 @@ html {
 }
 @media (max-width: 1800px) {
   html {
-    font-size: 55%; /* 12px */
+    font-size: 45%; /* 12px */
   }
 }
 
@@ -3917,4 +3917,5 @@ tbody {
 .ad_status.complete::after {
 transform: translateY(-1rem);
 }
+
 
