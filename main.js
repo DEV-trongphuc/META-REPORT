@@ -1,3 +1,8 @@
+const META_TOKEN ="EAAQwS9m6tIABQDioZBzA56PvpXuz8mM6ztxZCGiiDnukyLriRwbWKZAuqqYxHyIoeoiJgCIQENmESwBZCfYdpMU8BEZCxKCyYNlXUceLOiS9tddCOZAV5rzA3iSQl9rVZB9NIr7Rn8yM1Puzev4yGZCi5bQJFFyXHoPQ3ZAvwDIMWF3haZALlBAKLoao5WFFJJc83DOSDzg2w9Dkd6FYv9BOhF1MZBY";
+
+
+
+let ACCOUNT_ID = "1852318231510577";
 let monthlyChartInstance = null;
 // Nhãn tháng (dùng chung)
 const MONTH_LABELS = [
@@ -6849,3 +6854,4 @@ function setupAIReportModal() {
     }
   });
 }
+
