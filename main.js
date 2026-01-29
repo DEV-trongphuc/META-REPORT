@@ -16,9 +16,15 @@ const MONTH_LABELS = [
   "Dec",
 ];
 let startDate, endDate;
+// =================== DATE PICKER STATE ===================
+let calendarCurrentMonth = new Date().getMonth();
+let calendarCurrentYear = new Date().getFullYear();
+let tempStartDate = null;
+let tempEndDate = null;
 let VIEW_GOAL; // Dùng cho chart breakdown
 const CACHE = new Map();
 let DAILY_DATA = [];
+let CURRENT_CAMPAIGN_FILTER = ""; // 👈 Lưu bộ lọc hiện tại (dùng cho Brand filter)
 const BATCH_SIZE = 10;
 const CONCURRENCY_LIMIT = 40;
 const API_VERSION = "v24.0";
@@ -192,7 +198,7 @@ async function fetchJSON(url, options = {}) {
           await new Promise((r) => setTimeout(r, 5000));
           return fetchJSON(url, options); // Thử lại sau khi bị giới hạn tốc độ
         }
-      } catch {}
+      } catch { }
       throw new Error(msg);
     }
     const data = JSON.parse(text);
@@ -204,11 +210,103 @@ async function fetchJSON(url, options = {}) {
   }
 }
 
+
 function chunkArray(arr, size) {
   const chunks = [];
   for (let i = 0; i < arr.length; i += size)
     chunks.push(arr.slice(i, i + size));
   return chunks;
+}
+
+/**
+ * 👤 Lấy danh sách tài khoản quảng cáo từ API
+ */
+async function fetchMyAdAccounts() {
+  const url = `${BASE_URL}/me/adaccounts?fields=name,account_id,id,business{profile_picture_uri}&limit=50&access_token=${META_TOKEN}`;
+  try {
+    const res = await fetchJSON(url);
+    return res.data || [];
+  } catch (err) {
+    console.error("❌ Lỗi khi lấy danh sách tài khoản:", err);
+    return [];
+  }
+}
+
+/**
+ * 🎨 Khởi tạo bộ chọn tài khoản (render động)
+ */
+async function initAccountSelector() {
+  const accounts = await fetchMyAdAccounts();
+  const dropdownUl = document.querySelector(".dom_account_view ul");
+  const selectedInfo = document.querySelector(".dom_account_view_block .account_item");
+
+  if (!dropdownUl || !selectedInfo) return;
+
+  // Xóa danh sách cũ (hardcoded)
+  dropdownUl.innerHTML = "";
+
+  // 🚩 Lọc danh sách nếu có setup ALLOWED_ACCOUNTS
+  const allowedIds = window.ALLOWED_ACCOUNTS;
+  const filteredAccounts = (Array.isArray(allowedIds) && allowedIds.length > 0)
+    ? accounts.filter(acc => allowedIds.includes(acc.account_id))
+    : accounts;
+
+  filteredAccounts.forEach(acc => {
+    const li = document.createElement("li");
+    li.dataset.acc = acc.account_id;
+
+    // Sử dụng ảnh business profile pic hoặc ảnh mặc định
+    const avatarUrl = acc.business?.profile_picture_uri || "./logo.png";
+
+    li.innerHTML = `
+      <img src="${avatarUrl}" />
+      <p><span> ${acc.name}</span></p>
+    `;
+    dropdownUl.appendChild(li);
+
+    // Cập nhật thông tin hiển thị nếu đây là tài khoản đang chọn
+    if (acc.account_id === ACCOUNT_ID) {
+      updateSelectedAccountUI(acc.name, acc.account_id, avatarUrl);
+    }
+  });
+
+  // Nếu ACCOUNT_ID hiện tại không khớp với bất kỳ acc nào trong danh sách (trường hợp id lạ)
+  // Thực hiện fetch chi tiết riêng cho ACCOUNT_ID đó
+  const isCurrentAccountInList = accounts.some(a => a.account_id === ACCOUNT_ID);
+  if (!isCurrentAccountInList && ACCOUNT_ID) {
+    fetchSingleAccountInfo(ACCOUNT_ID);
+  }
+}
+
+/**
+ * 🛠️ Cập nhật UI tài khoản đang chọn
+ */
+function updateSelectedAccountUI(name, id, avatarUrl) {
+  const selectedInfo = document.querySelector(".dom_account_view_block .account_item");
+  if (!selectedInfo) return;
+
+  const avatar = selectedInfo.querySelector(".account_item_avatar");
+  const nameEl = selectedInfo.querySelector(".account_item_name");
+  const idEl = selectedInfo.querySelector(".account_item_id");
+
+  if (avatar) avatar.src = avatarUrl || "./logo.png";
+  if (nameEl) nameEl.textContent = name;
+  if (idEl) idEl.textContent = id;
+}
+
+/**
+ * 🔍 Fetch thông tin 1 tài khoản cụ thể (nếu ko có trong list /me/adaccounts)
+ */
+async function fetchSingleAccountInfo(accId) {
+  const url = `${BASE_URL}/act_${accId}?fields=name,account_id,business{profile_picture_uri}&access_token=${META_TOKEN}`;
+  try {
+    const acc = await fetchJSON(url);
+    if (acc) {
+      updateSelectedAccountUI(acc.name, acc.account_id, acc.business?.profile_picture_uri);
+    }
+  } catch (err) {
+    console.error("❌ Lỗi khi lấy thông tin tài khoản lẻ:", err);
+  }
 }
 
 async function fetchAdsets() {
@@ -398,6 +496,7 @@ function groupByCampaign(adsets) {
         reactions: 0,
         lead: 0,
         message: 0,
+        link_clicks: 0,
         adsets: [],
         _adsetMap: Object.create(null),
         // Thêm status cho campaign (lấy từ ad đầu tiên, giả định chúng giống nhau)
@@ -418,6 +517,7 @@ function groupByCampaign(adsets) {
         reactions: 0,
         lead: 0,
         message: 0,
+        link_clicks: 0,
         ads: [],
         end_time: as.ads?.[0]?.adset?.end_time || null,
         start_time: as.ads?.[0]?.adset?.start_time || null,
@@ -436,8 +536,8 @@ function groupByCampaign(adsets) {
       const ins = Array.isArray(ad.insights?.data)
         ? ad.insights.data[0]
         : Array.isArray(ad.insights)
-        ? ad.insights[0]
-        : ad.insights || {};
+          ? ad.insights[0]
+          : ad.insights || {};
 
       const spend = +ins.spend || 0;
       const reach = +ins.reach || 0;
@@ -454,6 +554,8 @@ function groupByCampaign(adsets) {
         safeGetActionValue(actions, "lead") +
         safeGetActionValue(actions, "onsite_conversion.lead_grouped"); // ✅ Cộng dồn adset-level
 
+      const linkClicks = safeGetActionValue(actions, "link_click"); // Extract link_click
+
       adset.spend += spend;
       adset.result += result;
       adset.reach += reach;
@@ -461,6 +563,7 @@ function groupByCampaign(adsets) {
       adset.reactions += reactions;
       adset.lead += leadCount;
       adset.message += messageCount; // ✅ Cộng dồn campaign-level
+      adset.link_clicks += linkClicks;
 
       campaign.spend += spend;
       campaign.result += result;
@@ -469,6 +572,7 @@ function groupByCampaign(adsets) {
       campaign.reactions += reactions;
       campaign.lead += leadCount;
       campaign.message += messageCount; // 🖼️ Add ad summary
+      campaign.link_clicks += linkClicks;
 
       adset.ads.push({
         id: ad.ad_id || ad.id || null,
@@ -639,9 +743,8 @@ function renderCampaignView(data) {
       <div class="campaign_item ${campaignStatusClass}">
         <div class="campaign_main">
           <div class="ads_name">
-            <div class="campaign_thumb campaign_icon_wrap ${
-              hasActiveAdset ? "" : "inactive"
-            }">
+            <div class="campaign_thumb campaign_icon_wrap ${hasActiveAdset ? "" : "inactive"
+      }">
               <i class="${iconClass}"></i>
             </div>
             <p class="ad_name">${c.name}</p>
@@ -649,15 +752,14 @@ function renderCampaignView(data) {
           <div class="ad_status ${campaignStatusClass}">${campaignStatusText}</div>
           <div class="ad_spent">${formatMoney(c.spend)}</div>
           <div class="ad_result">${formatNumber(c.result)}</div>
-          <div class="ad_cpr">${
-            campaignCpr > 0 ? formatMoney(campaignCpr) : "-"
-          }</div>
+          <div class="ad_cpr">${campaignCpr > 0 ? formatMoney(campaignCpr) : "-"
+      }</div>
           <div class="ad_cpm">${formatMoney(calcCpm(c.spend, c.reach))}</div>
           <div class="ad_reach">${formatNumber(c.reach)}</div>
           <div class="ad_frequency">${calcFrequency(
-            c.impressions,
-            c.reach
-          )}</div>
+        c.impressions,
+        c.reach
+      )}</div>
           <div class="ad_reaction">${formatNumber(c.reactions)}</div>
           <div class="campaign_view"><i class="fa-solid fa-angle-down"></i></div>
         </div>`);
@@ -687,10 +789,10 @@ function renderCampaignView(data) {
         ).padStart(2, "0")}-${d.getFullYear()}`;
       };
       const startDate = formatDate(as.start_time);
-        const endDate = formatDate(as.end_time);
-        let label = "";
-        let value = "";
-        let timeText = "";
+      const endDate = formatDate(as.end_time);
+      let label = "";
+      let value = "";
+      let timeText = "";
       if (isEnded) {
         adsetStatusClass = "complete budget";
         // adsetStatusText = `<span class="status-label">COMPLETE</span>`;
@@ -706,7 +808,7 @@ function renderCampaignView(data) {
         `;
       } else if (hasActiveAd && (dailyBudget > 0 || lifetimeBudget > 0)) {
         adsetStatusClass = "active budget";
-      
+
 
         if (dailyBudget > 0) {
           label = `<span class="status-label">Daily Budget</span>`;
@@ -734,7 +836,7 @@ function renderCampaignView(data) {
         adsetStatusText = `<span>ACTIVE</span>`;
       } else {
         adsetStatusClass = "inactive budget";
-      
+
         label = `<span class="status-label"></span>`;
         value = `<span class="status-value">INACTIVE</span>`;
         timeText = `<i class="fa-regular fa-clock" style="opacity: 0.5"></i> ${startDate} to ${endDate}`;
@@ -767,24 +869,23 @@ function renderCampaignView(data) {
           <div class="ad_item ${isActive ? "active" : "inactive"}">
             <div class="ads_name">
               <a>
-                <img src="${ad.thumbnail}" data-ad-id-img="${ad.id}" />
+                <img src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-src="${ad.thumbnail}" data-ad-id-img="${ad.id}" />
                 <p class="ad_name">ID: ${ad.id}</p>
               </a>
             </div>
-            <div class="ad_status ${isActive ? "active" : "inactive"}">${
-          ad.status
-        }</div>
+            <div class="ad_status ${isActive ? "active" : "inactive"}">${ad.status
+          }</div>
             <div class="ad_spent">${formatMoney(ad.spend)}</div>
             <div class="ad_result">${formatNumber(ad.result)}</div>
             <div class="ad_cpr">${adCpr > 0 ? formatMoney(adCpr) : "-"}</div>
             <div class="ad_cpm">${formatMoney(
-              calcCpm(ad.spend, ad.reach)
-            )}</div>
+            calcCpm(ad.spend, ad.reach)
+          )}</div>
             <div class="ad_reach">${formatNumber(ad.reach)}</div>
             <div class="ad_frequency">${calcFrequency(
-              ad.impressions,
-              ad.reach
-            )}</div>
+            ad.impressions,
+            ad.reach
+          )}</div>
             <div class="ad_reaction">${formatNumber(ad.reactions)}</div>
             <div class="ad_view"
               data-ad-id="${ad.id}"
@@ -806,7 +907,7 @@ function renderCampaignView(data) {
         <div class="adset_item ${adsetStatusClass}">
           <div class="ads_name">
             <a>
-              <img src="${as.ads?.[0]?.thumbnail}" />
+              <img src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-src="${as.ads?.[0]?.thumbnail}" />
               <p class="ad_name">${as.name}</p>
             </a>
           </div>
@@ -815,16 +916,16 @@ function renderCampaignView(data) {
           <div class="ad_result">${formatNumber(as.result)}</div>
           <div class="ad_cpr">
             <i class="${getCampaignIcon(
-              as.optimization_goal
-            )} adset_goal_icon"></i>
+        as.optimization_goal
+      )} adset_goal_icon"></i>
             <span>${as.optimization_goal}</span>
           </div>
           <div class="ad_cpm">${formatMoney(calcCpm(as.spend, as.reach))}</div>
           <div class="ad_reach">${formatNumber(as.reach)}</div>
           <div class="ad_frequency">${calcFrequency(
-            as.impressions,
-            as.reach
-          )}</div>
+        as.impressions,
+        as.reach
+      )}</div>
           <div class="ad_reaction">${formatNumber(as.reactions)}</div>
           <div class="adset_view">
             <div class="campaign_view"><i class="fa-solid fa-angle-down"></i></div>
@@ -1015,6 +1116,12 @@ async function loadCampaignList() {
 
 // 🧩 Chạy 1 lần khi load page
 function initDashboard() {
+  /* Fix: Initialize default date range if missing */
+  if (typeof startDate === 'undefined' || !startDate) {
+    const defaultRange = getDateRange("last_7days");
+    startDate = defaultRange.start;
+    endDate = defaultRange.end;
+  }
   initDateSelector();
   setupDetailDailyFilter();
   setupDetailDailyFilter2();
@@ -1060,7 +1167,35 @@ async function loadDashboardData() {
 async function main() {
   renderYears();
   initDashboard();
+  await initAccountSelector(); // 👈 Khởi tạo chọn tài khoản động
   await loadDashboardData();
+
+  // 🖱️ Lắng nghe sự kiện Reset All Filters từ Empty Card
+  document.addEventListener("click", (e) => {
+    if (e.target.classList.contains("btn_reset_all")) {
+      resetAllFilters();
+    }
+  });
+}
+
+/**
+ * 🧹 Reset toàn bộ filter về trạng thái mặc định
+ */
+function resetAllFilters() {
+  // 1. Reset ô tìm kiếm
+  const campaignSearch = document.getElementById("campaign_filter");
+  if (campaignSearch) campaignSearch.value = "";
+
+  // 2. Xóa filter brand hiện tại
+  if (typeof CURRENT_CAMPAIGN_FILTER !== 'undefined') {
+    CURRENT_CAMPAIGN_FILTER = "";
+  }
+
+  // 3. Reset UI dropdown và các filter khác
+  resetUIFilter();
+
+  // 4. Tải lại toàn bộ dashboard
+  loadAllDashboardCharts();
 }
 
 main();
@@ -1078,6 +1213,18 @@ const calcCpr = (insights) => {
   const result = getResults(insights); // Dùng hàm getResults thống nhất
   return result ? spend / result : 0;
 };
+
+/**
+ * Hàm helper để load ảnh lazy khi click mở rộng
+ */
+function loadLazyImages(container) {
+  if (!container) return;
+  const lazyImages = container.querySelectorAll("img[data-src]");
+  lazyImages.forEach((img) => {
+    img.src = img.dataset.src;
+    img.removeAttribute("data-src");
+  });
+}
 
 // ================== Event ==================
 
@@ -1114,6 +1261,7 @@ function addListeners() {
         .forEach((c) => c.classList.remove("show"));
       // Mở campaign hiện tại
       campaignItem.classList.add("show");
+      loadLazyImages(campaignItem);
       return; // Đã xử lý xong, không cần check thêm
     }
 
@@ -1125,6 +1273,12 @@ function addListeners() {
 
       e.stopPropagation();
       adsetItem.classList.toggle("show");
+      if (adsetItem.classList.contains("show")) {
+        const adItemBox = adsetItem.nextElementSibling;
+        if (adItemBox && adItemBox.classList.contains("ad_item_box")) {
+          loadLazyImages(adItemBox);
+        }
+      }
       return; // Đã xử lý xong
     }
 
@@ -1154,6 +1308,16 @@ function addListeners() {
     const domDetail = document.querySelector("#dom_detail");
     if (domDetail) domDetail.classList.remove("active");
   });
+
+  // 3. Listener cho nút Export CSV
+  const exportBtn = document.getElementById("export_csv_btn");
+  if (exportBtn) {
+    exportBtn.addEventListener("click", () => {
+      if (typeof exportAdsToCSV === "function") {
+        exportAdsToCSV();
+      }
+    });
+  }
 }
 
 // ================================================================
@@ -1564,8 +1728,8 @@ async function showAdDetail(ad_id) {
           reach: parseInt(item.reach || 0),
           actions: item.actions
             ? Object.fromEntries(
-                item.actions.map((a) => [a.action_type, parseInt(a.value || 0)])
-              )
+              item.actions.map((a) => [a.action_type, parseInt(a.value || 0)])
+            )
             : {},
         };
       }
@@ -1818,8 +1982,8 @@ if (filterInput) {
         const keyword = e.target.value.trim().toLowerCase();
         const filtered = keyword
           ? window._ALL_CAMPAIGNS.filter((c) =>
-              (c.name || "").toLowerCase().includes(keyword)
-            )
+            (c.name || "").toLowerCase().includes(keyword)
+          )
           : window._ALL_CAMPAIGNS;
 
         // 🔹 Render lại danh sách và tổng quan
@@ -1850,8 +2014,8 @@ if (filterButton) {
       const keyword = filterInput?.value?.trim().toLowerCase() || "";
       const filtered = keyword
         ? window._ALL_CAMPAIGNS.filter((c) =>
-            (c.name || "").toLowerCase().includes(keyword)
-          )
+          (c.name || "").toLowerCase().includes(keyword)
+        )
         : window._ALL_CAMPAIGNS;
 
       // 🔹 Render lại danh sách và tổng quan
@@ -1862,6 +2026,8 @@ if (filterButton) {
 
 async function applyCampaignFilter(keyword) {
   if (!window._ALL_CAMPAIGNS || !Array.isArray(window._ALL_CAMPAIGNS)) return;
+
+  CURRENT_CAMPAIGN_FILTER = keyword || ""; // 👈 Luôn lưu lại bộ lọc cuối cùng
 
   // 🚩 Nếu filter = "RESET" thì load full data
   if (keyword && keyword.toUpperCase() === "RESET") {
@@ -1875,6 +2041,7 @@ async function applyCampaignFilter(keyword) {
       )
     );
     renderGoalChart(allAds);
+    resetUIFilter(); // 👈 Reset cả giao diện dropdown Brand
     await loadAllDashboardCharts();
     return;
   }
@@ -1882,8 +2049,8 @@ async function applyCampaignFilter(keyword) {
   // 🔹 Lọc campaign theo tên (không phân biệt hoa thường)
   const filtered = keyword
     ? window._ALL_CAMPAIGNS.filter((c) =>
-        (c.name || "").toLowerCase().includes(keyword.toLowerCase())
-      )
+      (c.name || "").toLowerCase().includes(keyword.toLowerCase())
+    )
     : window._ALL_CAMPAIGNS;
 
   // 🔹 Render lại danh sách và tổng quan
@@ -2054,12 +2221,12 @@ function renderTargetingToDOM(targeting) {
 
     locationWrap.innerHTML = locations.length
       ? locations
-          .slice(0, 5)
-          .map(
-            (c) =>
-              `<p><i class="fa-solid fa-location-crosshairs"></i><span>${c}</span></p>`
-          )
-          .join("")
+        .slice(0, 5)
+        .map(
+          (c) =>
+            `<p><i class="fa-solid fa-location-crosshairs"></i><span>${c}</span></p>`
+        )
+        .join("")
       : `<p><i class="fa-solid fa-location-crosshairs"></i><span>Việt Nam</span></p>`;
   }
 
@@ -2084,11 +2251,11 @@ function renderTargetingToDOM(targeting) {
 
     freqWrap.innerHTML = tags.length
       ? tags
-          .map(
-            (t) =>
-              `<p class="freq_tag_item"><span class="tag_dot"></span><span class="tag_name">${t}</span></p>`
-          )
-          .join("")
+        .map(
+          (t) =>
+            `<p class="freq_tag_item"><span class="tag_dot"></span><span class="tag_name">${t}</span></p>`
+        )
+        .join("")
       : `<p class="freq_tag_item"><span class="tag_dot"></span><span class="tag_name">Advantage targeting</span></p>`;
   }
 
@@ -2111,11 +2278,11 @@ function renderTargetingToDOM(targeting) {
 
     audienceWrap.innerHTML = audiences.length
       ? audiences
-          .map(
-            (t) =>
-              `<p class="freq_tag_item"><span class="tag_dot"></span><span class="tag_name">${t}</span></p>`
-          )
-          .join("")
+        .map(
+          (t) =>
+            `<p class="freq_tag_item"><span class="tag_dot"></span><span class="tag_name">${t}</span></p>`
+        )
+        .join("")
       : `<p><span>No audience selected</span></p>`;
   }
 
@@ -2152,11 +2319,11 @@ function renderTargetingToDOM(targeting) {
 
     excludeWrap.innerHTML = excluded.length
       ? excluded
-          .map(
-            (t) =>
-              `<p class="freq_tag_item"><span class="tag_dot"></span><span class="tag_name">${t}</span></p>`
-          )
-          .join("")
+        .map(
+          (t) =>
+            `<p class="freq_tag_item"><span class="tag_dot"></span><span class="tag_name">${t}</span></p>`
+        )
+        .join("")
       : `<p><span>No excluded audience</span></p>`;
   }
 
@@ -2191,11 +2358,11 @@ function renderTargetingToDOM(targeting) {
     ];
     placementWrap.innerHTML = platforms.length
       ? platforms
-          .map(
-            (p) =>
-              `<p><i class="fa-solid fa-bullhorn"></i><span>${p}</span></p>`
-          )
-          .join("")
+        .map(
+          (p) =>
+            `<p><i class="fa-solid fa-bullhorn"></i><span>${p}</span></p>`
+        )
+        .join("")
       : `<p><i class="fa-solid fa-bullhorn"></i><span>Automatic placement</span></p>`;
   }
 
@@ -2275,17 +2442,17 @@ function renderInteraction(byDate) {
   const html = `
       <div class="interaction_list">
         ${metrics
-          .map(
-            (m) => `
+      .map(
+        (m) => `
             <div class="dom_interaction_note">
                   <span class="metric_label">${m.label}</span>
               <span class="metric_value">${formatNumber(
-                totals[m.key] || 0
-              )}</span>
+          totals[m.key] || 0
+        )}</span>
                 </div>
           `
-          )
-          .join("")}
+      )
+      .join("")}
     </div>
   `;
 
@@ -2425,8 +2592,7 @@ function renderDetailDailyChart(dataByDate, type = currentDetailDailyType) {
 
     chart.options.plugins.datalabels.displayIndices = displayIndices;
     chart.options.plugins.tooltip.callbacks.label = (c) =>
-      `${c.dataset.label}: ${
-        type === "spend" ? formatMoneyShort(c.raw) : c.raw
+      `${c.dataset.label}: ${type === "spend" ? formatMoneyShort(c.raw) : c.raw
       }`;
 
     chart.update("active");
@@ -2463,8 +2629,7 @@ function renderDetailDailyChart(dataByDate, type = currentDetailDailyType) {
         tooltip: {
           callbacks: {
             label: (c) =>
-              `${c.dataset.label}: ${
-                type === "spend" ? formatMoneyShort(c.raw) : c.raw
+              `${c.dataset.label}: ${type === "spend" ? formatMoneyShort(c.raw) : c.raw
               }`,
           },
         },
@@ -2629,9 +2794,8 @@ function renderBarChart(id, data) {
           callbacks: {
             label: (c) => {
               const val = c.raw || 0;
-              return `${c.dataset.label}: ${
-                c.dataset.label === "Spent" ? formatMoneyShort(val) : val
-              }`;
+              return `${c.dataset.label}: ${c.dataset.label === "Spent" ? formatMoneyShort(val) : val
+                }`;
             },
           },
         },
@@ -2738,8 +2902,7 @@ function renderChartByHour(dataByHour) {
         tooltip: {
           callbacks: {
             label: (c) =>
-              `${c.dataset.label}: ${
-                c.dataset.label === "Spent" ? formatMoneyShort(c.raw) : c.raw
+              `${c.dataset.label}: ${c.dataset.label === "Spent" ? formatMoneyShort(c.raw) : c.raw
               }`,
           },
         },
@@ -2896,8 +3059,9 @@ function renderChartByDevice(dataByDevice) {
     },
     options: {
       responsive: true,
+      maintainAspectRatio: true,
+      aspectRatio: 1, // Fix hình tròn không bị méo
       cutout: "70%", // 💫 tạo lỗ tròn
-      maintainAspectRatio: false,
       plugins: {
         legend: {
           position: "bottom",
@@ -3016,10 +3180,9 @@ function renderChartByRegion(dataByRegion) {
         tooltip: {
           callbacks: {
             label: (ctx) =>
-              `${ctx.dataset.label}: ${
-                ctx.dataset.label === "Spent"
-                  ? formatMoneyShort(ctx.raw)
-                  : ctx.raw
+              `${ctx.dataset.label}: ${ctx.dataset.label === "Spent"
+                ? formatMoneyShort(ctx.raw)
+                : ctx.raw
               }`,
           },
         },
@@ -3033,8 +3196,8 @@ function renderChartByRegion(dataByRegion) {
             ctx.dataset.label === "Spent"
               ? formatMoneyShort(value)
               : value > 0
-              ? value
-              : "",
+                ? value
+                : "",
         },
       },
       scales: {
@@ -3295,10 +3458,9 @@ function renderChartByPlatform(allData) {
           <span>${formatName(p.key)}</span>
         </p>
         <p><span class="total_spent"><i class="fa-solid fa-money-bill"></i> ${p.spend.toLocaleString(
-          "vi-VN"
-        )}đ</span></p>
-        <p><span class="total_result"><i class="fa-solid fa-bullseye"></i> ${
-          p.result > 0 ? formatNumber(p.result) : "—"
+        "vi-VN"
+      )}đ</span></p>
+        <p><span class="total_result"><i class="fa-solid fa-bullseye"></i> ${p.result > 0 ? formatNumber(p.result) : "—"
         }</span></p>
         <p class="toplist_percent" style="color:${color};background:${bg}">
           ${p.result > 0 ? formatMoney(p.cpr) : "—"}
@@ -3477,8 +3639,7 @@ function renderDetailDailyChart2(dataByDate, type = currentDetailDailyType) {
     chart.data.datasets[0].label = type.charAt(0).toUpperCase() + type.slice(1);
 
     chart.options.plugins.tooltip.callbacks.label = (c) =>
-      `${c.dataset.label}: ${
-        type === "spend" ? formatMoneyShort(c.raw) : c.raw
+      `${c.dataset.label}: ${type === "spend" ? formatMoneyShort(c.raw) : c.raw
       }`;
 
     chart.options.plugins.datalabels.displayIndices = displayIndices;
@@ -3516,8 +3677,7 @@ function renderDetailDailyChart2(dataByDate, type = currentDetailDailyType) {
         tooltip: {
           callbacks: {
             label: (c) =>
-              `${c.dataset.label}: ${
-                type === "spend" ? formatMoneyShort(c.raw) : c.raw
+              `${c.dataset.label}: ${type === "spend" ? formatMoneyShort(c.raw) : c.raw
               }`,
           },
         },
@@ -3701,9 +3861,8 @@ function updatePlatformSummaryUI(currentData, previousData = []) {
     console.log(previousValue);
     console.log(previousData);
 
-    let titleText = ` ${previousValue.toLocaleString("vi-VN")} - (${
-      previousData?.[0]?.date_start
-    } to ${previousData?.[0]?.date_stop})`;
+    let titleText = ` ${previousValue.toLocaleString("vi-VN")} - (${previousData?.[0]?.date_start
+      } to ${previousData?.[0]?.date_stop})`;
     const valueEl = document.querySelector(`#${id} span:first-child`);
     const changeEl = document.querySelector(`#${id} span:last-child`);
     changeEl.setAttribute("title", titleText);
@@ -3727,9 +3886,8 @@ function updatePlatformSummaryUI(currentData, previousData = []) {
     if (changeInfo.type === "new") {
       percentageText = "Mới"; // Hoặc để trống nếu muốn
     } else if (changeInfo.percentage !== null) {
-      percentageText = `${
-        changeInfo.percentage >= 0 ? "+" : ""
-      }${changeInfo.percentage.toFixed(1)}%`;
+      percentageText = `${changeInfo.percentage >= 0 ? "+" : ""
+        }${changeInfo.percentage.toFixed(1)}%`;
     } else {
       percentageText = "N/A"; // Trường hợp cả 2 là 0
     }
@@ -3773,10 +3931,10 @@ async function fetchPlatformStats(campaignIds = []) {
 
     const filtering = campaignIds.length
       ? `&filtering=${encodeURIComponent(
-          JSON.stringify([
-            { field: "campaign.id", operator: "IN", value: campaignIds },
-          ])
-        )}`
+        JSON.stringify([
+          { field: "campaign.id", operator: "IN", value: campaignIds },
+        ])
+      )}`
       : "";
     const url = `${BASE_URL}/act_${ACCOUNT_ID}/insights?fields=spend,impressions,reach,actions&time_range={"since":"${startDate}","until":"${endDate}"}${filtering}&access_token=${META_TOKEN}`;
 
@@ -3798,10 +3956,10 @@ async function fetchSpendByPlatform(campaignIds = []) {
 
     const filtering = campaignIds.length
       ? `&filtering=${encodeURIComponent(
-          JSON.stringify([
-            { field: "campaign.id", operator: "IN", value: campaignIds },
-          ])
-        )}`
+        JSON.stringify([
+          { field: "campaign.id", operator: "IN", value: campaignIds },
+        ])
+      )}`
       : "";
 
     const url = `${BASE_URL}/act_${ACCOUNT_ID}/insights?fields=spend&breakdowns=publisher_platform,platform_position&time_range={"since":"${startDate}","until":"${endDate}"}${filtering}&access_token=${META_TOKEN}`;
@@ -3819,10 +3977,10 @@ async function fetchSpendByAgeGender(campaignIds = []) {
     // Nếu có campaignIds thì filter, còn không thì query theo account
     const filtering = campaignIds.length
       ? `&filtering=${encodeURIComponent(
-          JSON.stringify([
-            { field: "campaign.id", operator: "IN", value: campaignIds },
-          ])
-        )}`
+        JSON.stringify([
+          { field: "campaign.id", operator: "IN", value: campaignIds },
+        ])
+      )}`
       : "";
 
     const url = `${BASE_URL}/act_${ACCOUNT_ID}/insights?fields=spend&breakdowns=age,gender&time_range={"since":"${startDate}","until":"${endDate}"}${filtering}&access_token=${META_TOKEN}`;
@@ -3842,10 +4000,10 @@ async function fetchSpendByRegion(campaignIds = []) {
 
     const filtering = campaignIds.length
       ? `&filtering=${encodeURIComponent(
-          JSON.stringify([
-            { field: "campaign.id", operator: "IN", value: campaignIds },
-          ])
-        )}`
+        JSON.stringify([
+          { field: "campaign.id", operator: "IN", value: campaignIds },
+        ])
+      )}`
       : "";
 
     const url = `${BASE_URL}/act_${ACCOUNT_ID}/insights?fields=spend&breakdowns=region&time_range={"since":"${startDate}","until":"${endDate}"}${filtering}&access_token=${META_TOKEN}`;
@@ -3912,10 +4070,10 @@ async function fetchDashboardInsightsBatch(campaignIds = []) {
 
   const filtering = campaignIds.length
     ? `&filtering=${encodeURIComponent(
-        JSON.stringify([
-          { field: "campaign.id", operator: "IN", value: campaignIds },
-        ])
-      )}`
+      JSON.stringify([
+        { field: "campaign.id", operator: "IN", value: campaignIds },
+      ])
+    )}`
     : "";
   const commonEndpoint = `act_${ACCOUNT_ID}/insights`;
 
@@ -4035,6 +4193,20 @@ async function loadAllDashboardCharts(campaignIds = []) {
   try {
     // 2. Gọi HÀM BATCH MỚI (1 request duy nhất)
     const results = await fetchDashboardInsightsBatch(campaignIds);
+
+    // 🚩 CHECK EMPTY STATE: Nếu tổng spend = 0, hiện Empty Card
+    const insights = Array.isArray(results.platformStats) ? results.platformStats[0] || {} : results.platformStats || {};
+    const totalSpend = +insights.spend || 0;
+    const dashboard = document.querySelector(".dom_dashboard");
+
+    if (totalSpend === 0) {
+      document.querySelector(".dom_container")?.classList.add("is-empty");
+      console.log("Empty Dashboard - Showing No Data Found");
+      return; // Dừng render các chart khác
+    } else {
+      document.querySelector(".dom_container")?.classList.remove("is-empty");
+    }
+
     // 3. Phân phối data đến các hàm RENDER/UPDATE UI (không fetch nữa)
     // 3.1. Platform Stats (Summary)
     updatePlatformSummaryUI(
@@ -4144,8 +4316,8 @@ function renderPlatformPosition(data) {
         <span>${formatNamePst(publisher, position)}</span>
       </p>
       <p><span class="total_spent"><i class="fa-solid fa-money-bill"></i> ${spend.toLocaleString(
-        "vi-VN"
-      )}đ</span></p>
+      "vi-VN"
+    )}đ</span></p>
       <p class="toplist_percent" style="color:rgb(226, 151, 0);background:rgba(254,169,0,0.05)">
         ${percent.toFixed(1)}%
       </p>
@@ -4230,6 +4402,8 @@ function renderPlatformSpendUI(summary) {
     },
     options: {
       responsive: true,
+      maintainAspectRatio: true,
+      aspectRatio: 1,
       cutout: "70%",
       plugins: {
         legend: { display: false },
@@ -4259,79 +4433,266 @@ async function loadAgeGenderSpendChart(campaignIds = []) {
   renderAgeGenderChart(data);
 }
 
+// =================== DATE PICKER LOGIC (FB ADS STYLE) ===================
+// =================== DATE PICKER LOGIC (FB ADS STYLE) ===================
+// Variables moved to top to avoid TDZ error
+
 function initDateSelector() {
   const selectBox = document.querySelector(".dom_select.time");
   if (!selectBox) return;
 
   const selectedText = selectBox.querySelector(".dom_selected");
-  const list = selectBox.querySelector(".dom_select_show");
-  const items = list.querySelectorAll("li[data-date]");
-  const applyBtn = list.querySelector(".apply_custom_date");
-  const startInput = list.querySelector("#start");
-  const endInput = list.querySelector("#end");
+  const panel = selectBox.querySelector(".time_picker_panel");
+  const presetItems = panel.querySelectorAll(".time_picker_sidebar li[data-date]");
+  const updateBtn = panel.querySelector(".btn_update");
+  const cancelBtn = panel.querySelector(".btn_cancel");
+  const startInput = panel.querySelector("#start_date_val");
+  const endInput = panel.querySelector("#end_date_val");
 
-  // 🧩 Toggle dropdown
+  // Initial display sync
+  if (startDate && endDate) {
+    startInput.value = startDate;
+    endInput.value = endDate;
+    tempStartDate = startDate;
+    tempEndDate = endDate;
+  }
+
+  // Prevent duplicate listeners
+  if (selectBox.dataset.initialized) {
+    return;
+  }
+  selectBox.dataset.initialized = "true";
+
+  // Prevent clicks inside the panel from bubbling effectively
+  panel.addEventListener("click", (e) => {
+    e.stopPropagation();
+  });
+
+  // Toggle dropdown
   selectBox.addEventListener("click", (e) => {
-    if (!e.target.closest("ul")) {
-      list.classList.toggle("active");
+    // If clicking inside panel (though handled above, safety check) use return
+    if (e.target.closest(".time_picker_panel")) return;
+
+    // Stop propagation to prevent document listeners from closing it immediately
+    e.stopPropagation();
+
+    const isActive = panel.classList.contains("active");
+    // Close all other dropdowns
+    document.querySelectorAll(".dom_select_show").forEach(p => p.classList.remove("active"));
+
+    if (!isActive) {
+      panel.classList.add("active");
+      renderCalendar();
     }
   });
 
-  // 🧠 Chọn preset date
-  items.forEach((item) => {
+  // Handle sidebar presets
+  presetItems.forEach((item) => {
     item.addEventListener("click", (e) => {
       e.stopPropagation();
       const type = item.dataset.date;
 
+      // Reset active state
+      presetItems.forEach((i) => i.classList.remove("active"));
+      item.classList.add("active");
+
       if (type === "custom_range") {
-        const box = item.querySelector(".custom_date");
-        box.classList.add("show");
+        // Just focus on the calendar
         return;
       }
-
-      // Reset active
-      items.forEach((i) => i.classList.remove("active"));
-      item.classList.add("active");
 
       const range = getDateRange(type);
       startDate = range.start;
       endDate = range.end;
-      selectedText.textContent = item.textContent.trim();
-      list.classList.remove("active");
+      tempStartDate = startDate;
+      tempEndDate = endDate;
 
-      // 🔥 Refresh dashboard
+      startInput.value = startDate;
+      endInput.value = endDate;
+
+      selectedText.textContent = item.querySelector('span:last-child').textContent.trim();
+      panel.classList.remove("active");
+
+      // Update calendar highlights
+      renderCalendar();
+
+      // Refresh dashboard
       reloadDashboard();
     });
   });
 
-  // 🧾 Apply custom date
-  applyBtn.addEventListener("click", (e) => {
-    e.stopPropagation();
-    const start = startInput.value;
-    const end = endInput.value;
-    if (!start || !end) {
-      alert("⛔ Vui lòng chọn đầy đủ ngày!");
-      return;
-    }
+  // Cancel button
+  if (cancelBtn) {
+    cancelBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      panel.classList.remove("active");
+      // Reset temp to match actual global
+      tempStartDate = startDate;
+      tempEndDate = endDate;
+    });
+  }
 
-    const s = new Date(start);
-    const eD = new Date(end);
-    if (eD < s) {
-      alert("⚠️ Ngày kết thúc phải sau ngày bắt đầu!");
-      return;
-    }
+  // Update button
+  if (updateBtn) {
+    updateBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const start = startInput.value;
+      const end = endInput.value;
 
-    selectedText.textContent = `${start} → ${end}`;
-    list.classList.remove("active");
+      if (!start || !end) {
+        alert("⛔ Vui lòng chọn đầy đủ ngày!");
+        return;
+      }
 
-    // 💡 Update global
-    startDate = start;
-    endDate = end;
+      const s = new Date(start);
+      const eD = new Date(end);
+      if (eD < s) {
+        alert("⚠️ Ngày kết thúc phải sau ngày bắt đầu!");
+        return;
+      }
 
-    // 🚀 Reload dashboard
-    reloadDashboard();
+      const fmt = (d) => {
+        const [y, m, da] = d.split("-");
+        return `${da}/${m}/${y}`;
+      };
+
+      startDate = start;
+      endDate = end;
+      selectedText.textContent = `${fmt(start)} - ${fmt(end)}`;
+      panel.classList.remove("active");
+
+      reloadDashboard();
+    });
+  }
+
+  // Handle manual input changes
+  startInput.addEventListener('change', () => {
+    tempStartDate = startInput.value;
+    renderCalendar();
+  });
+  endInput.addEventListener('change', () => {
+    tempEndDate = endInput.value;
+    renderCalendar();
   });
 }
+
+// Helper to format date in Local Time (YYYY-MM-DD)
+function formatDateLocal(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function renderCalendar() {
+  const container = document.getElementById("calendar_left");
+  if (!container) return;
+
+  const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+
+  const firstDayOfMonth = new Date(calendarCurrentYear, calendarCurrentMonth, 1).getDay();
+  const daysInMonth = new Date(calendarCurrentYear, calendarCurrentMonth + 1, 0).getDate();
+
+  let html = `
+    <div class="calendar_nav">
+      <button onclick="changeMonth(-1)"><i class="fa-solid fa-chevron-left"></i></button>
+      <span>${monthNames[calendarCurrentMonth]} ${calendarCurrentYear}</span>
+      <button onclick="changeMonth(1)"><i class="fa-solid fa-chevron-right"></i></button>
+    </div>
+    <div class="calendar_grid">
+      <div class="calendar_day_name">Su</div>
+      <div class="calendar_day_name">Mo</div>
+      <div class="calendar_day_name">Tu</div>
+      <div class="calendar_day_name">We</div>
+      <div class="calendar_day_name">Th</div>
+      <div class="calendar_day_name">Fr</div>
+      <div class="calendar_day_name">Sa</div>
+  `;
+
+  // Empty slots for previous month
+  for (let i = 0; i < firstDayOfMonth; i++) {
+    html += `<div class="calendar_day empty"></div>`;
+  }
+
+  const todayStr = formatDateLocal(new Date());
+  const start = tempStartDate ? new Date(tempStartDate) : null;
+  const end = tempEndDate ? new Date(tempEndDate) : null;
+
+  for (let day = 1; day <= daysInMonth; day++) {
+    const curDate = new Date(calendarCurrentYear, calendarCurrentMonth, day);
+    const curDateStr = formatDateLocal(curDate);
+
+    let classes = ["calendar_day"];
+    if (curDateStr === todayStr) classes.push("today");
+
+    if (start && curDateStr === tempStartDate) classes.push("selected");
+    if (end && curDateStr === tempEndDate) classes.push("selected");
+
+    if (start && end && curDate > start && curDate < end) {
+      classes.push("in_range");
+    }
+
+    html += `<div class="${classes.join(' ')}" onclick="selectCalendarDay('${curDateStr}')">${day}</div>`;
+  }
+
+  html += `</div>`;
+  container.innerHTML = html;
+}
+
+// Attach these to window so they're accessible from inline onclick if needed
+// or better, use standard listeners. I'll use standard but for quick iteration here:
+window.changeMonth = (dir) => {
+  calendarCurrentMonth += dir;
+  if (calendarCurrentMonth < 0) {
+    calendarCurrentMonth = 11;
+    calendarCurrentYear--;
+  } else if (calendarCurrentMonth > 11) {
+    calendarCurrentMonth = 0;
+    calendarCurrentYear++;
+  }
+  renderCalendar();
+};
+
+window.selectCalendarDay = (dateStr) => {
+  const startInput = document.getElementById("start_date_val");
+  const endInput = document.getElementById("end_date_val");
+
+  if (!tempStartDate || (tempStartDate && tempEndDate)) {
+    // Start fresh selection
+    tempStartDate = dateStr;
+    tempEndDate = null;
+    startInput.value = dateStr;
+    endInput.value = "";
+  } else {
+    // Selecting the end date
+    if (dateStr === tempStartDate) {
+      // Deselect if clicking the same day twice when no end date set
+      tempStartDate = null;
+      startInput.value = "";
+    } else {
+      const s = new Date(tempStartDate);
+      const e = new Date(dateStr);
+
+      if (e < s) {
+        tempEndDate = tempStartDate;
+        tempStartDate = dateStr;
+      } else {
+        tempEndDate = dateStr;
+      }
+
+      startInput.value = tempStartDate;
+      endInput.value = tempEndDate;
+    }
+  }
+
+  // Highlight "Custom Date" in sidebar
+  const presetItems = document.querySelectorAll(".time_picker_sidebar li[data-date]");
+  presetItems.forEach(i => i.classList.remove("active"));
+  const customLi = document.querySelector('li[data-date="custom_range"]');
+  if (customLi) customLi.classList.add("active");
+
+  renderCalendar();
+};
 
 // =================== PRESET RANGE ===================
 function getDateRange(type) {
@@ -4349,6 +4710,9 @@ function getDateRange(type) {
     case "last_7days":
       start.setDate(today.getDate() - 6);
       break;
+    case "last_30days":
+      start.setDate(today.getDate() - 29);
+      break;
     case "this_week": {
       const day = today.getDay() || 7;
       start.setDate(today.getDate() - day + 1);
@@ -4363,9 +4727,15 @@ function getDateRange(type) {
     case "this_month":
       start.setDate(1);
       break;
+    case "last_month":
+      start.setMonth(today.getMonth() - 1, 1);
+      const lastDayPrevMonth = new Date(today.getFullYear(), today.getMonth(), 0).getDate();
+      end.setMonth(today.getMonth() - 1, lastDayPrevMonth);
+      break;
   }
 
-  const fmt = (d) => d.toISOString().slice(0, 10);
+  // Use local formatter instead of UTC
+  const fmt = (d) => formatDateLocal(d);
   return { start: fmt(start), end: fmt(end) };
 }
 
@@ -4384,14 +4754,19 @@ function reloadDashboard() {
     domDate.textContent = `${fmt(startDate)} - ${fmt(endDate)}`;
   }
   const selectedText = document.querySelector(".quick_filter .dom_selected");
-  selectedText.textContent = "Quick filter"; // Đặt lại text filter về mặc định
+  if (selectedText) selectedText.textContent = "Quick filter"; // Đặt lại text filter bảng về mặc định
+
   // Gọi các hàm load dữ liệu
-  // loadDailyChart();
-  // loadPlatformSummary();
-  // loadSpendPlatform();
-  resetUIFilter();
-  loadAllDashboardCharts();
+  // Nếu có bộ lọc, applyCampaignFilter sẽ tự gọi loadAllDashboardCharts(ids) sau khi load list xong
+  if (!CURRENT_CAMPAIGN_FILTER || CURRENT_CAMPAIGN_FILTER.toUpperCase() === "RESET") {
+    loadAllDashboardCharts();
+  }
+
   loadCampaignList().finally(() => {
+    // 🚩 Nếu đang có bộ lọc thì áp dụng lại để lọc danh sách và cập nhật dashboard
+    if (CURRENT_CAMPAIGN_FILTER && CURRENT_CAMPAIGN_FILTER.toUpperCase() !== "RESET") {
+      applyCampaignFilter(CURRENT_CAMPAIGN_FILTER);
+    }
     if (loading) loading.classList.remove("active");
   });
 }
@@ -4800,6 +5175,12 @@ if (quickFilterBox) {
   });
 }
 document.addEventListener("DOMContentLoaded", () => {
+  // --- 📅 Initialize Date Selector ---
+  const defaultRange = getDateRange("last_7days");
+  startDate = defaultRange.start;
+  endDate = defaultRange.end;
+  initDateSelector();
+
   const previewBtn = document.getElementById("preview_button");
 
   if (previewBtn) {
@@ -4958,7 +5339,7 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 async function fetchAdAccountInfo() {
-  const url = `${BASE_URL}/act_${ACCOUNT_ID}?fields=id,funding_source_details,name,balance&access_token=${META_TOKEN}`;
+  const url = `${BASE_URL}/act_${ACCOUNT_ID}?fields=id,funding_source_details,name,balance,amount_spent,business_name,business_street,business_street2,business_city,business_state,business_zip,business_country_code,tax_id&access_token=${META_TOKEN}`;
 
   try {
     const data = await fetchJSON(url);
@@ -4989,9 +5370,50 @@ async function fetchAdAccountInfo() {
       vat * 1
     ).toLocaleString("vi-VN")}đ`;
     document.getElementById("detail_method").innerHTML = paymentMethodDisplay;
-    // document.getElementById("detail_paid").innerHTML = `${(
-    //   amountSpent * 1
-    // ).toLocaleString("vi-VN")}đ`;
+
+    // Cập nhật Business Info
+    const rawAddressParts = [
+      data.business_street,
+      data.business_street2,
+      data.business_city,
+      data.business_state,
+      data.business_zip,
+      data.business_country_code
+    ].filter(p => p && p.trim().length > 0 && p.trim().toLowerCase() !== 'vn' && p.trim().toLowerCase() !== 'vietnam').map(p => p.trim());
+
+    // Deduplicate address parts cleverly (favoring longer strings)
+    const uniqueParts = [];
+    rawAddressParts.forEach(p => {
+      let skip = false;
+      for (let i = 0; i < uniqueParts.length; i++) {
+        const up = uniqueParts[i];
+        if (up.toLowerCase().includes(p.toLowerCase())) {
+          skip = true; // Current is shorter or same as existing, skip it
+          break;
+        }
+        if (p.toLowerCase().includes(up.toLowerCase())) {
+          uniqueParts[i] = p; // Current is longer, replace existing
+          skip = true;
+          break;
+        }
+      }
+      if (!skip) uniqueParts.push(p);
+    });
+
+    const businessHtml = `
+      <div class="business_info_box">
+        <p class="b_name"><i class="fa-solid fa-building"></i> ${data.business_name || "N/A"}</p>
+        <p class="b_addr"><i class="fa-solid fa-map-marker-alt"></i> ${uniqueParts.join(', ')}</p>
+        <p class="b_tax"><i class="fa-solid fa-id-card"></i> Tax ID: ${data.tax_id || "N/A"}</p>
+      </div>
+    `;
+    const businessLi = document.querySelector("#detail_total_report .dom_total_report.balance ul li:nth-child(3)");
+    if (businessLi) {
+      businessLi.innerHTML = `
+        <span class="b_title"><i class="fa-solid fa-circle-info"></i> Business Info</span>
+        ${businessHtml}
+      `;
+    }
 
     return data;
   } catch (error) {
@@ -5152,8 +5574,7 @@ function renderMonthlyChart(data, filter) {
     chart.data.datasets[0].label = `${chartLabel} by Month`;
     chart.options.scales.y.suggestedMax = maxValue * 1.1; // Cập nhật trục Y
     chart.options.plugins.tooltip.callbacks.label = (c) =>
-      `${chartLabel}: ${
-        filter === "spend" ? formatMoneyShort(c.raw) : formatNumber(c.raw)
+      `${chartLabel}: ${filter === "spend" ? formatMoneyShort(c.raw) : formatNumber(c.raw)
       }`;
 
     chart.options.plugins.datalabels.formatter = (v) =>
@@ -5189,10 +5610,9 @@ function renderMonthlyChart(data, filter) {
           tooltip: {
             callbacks: {
               label: (c) =>
-                `${chartLabel}: ${
-                  filter === "spend"
-                    ? formatMoneyShort(c.raw)
-                    : formatNumber(c.raw)
+                `${chartLabel}: ${filter === "spend"
+                  ? formatMoneyShort(c.raw)
+                  : formatNumber(c.raw)
                 }`,
             },
           },
@@ -5489,6 +5909,10 @@ function resetUIFilter() {
       ul.querySelectorAll("li").forEach((li) => li.classList.remove("active"));
     }
   }
+
+  // ✅ 2. Reset ô search input
+  const searchInput = document.getElementById("campaign_filter");
+  if (searchInput) searchInput.value = "";
 }
 
 // === Safe setup for campaign filter UI ===
@@ -5517,22 +5941,22 @@ function resetUIFilter() {
     typeof applyCampaignFilter === "function"
       ? applyCampaignFilter
       : async (k) => {
-          console.warn(
-            "[campaign-filter] applyCampaignFilter missing. Keyword:",
-            k
-          );
-        };
+        console.warn(
+          "[campaign-filter] applyCampaignFilter missing. Keyword:",
+          k
+        );
+      };
 
   const safeDebounce =
     typeof debounce === "function"
       ? debounce
       : (fn, d = 500) => {
-          let t;
-          return (...a) => {
-            clearTimeout(t);
-            t = setTimeout(() => fn(...a), d);
-          };
+        let t;
+        return (...a) => {
+          clearTimeout(t);
+          t = setTimeout(() => fn(...a), d);
         };
+      };
 
   // ✅ Render 1 campaign <li>
   function formatCampaignHTML(c) {
@@ -5748,10 +6172,10 @@ async function generateDeepReportDetailed({
       return n === 0
         ? "0đ"
         : n.toLocaleString("vi-VN", {
-            style: "currency",
-            currency: "VND",
-            maximumFractionDigits: 0,
-          });
+          style: "currency",
+          currency: "VND",
+          maximumFractionDigits: 0,
+        });
     } catch {
       return `${Math.round(n)}đ`;
     }
@@ -6401,13 +6825,10 @@ function createInsightList(recommendations, delayStart = 1) {
           color = "#28a745"; // Xanh lá
         }
 
-        return `<li><i class="${icon}" style="color:${color};"></i> <strong>[${
-          rec.area
-        }]</strong> ${
-          rec.reason
-        }<br><span class="recommendation-action">→ Đề xuất: ${
-          rec.action || ""
-        }</span></li>`;
+        return `<li><i class="${icon}" style="color:${color};"></i> <strong>[${rec.area
+          }]</strong> ${rec.reason
+          }<br><span class="recommendation-action">→ Đề xuất: ${rec.action || ""
+          }</span></li>`;
       })
       .join("");
   }
@@ -6435,18 +6856,16 @@ function createBreakdownSection(section, type, delayStart = 1) {
     (section.bestCpr && section.bestCpr.length > 0);
 
   return `
-        <h5 class="fade_in_item delay-${delayStart}"><i class="${icon}"></i> Phân tích ${
-    section.title
-  }</h5>
+        <h5 class="fade_in_item delay-${delayStart}"><i class="${icon}"></i> Phân tích ${section.title
+    }</h5>
         
         <div class="fade_in_item delay-${delayStart + 1}">
             <h6>Top 3 Chi tiêu (Spend)</h6>
             ${createBreakdownTable(section.topSpend, type)}
         </div>
         
-        ${
-          hasResults
-            ? `
+        ${hasResults
+      ? `
             <div class="fade_in_item delay-${delayStart + 2}">
                 <h6>Top 3 Kết quả (Result)</h6>
                 ${createBreakdownTable(section.topResult, type)}
@@ -6457,12 +6876,12 @@ function createBreakdownSection(section, type, delayStart = 1) {
                 ${createBreakdownTable(section.bestCpr, type)}
             </div>
         `
-            : `
+      : `
             <div class="fade_in_item delay-${delayStart + 2}">
                 <p class="no-result-note"><i class="fa-solid fa-info-circle"></i> Không có dữ liệu Kết quả (Result) để phân tích CPR cho mục này.</p>
             </div>
         `
-        }
+    }
     `;
 }
 
@@ -6482,8 +6901,8 @@ function createBreakdownTable(dataArray, type) {
     window.formatCPR
       ? window.formatCPR(n, goal)
       : n > 0
-      ? formatMoneySafe(n)
-      : "N/A";
+        ? formatMoneySafe(n)
+        : "N/A";
 
   const rows = dataArray
     .map(
@@ -6565,15 +6984,13 @@ function createKpiGrid(summary, delayStart = 1) {
         </div>
         <div class="kpi_item">
             <span>CTR (Tỷ lệ Click)</span>
-            <b class="${
-              summary.overallCTR < 0.005 ? "metric-bad" : "metric-good"
-            }">${formatted.overallCTR || "N/A"}</b>
+            <b class="${summary.overallCTR < 0.005 ? "metric-bad" : "metric-good"
+    }">${formatted.overallCTR || "N/A"}</b>
         </div>
         <div class="kpi_item">
             <span>CVR (Click -> Kết quả)</span>
-             <b class="${
-               summary.overallCVRProxy < 0.02 ? "metric-bad" : "metric-good"
-             }">${formatted.overallCVRProxy || "N/A"}</b>
+             <b class="${summary.overallCVRProxy < 0.02 ? "metric-bad" : "metric-good"
+    }">${formatted.overallCVRProxy || "N/A"}</b>
         </div>
         <div class="kpi_item">
             <span>Tiếp cận (Reach)</span>
@@ -6615,13 +7032,10 @@ function createInsightList(recommendations, delayStart = 1) {
           color = "#007bff";
         }
 
-        return `<li><i class="${icon}" style="color:${color};"></i> <strong>[${
-          rec.area
-        }]</strong> ${
-          rec.reason
-        }<br><span class="recommendation-action">→ Đề xuất: ${
-          rec.action || ""
-        }</span></li>`;
+        return `<li><i class="${icon}" style="color:${color};"></i> <strong>[${rec.area
+          }]</strong> ${rec.reason
+          }<br><span class="recommendation-action">→ Đề xuất: ${rec.action || ""
+          }</span></li>`;
       })
       .join("");
   }
@@ -6664,9 +7078,8 @@ function createInsightList(recommendations, delayStart = 1) {
           color = "#e17055"; // Màu đỏ cam
         }
 
-        return `<li><i class="${icon}" style="color:${color}"></i> <b>[${
-          rec.area
-        }]</b> ${rec.reason} ${rec.action || ""}</li>`;
+        return `<li><i class="${icon}" style="color:${color}"></i> <b>[${rec.area
+          }]</b> ${rec.reason} ${rec.action || ""}</li>`;
       })
       .join("");
   }
@@ -6692,30 +7105,28 @@ function createBreakdownSection(section, type, delayStart = 1) {
   const hasResults = parseFloat(section.topSpend[0]?.result || 0) > 0; // Kiểm tra xem có kết quả nào không
 
   return `
-      <h5 class="fade_in_item delay-${delayStart}"><i class="${icon}"></i> Phân tích ${
-    section.title
-  }</h5>
+      <h5 class="fade_in_item delay-${delayStart}"><i class="${icon}"></i> Phân tích ${section.title
+    }</h5>
       
       <div class="fade_in_item delay-${delayStart + 1}">
           <h6>Top chi tiêu (Spend)</h6>
           ${createBreakdownTable(section.topSpend, type)}
       </div>
       
-      ${
-        hasResults
-          ? `
+      ${hasResults
+      ? `
           <div class="fade_in_item delay-${delayStart + 2}">
               <h6>Top CPR Tốt nhất (Best CPR)</h6>
               ${createBreakdownTable(section.bestCpr, type)}
           </div>
          
       `
-          : `
+      : `
           <div class="fade_in_item delay-${delayStart + 2}">
               <p class="no-result-note"><i class="fa-solid fa-info-circle"></i> Không có dữ liệu Kết quả (Result) để phân tích CPR cho mục này.</p>
           </div>
       `
-      }
+    }
   `;
 }
 
@@ -6817,7 +7228,7 @@ function setupAIReportModal() {
     // Cập nhật tiêu đề
     reportTitle.innerHTML = `
     
-    <p><img src="https://ideas-crm-dashboard.vercel.app/logotarget.png">
+    <p><img src="https://dev-trongphuc.github.io/DOM_MISA_IDEAS_CRM/logotarget.png">
       <span>DOM AI REPORT </span></p>
     <p class="report_time">${dateText}</p>
    `;
@@ -6849,6 +7260,102 @@ function setupAIReportModal() {
       contentEl.innerHTML = ""; // Xóa nội dung để lần sau load lại
     }
   });
+}
+
+/**
+ * 📊 Export ads data to CSV
+ * Báo cáo nghiệm thu chi tiết ads theo thời gian đang xem
+ */
+function exportAdsToCSV() {
+  const data = window._ALL_CAMPAIGNS;
+  if (!data || !Array.isArray(data) || data.length === 0) {
+    alert("Không có dữ liệu để xuất!");
+    return;
+  }
+
+  // 1. Định nghĩa headers
+  const headers = [
+    "Time Range",
+    "Campaign ID",
+    "Campaign Name",
+    "Adset ID",
+    "Adset Name",
+    "Ad ID",
+    "Ad Name",
+    "Status",
+    "Goal",
+    "Spent (VND)",
+    "Results",
+    "Cost per Result",
+    "Impressions",
+    "Reach",
+    "Frequency",
+    "CPM",
+    "Link Clicks",
+    "Messages",
+    "Leads"
+  ];
+
+  // 2. Chuyển đổi data sang rows
+  const rows = [];
+  const timeRange = `${startDate} - ${endDate}`;
+
+  data.forEach((campaign) => {
+    const adsets = campaign.adsets || [];
+    adsets.forEach((adset) => {
+      const ads = adset.ads || [];
+      ads.forEach((ad) => {
+        const frequency = ad.reach > 0 ? (ad.impressions / ad.reach).toFixed(2) : "0";
+        const cpm = ad.impressions > 0 ? ((ad.spend / ad.impressions) * 1000).toFixed(0) : "0";
+        const cpr = ad.result > 0 ? (ad.spend / ad.result).toFixed(0) : "0";
+
+        rows.push([
+          timeRange,
+          campaign.id,
+          campaign.name,
+          adset.id,
+          adset.name,
+          ad.id,
+          ad.name,
+          ad.status,
+          ad.optimization_goal || "Unknown",
+          ad.spend.toFixed(0),
+          ad.result || 0,
+          cpr,
+          ad.impressions || 0,
+          ad.reach || 0,
+          frequency,
+          cpm,
+          ad.link_clicks || 0,
+          ad.message || 0,
+          ad.lead || 0
+        ]);
+      });
+    });
+  });
+
+  // 3. Tạo nội dung CSV (Dùng BOM để Excel hiển thị đúng tiếng Việt UTF-8)
+  let csvContent = "\uFEFF";
+  csvContent += headers.map(h => `"${h}"`).join(",") + "\r\n";
+
+  rows.forEach((row) => {
+    const rowString = row.map(val => {
+      const str = String(val).replace(/"/g, '""'); // Escape double quotes
+      return `"${str}"`;
+    }).join(",");
+    csvContent += rowString + "\r\n";
+  });
+
+  // 4. Tạo download link và click tự động
+  const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.setAttribute("href", url);
+  link.setAttribute("download", `Meta_Ads_Report_${startDate}_${endDate}.csv`);
+  link.style.display = "none";
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
 }
 
 
