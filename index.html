@@ -40,28 +40,17 @@
         <div class="dom_account_view_block">
           <div class="account_item">
             <div>
-              <img class="account_item_avatar"
-                src="https://ideas.edu.vn/wp-content/uploads/2025/10/518336360_122227900856081421_6060559121060410681_n.webp" />
+              <img class="account_item_avatar" src="./img/avatar.png" />
               <div class="account_item_info">
-                <p class="account_item_name">MBA 577</p>
-                <p class="account_item_id">1852318231510577</p>
+                <p class="account_item_name">Đang tải...</p>
+                <p class="account_item_id">--</p>
               </div>
             </div>
             <i class="fa-solid fa-sort"></i>
           </div>
         </div>
-        <ul class="box_shadow">
-          <li data-acc="437334141328696">
-            <img
-              src="https://ideas.edu.vn/wp-content/uploads/2025/10/520821295_122209126670091888_6779497482843304564_n.webp" />
-            <p><span>VTCI 8696</span></p>
-          </li>
-          <li data-acc="1852318231510577">
-            <img
-              src="https://ideas.edu.vn/wp-content/uploads/2025/10/518336360_122227900856081421_6060559121060410681_n.webp" />
-            <p><span> MBA 577</span></p>
-          </li>
-        </ul>
+        <!-- Dropdown list — được JS render vào khi initAccountSelector() chạy -->
+        <ul class="box_shadow"></ul>
       </div>
       <p class="dom_text_menu">MAIN MENU</p>
       <ul class="dom_menu">
@@ -78,7 +67,7 @@
           <span>Ad Account</span>
         </li>
       </ul>
-      <p class="dom_text_menu">OTHER APP</p>
+      <!-- <p class="dom_text_menu">OTHER APP</p>
       <ul class="dom_other_menu">
         <li class="" data-view="ads">
           <a target="_blank" href="https://dev-trongphuc.github.io/DOM_MISA_IDEAS_CRM/">
@@ -87,11 +76,7 @@
           </a>
         </li>
 
-        <!-- <li class="" data-view="won">
-            <i class="fa-solid fa-graduation-cap"></i>
-            <span>Won</span>
-          </li> -->
-      </ul>
+      </ul> -->
     </div>
     <div class="dom_container dashboard">
       <div class="dom_header flex">
@@ -159,55 +144,55 @@
               </div>
             </div>
           </div>
-          <p class="dom_date">01/06/2025 - 28/06/2025</p>
+          <p class="dom_date">-/-/- - -/-/-</p>
         </div>
-        <div class="dom_campaign_filter">
-          <input placeholder="Filter by Campaign name" id="campaign_filter" />
-          <div>
-            <i class="fa-solid fa-magnifying-glass" id="reset_button"></i>
-            <p>Search</p>
-          </div>
-          <ul></ul>
-        </div>
-        <!-- <div class="dom_filter">
-          <div class="dom_select quick_filter_detail">
-            <img src="./adset/ampersand/ampersand_img.jpg" />
-            <div class="flex">
-              <p class="dom_selected">Ampersand</p>
+        <!-- Nhóm bên phải: AI Tóm tắt + Brand filter -->
+        <div style="display:flex;align-items:center;gap:1.2rem;">
+          <button id="ai_summary_btn" class="ai_report" title="Tóm tắt dữ liệu bằng AI"
+            style="border:none;font-size:1.3rem;margin:0;">
+            <i class="fa-solid fa-wand-magic-sparkles" style="font-size:1.6rem;"></i>
+            AI Tóm tắt
+          </button>
+          <!-- <div class="dom_filter">
+            <div class="dom_select quick_filter_detail">
+              <img src="./adset/ampersand/ampersand_img.jpg" />
+              <div class="flex">
+                <p class="dom_selected">Ampersand</p>
+              </div>
+              <i class="fa-solid fa-angle-down"></i>
+              <ul class="dom_select_show">
+                <li data-filter="TRB" class="">
+                  <img src="./adset/ampersand/TRB.jpg" />
+                  <span>The Running Bean</span>
+                </li>
+                <li data-filter="Haagen Dazs" class="">
+                  <img src="./adset/ampersand/HD.jpg" />
+                  <span>Häagen-Dazs</span>
+                </li>
+                <li data-filter="BEAN" class="">
+                  <img src="./adset/ampersand/BEAN.jpg" />
+                  <span> Be An Vegetarian</span>
+                </li>
+                <li data-filter="Esta" class="">
+                  <img src="./adset/ampersand/Esta.jpg" />
+                  <span> Esta Saigon</span>
+                </li>
+                <li data-filter="Le Petit" class="">
+                  <img src="./adset/ampersand/LPT.jpg" />
+                  <span> Le Petit</span>
+                </li>
+                <li data-filter="SNOWEE" class="">
+                  <img src="./adset/ampersand/SNOWEE.jpg" />
+                  <span> SNOWEE</span>
+                </li>
+                <li data-filter="" class="">
+                  <img src="./adset/ampersand/ampersand_img.jpg" />
+                  <span> Ampersand</span>
+                </li>
+              </ul>
             </div>
-            <i class="fa-solid fa-angle-down"></i>
-            <ul class="dom_select_show">
-              <li data-filter="TRB" class="">
-                <img src="./adset/ampersand/TRB.jpg" />
-                <span>The Running Bean</span>
-              </li>
-              <li data-filter="Haagen Dazs" class="">
-                <img src="./adset/ampersand/HD.jpg" />
-                <span>Häagen-Dazs</span>
-              </li>
-              <li data-filter="BEAN" class="">
-                <img src="./adset/ampersand/BEAN.jpg" />
-                <span> Be An Vegetarian</span>
-              </li>
-              <li data-filter="Esta" class="">
-                <img src="./adset/ampersand/Esta.jpg" />
-                <span> Esta Saigon</span>
-              </li>
-              <li data-filter="Le Petit" class="">
-                <img src="./adset/ampersand/LPT.jpg" />
-                <span> Le Petit</span>
-              </li>
-              <li data-filter="SNOWEE" class="">
-                <img src="./adset/ampersand/SNOWEE.jpg" />
-                <span> SNOWEE</span>
-              </li>
-              <li data-filter="" class="">
-                <img src="./adset/ampersand/ampersand_img.jpg" />
-                <span> Ampersand</span>
-              </li>
-            </ul>
-          </div>
-        </div> -->
+          </div> -->
+        </div>
       </div>
       <div class="dom_dashboard">
         <!-- 📭 Empty State Card -->
@@ -551,6 +536,15 @@
               </div>
             </div>
             <div class="view_campaign_box"></div>
+            <div class="view_campaign_empty" style="display:none">
+              <div class="empty_card">
+                <i class="fa-solid fa-filter-circle-xmark"></i>
+                <h3>Không tìm thấy kết quả</h3>
+                <p>Không có campaign nào khớp với bộ lọc đã chọn.<br />Thử đổi ngày, bộ lọc nhãn hiệu hoặc reset bộ lọc.
+                </p>
+                <button class="btn_reset_all">Reset tất cả bộ lọc</button>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -946,6 +940,138 @@
   <div class="loading">
     <span class="loader"></span>
   </div>
+  <!-- ========== AI SUMMARY MODAL ========== -->
+  <div id="ai_summary_modal" class="ai_modal_overlay" style="display:none">
+    <div class="ai_modal_box">
+
+      <!-- Header -->
+      <div class="ai_modal_header">
+        <div class="ai_modal_header_left">
+          <i class="fa-solid fa-wand-magic-sparkles"></i>
+          <span>Trợ lý Phân tích báo cáo AI</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:0.6rem;">
+          <button id="ai_history_icon_btn" onclick="switchAiTab('history')">
+            <i class="fa-solid fa-clock-rotate-left"></i>
+            <span>Xem lịch sử</span>
+            <span id="ai_history_badge" class="ai_history_badge" style="display:none">0</span>
+          </button>
+          <button class="ai_close_btn" onclick="closeAiSummaryModal()"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+      </div>
+
+      <!-- Panel: Home (2 cards) -->
+      <div id="ai_panel_home" class="ai_home_panel" style="display:flex">
+        <!-- Card: Phân tích theo thời gian -->
+        <div class="ai_home_card" id="ai_home_card_analyze">
+          <div class="ai_home_card_icon">
+            <i class="fa-solid fa-chart-line"></i>
+          </div>
+          <div class="ai_home_card_content">
+            <h3>Phân tích theo thời gian</h3>
+            <p>AI tổng hợp và phân tích toàn bộ hiệu suất campaign trong khoảng thời gian chọn.</p>
+            <div class="ai_home_date_pills" id="ai_date_pills">
+              <button class="ai_date_pill active" onclick="setAiDatePreset('current', this)">Hiện tại</button>
+              <button class="ai_date_pill" onclick="setAiDatePreset('7d', this)">7 ngày</button>
+              <button class="ai_date_pill" onclick="setAiDatePreset('14d', this)">14 ngày</button>
+              <button class="ai_date_pill" onclick="setAiDatePreset('30d', this)">30 ngày</button>
+              <button class="ai_date_pill" onclick="setAiDatePreset('custom', this)">Tùy chỉnh</button>
+            </div>
+            <div id="ai_custom_date_row" style="display:none;">
+              <input type="date" id="ai_custom_from" class="ai_date_input">
+              <span style="color:#94a3b8;font-size:1.2rem;">→</span>
+              <input type="date" id="ai_custom_to" class="ai_date_input">
+            </div>
+          </div>
+          <button class="ai_home_run_btn" onclick="runAiSummaryFromHome()">
+            <i class="fa-solid fa-wand-magic-sparkles"></i> Chạy phân tích
+          </button>
+        </div>
+
+        <!-- Card: So sánh Campaign -->
+        <div class="ai_home_card clickable" onclick="switchAiTab('compare')">
+          <div class="ai_home_card_icon compare">
+            <i class="fa-solid fa-code-compare"></i>
+          </div>
+          <div class="ai_home_card_content">
+            <h3>So sánh Campaign</h3>
+            <p>Chọn 2 hoặc nhiều campaign để AI phân tích và so sánh chi tiết hiệu suất từng chiến dịch.</p>
+          </div>
+          <div class="ai_home_nav_btn">
+            <i class="fa-solid fa-arrow-right"></i> Chọn campaign
+          </div>
+        </div>
+      </div>
+
+      <!-- Panel: Kết quả -->
+      <div id="ai_panel_result" class="ai_modal_body" style="display:none">
+        <div id="ai_summary_loading" style="display:none">
+          <div class="ai_loader_dots"><span></span><span></span><span></span></div>
+          <p>DOM AI đang phân tích dữ liệu...</p>
+        </div>
+        <div id="ai_summary_content"></div>
+      </div>
+
+      <!-- Panel: So sánh Campaign -->
+      <div id="ai_panel_compare" class="ai_modal_body" style="display:none">
+        <div class="ai_compare_header">
+          <div class="ai_compare_search_wrap">
+            <i class="fa-solid fa-magnifying-glass"></i>
+            <input type="text" id="ai_compare_search" placeholder="Tìm tên campaign..."
+              oninput="filterCompareCampaigns(this.value)">
+          </div>
+          <div class="ai_compare_actions_top">
+            <button class="ai_compare_sel_btn" onclick="selectAllCompareCampaigns(true)"><i
+                class="fa-solid fa-check-double"></i> Chọn tất cả</button>
+            <button class="ai_compare_sel_btn" onclick="selectAllCompareCampaigns(false)"><i
+                class="fa-solid fa-xmark"></i> Bỏ chọn</button>
+            <span id="ai_compare_count" class="ai_compare_count">0 đã chọn</span>
+          </div>
+        </div>
+        <div id="ai_compare_list" class="ai_compare_list"></div>
+      </div>
+
+      <!-- Panel: Lịch sử -->
+      <div id="ai_panel_history" class="ai_modal_body" style="display:none">
+        <div id="ai_history_list"></div>
+      </div>
+
+      <!-- Footer động -->
+      <div class="ai_modal_footer" id="ai_modal_footer">
+        <!-- Home footer: empty -->
+        <div id="ai_footer_home" style="display:flex;width:100%;justify-content:flex-end;"></div>
+        <!-- Result footer -->
+        <div id="ai_footer_result" style="display:none;width:100%;justify-content:space-between;align-items:center;">
+          <button class="ai_back_btn" onclick="switchAiTab('home')"><i class="fa-solid fa-arrow-left"></i> Quay
+            lại</button>
+          <div style="display:flex;gap:0.8rem;">
+            <button id="ai_copy_btn" style="display:none"><i class="fa-solid fa-copy"></i> Sao chép</button>
+            <button id="ai_export_word_btn" onclick="exportAiToWord()" style="display:none"><i
+                class="fa-solid fa-file-word"></i> Xuất Word</button>
+            <button id="ai_regenerate_btn" style="display:none"><i class="fa-solid fa-rotate-right"></i> Tạo
+              lại</button>
+          </div>
+        </div>
+        <!-- Compare footer -->
+        <div id="ai_footer_compare" style="display:none;width:100%;justify-content:space-between;align-items:center;">
+          <button class="ai_back_btn" onclick="switchAiTab('home')"><i class="fa-solid fa-arrow-left"></i> Quay
+            lại</button>
+          <button id="ai_compare_run_btn" onclick="runAiCompare()" disabled>
+            <i class="fa-solid fa-code-compare"></i> Phân tích so sánh
+          </button>
+        </div>
+        <!-- History footer -->
+        <div id="ai_footer_history" style="display:none;width:100%;">
+          <button class="ai_back_btn" onclick="switchAiTab('home')"><i class="fa-solid fa-arrow-left"></i> Quay
+            lại</button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+
+
 </body>
 <script src="./token.js"></script>
 <script src="./setup.js"></script>

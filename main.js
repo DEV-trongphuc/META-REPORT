@@ -928,7 +928,18 @@ function renderCampaignView(data) {
       )}</div>
           <div class="ad_reaction">${formatNumber(as.reactions)}</div>
           <div class="adset_view">
-            <div class="campaign_view"><i class="fa-solid fa-angle-down"></i></div>
+            <div class="adset_insight_btn"
+              data-adset-id="${as.id}"
+              data-name="${as.name}"
+              data-goal="${as.optimization_goal}"
+              data-spend="${as.spend}"
+              data-reach="${as.reach}"
+              data-impressions="${as.impressions}"
+              data-result="${as.result}"
+              data-cpr="${adsetCpr}"
+              title="Xem insight adset">
+              <i class="fa-solid fa-magnifying-glass-chart"></i>
+            </div>
           </div>
         </div>
         <div class="ad_item_box">${adsHtml.join("")}</div>`);
@@ -939,6 +950,15 @@ function renderCampaignView(data) {
   }
 
   wrap.innerHTML = htmlBuffer.join("");
+
+  // === Empty state handling ===
+  const emptyState = document.querySelector(".view_campaign_empty");
+  if (emptyState) {
+    emptyState.style.display = data.length === 0 ? "flex" : "none";
+  }
+
+  // Lazy load images
+  loadLazyImages(wrap);
 }
 function buildGoalSpendData(data) {
   const goalSpendMap = {};
@@ -1176,26 +1196,817 @@ async function main() {
       resetAllFilters();
     }
   });
+
+  // 🤖 AI Summary button
+  const aiBtn = document.getElementById("ai_summary_btn");
+  if (aiBtn) aiBtn.addEventListener("click", openAiSummaryModal);
+
+  const aiClose = document.getElementById("ai_modal_close");
+  if (aiClose) aiClose.addEventListener("click", closeAiSummaryModal);
+
+  const aiCopy = document.getElementById("ai_copy_btn");
+  if (aiCopy) aiCopy.addEventListener("click", () => {
+    const content = document.getElementById("ai_summary_content");
+    if (content) {
+      navigator.clipboard.writeText(content.innerText || "");
+      aiCopy.innerHTML = '<i class="fa-solid fa-check"></i> Đã sao chép';
+      setTimeout(() => { aiCopy.innerHTML = '<i class="fa-solid fa-copy"></i> Sao chép'; }, 2000);
+    }
+  });
+
+  const aiRegen = document.getElementById("ai_regenerate_btn");
+  if (aiRegen) aiRegen.addEventListener("click", runAiSummary);
+
+  // Close modal khi click overlay
+  const overlay = document.getElementById("ai_summary_modal");
+  if (overlay) overlay.addEventListener("click", (e) => {
+    if (e.target === overlay) closeAiSummaryModal();
+  });
+}
+
+function openAiSummaryModal() {
+  const modal = document.getElementById("ai_summary_modal");
+  if (modal) modal.style.display = "flex";
+  updateAiHistoryBadge();
+  switchAiTab("home");
+  // Pre-select "Hiện tại" pill
+  setAiDatePreset("current", document.querySelector(".ai_date_pill"));
+}
+
+function switchAiTab(tab) {
+  const allPanels = ["home", "result", "compare", "history"];
+  allPanels.forEach(p => {
+    const el = document.getElementById(`ai_panel_${p}`);
+    if (el) el.style.display = "none";
+    const ft = document.getElementById(`ai_footer_${p}`);
+    if (ft) ft.style.display = "none";
+  });
+
+  const panel = document.getElementById(`ai_panel_${tab}`);
+  if (panel) {
+    // home panel is a flex container (2-column grid)
+    panel.style.display = tab === "home" ? "flex" : "block";
+  }
+  const footer = document.getElementById(`ai_footer_${tab}`);
+  if (footer) footer.style.display = "flex";
+
+  if (tab === "history") renderAiHistory();
+  if (tab === "compare") renderCompareCampaigns();
+}
+
+// ─── Date Preset for Home panel ───────────────────────────────
+
+let _aiDatePreset = "current";
+
+function setAiDatePreset(preset, btn) {
+  _aiDatePreset = preset;
+  document.querySelectorAll(".ai_date_pill").forEach(b => b.classList.remove("active"));
+  if (btn) btn.classList.add("active");
+  const customRow = document.getElementById("ai_custom_date_row");
+  if (customRow) customRow.style.display = preset === "custom" ? "flex" : "none";
+  // Pre-fill custom inputs với ngày hiện tại của app
+  if (preset === "custom") {
+    const cf = document.getElementById("ai_custom_from");
+    const ct = document.getElementById("ai_custom_to");
+    if (cf && !cf.value) cf.value = document.getElementById("date_from")?.value || "";
+    if (ct && !ct.value) ct.value = document.getElementById("date_to")?.value || "";
+  }
+}
+
+function getAiDateRange() {
+  const today = new Date();
+  const fmt = d => d.toISOString().slice(0, 10);
+  if (_aiDatePreset === "7d") return { from: fmt(new Date(today - 7 * 864e5)), to: fmt(today) };
+  if (_aiDatePreset === "14d") return { from: fmt(new Date(today - 14 * 864e5)), to: fmt(today) };
+  if (_aiDatePreset === "30d") return { from: fmt(new Date(today - 30 * 864e5)), to: fmt(today) };
+  if (_aiDatePreset === "custom") return {
+    from: document.getElementById("ai_custom_from")?.value || "",
+    to: document.getElementById("ai_custom_to")?.value || "",
+  };
+  // "current" — dùng filter hiện tại
+  return {
+    from: document.getElementById("date_from")?.value || "",
+    to: document.getElementById("date_to")?.value || "",
+  };
+}
+
+function runAiSummaryFromHome() {
+  const { from, to } = getAiDateRange();
+  if (_aiDatePreset !== "current" && from && to) {
+    const df = document.getElementById("date_from");
+    const dt = document.getElementById("date_to");
+    if (df) df.value = from;
+    if (dt) dt.value = to;
+  }
+  switchAiTab("result");
+  runAiSummary();
+}
+
+// ─── Campaign Compare Feature ──────────────────────────────────
+
+function renderCompareCampaigns() {
+  const list = document.getElementById("ai_compare_list");
+  if (!list) return;
+  const campaigns = (window._FILTERED_CAMPAIGNS ?? window._ALL_CAMPAIGNS) || [];
+  if (!campaigns.length) {
+    list.innerHTML = `<div class="ai_compare_empty">
+      <i class="fa-solid fa-triangle-exclamation"></i>
+      Chưa có dữ liệu campaign. Hãy tải dữ liệu trước.
+    </div>`;
+    return;
+  }
+
+  const fmt = n => Math.round(n || 0).toLocaleString("vi-VN");
+  const fmtShort = n => {
+    n = Math.round(n || 0);
+    if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + "M";
+    if (n >= 1_000) return (n / 1_000).toFixed(0) + "K";
+    return n.toString();
+  };
+
+  // Tính % chi phí tương đối để vẽ bar
+  const maxSpend = Math.max(...campaigns.map(c => c.spend || 0), 1);
+
+  list.innerHTML = campaigns.map((c, i) => {
+    const adsets = c.adsets || [];
+    const adsetCnt = adsets.length;
+    const spend = fmt(c.spend);
+    const reach = fmtShort(c.reach);
+    const result = fmt(c.result);
+    const cpr = c.result > 0 ? fmt(c.spend / c.result) + "đ" : "N/A";
+    const spendPct = Math.round((c.spend / maxSpend) * 100);
+
+    // Top adset theo chi phí
+    const topAdset = [...adsets].sort((a, b) => (b.spend || 0) - (a.spend || 0))[0];
+    const topName = topAdset ? topAdset.name.replace(/^[^_]+_/, "") : null;
+
+    // Goal badge
+    const goals = [...new Set(adsets.map(a => a.optimization_goal).filter(Boolean))];
+    const goalBadge = goals.slice(0, 2).map(g =>
+      `<span class="ai_cmp_goal">${g}</span>`
+    ).join("") + (goals.length > 2 ? `<span class="ai_cmp_goal">+${goals.length - 2}</span>` : "");
+
+    return `
+    <label class="ai_compare_item" data-name="${(c.name || "").toLowerCase()}" data-idx="${i}">
+      <div class="ai_cmp_checkbox">
+        <input type="checkbox" class="ai_compare_cb" value="${i}" id="cmp_cb_${i}" onchange="updateCompareCount()">
+        <i class="fa-solid fa-check"></i>
+      </div>
+      <div class="ai_compare_item_body">
+        <div class="ai_cmp_top_row">
+          <div class="ai_compare_item_name">${c.name || "Campaign " + (i + 1)}</div>
+        </div>
+        <div class="ai_cmp_spend_bar_wrap">
+          <div class="ai_cmp_spend_bar" style="width:${spendPct}%"></div>
+        </div>
+        <div class="ai_compare_item_stats">
+          <span class="ai_cmp_stat spend"><i class="fa-solid fa-sack-dollar"></i> ${spend}đ</span>
+          <span class="ai_cmp_stat"><i class="fa-solid fa-users"></i> ${reach}</span>
+          <span class="ai_cmp_stat"><i class="fa-solid fa-bullseye"></i> ${result} KQ</span>
+          <span class="ai_cmp_stat"><i class="fa-solid fa-tag"></i> ${cpr}</span>
+          <span class="ai_cmp_stat"><i class="fa-solid fa-layer-group"></i> ${adsetCnt} adset</span>
+        </div>
+      </div>
+    </label>`;
+  }).join("");
+
+  // Sync real checkbox với custom UI
+  document.querySelectorAll(".ai_compare_item").forEach(label => {
+    label.addEventListener("click", e => {
+      if (e.target.closest(".ai_cmp_checkbox") || e.target.classList.contains("ai_compare_cb")) return;
+      const cb = label.querySelector(".ai_compare_cb");
+      if (cb) { cb.checked = !cb.checked; updateCompareCount(); }
+    });
+  });
+
+  updateCompareCount();
+}
+
+
+function filterCompareCampaigns(query) {
+  const q = query.toLowerCase().trim();
+  document.querySelectorAll(".ai_compare_item").forEach(el => {
+    const name = el.dataset.name || "";
+    el.style.display = (!q || name.includes(q)) ? "" : "none";
+  });
+}
+
+function selectAllCompareCampaigns(checked) {
+  document.querySelectorAll(".ai_compare_cb").forEach(cb => {
+    const item = cb.closest(".ai_compare_item");
+    if (item && item.style.display !== "none") cb.checked = checked;
+  });
+  updateCompareCount();
+}
+
+function updateCompareCount() {
+  const selected = document.querySelectorAll(".ai_compare_cb:checked").length;
+  const countEl = document.getElementById("ai_compare_count");
+  const runBtn = document.getElementById("ai_compare_run_btn");
+  if (countEl) countEl.textContent = `${selected} đã chọn`;
+  if (runBtn) runBtn.disabled = selected < 2;
+  // Đổi màu count
+  if (countEl) countEl.style.color = selected >= 2 ? "var(--mainClr)" : "#aaa";
+}
+
+async function runAiCompare() {
+  const campaigns = (window._FILTERED_CAMPAIGNS ?? window._ALL_CAMPAIGNS) || [];
+  const checked = [...document.querySelectorAll(".ai_compare_cb:checked")];
+  if (checked.length < 2) return;
+
+  const selected = checked.map(cb => campaigns[parseInt(cb.value)]).filter(Boolean);
+
+  // Chuyển sang tab kết quả và show loading
+  switchAiTab("result");
+  const loading = document.getElementById("ai_summary_loading");
+  const content = document.getElementById("ai_summary_content");
+  const emptyBox = document.getElementById("ai_empty_state");
+  const copyBtn = document.getElementById("ai_copy_btn");
+  const regenBtn = document.getElementById("ai_regenerate_btn");
+  const wordBtn = document.getElementById("ai_export_word_btn");
+
+  if (loading) loading.style.display = "block";
+  if (emptyBox) emptyBox.style.display = "none";
+  if (content) content.innerHTML = "";
+  if (copyBtn) copyBtn.style.display = "none";
+  if (regenBtn) regenBtn.style.display = "none";
+  if (wordBtn) wordBtn.style.display = "none";
+
+  const fmt = n => Math.round(n || 0).toLocaleString("vi-VN");
+  const fmtMoney = n => fmt(n) + "đ";
+
+  const blocks = selected.map((c, idx) => {
+    const adsetLines = (c.adsets || []).map(as =>
+      `  · ${as.name}: chi phí=${fmtMoney(as.spend)}, reach=${fmt(as.reach)}, kết quả=${fmt(as.result)}, CPR=${as.result > 0 ? fmtMoney(as.spend / as.result) : "N/A"}, goal=${as.optimization_goal || "N/A"}`
+    ).join("\n");
+    return `
+[Campaign ${idx + 1}] ${c.name}
+- Chi phí: ${fmtMoney(c.spend)}
+- Reach: ${fmt(c.reach)}
+- Kết quả: ${fmt(c.result)}
+- CPR TB: ${c.result > 0 ? fmtMoney(c.spend / c.result) : "N/A"}
+- Impressions: ${fmt(c.impressions)}
+- Mục tiêu: ${c.objective || "N/A"}
+- Adsets (${(c.adsets || []).length}):
+${adsetLines || "  (không có dữ liệu adset)"}`;
+  }).join("\n\n─────────────────────────\n");
+
+  const prompt = `Bạn là chuyên gia phân tích quảng cáo Facebook Ads. Hãy so sánh CHI TIẾT và TOÀN DIỆN ${selected.length} chiến dịch sau đây.
+
+DỮ LIỆU CÁC CHIẾN DỊCH CẦN SO SÁNH:
+═══════════════════════════════════════
+${blocks}
+═══════════════════════════════════════
+
+YÊU CẦU PHÂN TÍCH SO SÁNH:
+
+## 1. Bảng tổng quan so sánh
+- Tạo bảng so sánh các chỉ số chính: Chi phí, Reach, Kết quả, CPR, Impressions
+- Xếp hạng từng campaign theo từng chỉ số
+
+## 2. Phân tích điểm mạnh - điểm yếu từng campaign
+- Với mỗi campaign: nêu rõ 2-3 điểm mạnh và 2-3 điểm yếu dựa trên số liệu
+
+## 3. Campaign hiệu quả nhất
+- Kết luận campaign nào tốt nhất và tại sao (dựa trên CPR, reach, chi phí)
+
+## 4. Đề xuất tối ưu
+- Gợi ý cụ thể để cải thiện campaign kém hiệu quả hơn
+- Ngân sách nên phân bổ như thế nào giữa các campaign
+
+⚠️ QUY TẮC: Dùng bảng markdown cho phần so sánh số liệu, viết bằng tiếng Việt, có số liệu cụ thể.`;
+
+  try {
+    const resp = await fetch("https://automation.ideas.edu.vn/dom.php", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt }),
+    });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data?.error || `Proxy error: ${resp.status}`);
+    const text = data?.text || "Không nhận được phản hồi.";
+
+    if (loading) loading.style.display = "none";
+    if (content) content.innerHTML = simpleMarkdown(text);
+    if (copyBtn) copyBtn.style.display = "flex";
+    if (regenBtn) regenBtn.style.display = "none";  // Regen không áp dụng cho compare
+    if (wordBtn) wordBtn.style.display = "flex";
+
+    const hLabel = `So sánh: ${selected.map(c => c.name).join(" vs ")}`;
+    saveAiHistory(content.innerHTML, hLabel);
+
+  } catch (err) {
+    if (loading) loading.style.display = "none";
+    if (content) content.innerHTML = `<div style="color:#ef4444;padding:2rem;text-align:center;">
+      <i class="fa-solid fa-circle-exclamation" style="font-size:2rem;margin-bottom:1rem;display:block;"></i>
+      ❌ Lỗi: ${err.message}
+    </div>`;
+    console.error("❌ AI Compare error:", err);
+  }
+}
+
+
+// ── localStorage history helpers ──
+
+function exportAiToWord() {
+  const content = document.getElementById("ai_summary_content");
+  if (!content || !content.innerHTML.trim()) return;
+
+  const modalTitle = document.querySelector(".ai_modal_header span")?.innerText || "Báo cáo AI";
+  const dateRange = document.getElementById("ai_date_range")?.innerText || "";
+  const timestamp = new Date().toLocaleString("vi-VN");
+
+  const wordHtml = `
+    <!DOCTYPE html>
+    <html xmlns:o="urn:schemas-microsoft-com:office:office"
+          xmlns:w="urn:schemas-microsoft-com:office:word"
+          xmlns="http://www.w3.org/TR/REC-html40">
+    <head>
+      <meta charset="utf-8">
+      <title>${modalTitle}</title>
+      <!--[if gte mso 9]>
+      <xml><w:WordDocument><w:View>Print</w:View><w:Zoom>100</w:Zoom></w:WordDocument></xml>
+      <![endif]-->
+      <style>
+        body { font-family: Arial, sans-serif; font-size: 11pt; color: #222; margin: 2.5cm 2cm; line-height: 1.55; }
+        h1 { font-size: 16pt; font-weight: bold; color: #111; border-bottom: 2pt solid #333; padding-bottom: 5pt; margin-bottom: 10pt; }
+        h2 { font-size: 13pt; font-weight: bold; color: #111; border-left: 4pt solid #555; padding-left: 8pt; margin-top: 18pt; margin-bottom: 4pt; text-transform: uppercase; letter-spacing: 0.03em; }
+        h3 { font-size: 11.5pt; font-weight: bold; color: #222; margin-top: 12pt; margin-bottom: 3pt; }
+        h4 { font-size: 11pt; font-weight: bold; color: #444; margin-top: 8pt; margin-bottom: 2pt; }
+        p  { margin: 4pt 0; color: #333; }
+        ul { margin: 4pt 0 4pt 14pt; padding: 0; }
+        ul li { margin: 2pt 0; color: #333; }
+        ol { margin: 6pt 0 6pt 14pt; padding: 0; }
+        ol li { margin: 4pt 0; color: #222; padding: 2pt 0; }
+        strong { font-weight: bold; color: #111; }
+        em { font-style: italic; color: #555; }
+        table { border-collapse: collapse; width: 100%; margin: 10pt 0; font-size: 10pt; }
+        table th { background: #ebebeb; font-weight: bold; text-transform: uppercase; padding: 5pt 8pt; border: 1pt solid #aaa; color: #333; text-align: left; }
+        table td { padding: 4pt 8pt; border: 1pt solid #ccc; color: #222; }
+        table tr:nth-child(even) td { background: #f7f7f7; }
+        .report-meta { color: #666; font-size: 10pt; margin-bottom: 12pt; padding-bottom: 8pt; border-bottom: 1pt solid #ccc; }
+        hr { border: none; border-top: 1pt solid #ddd; margin: 10pt 0; }
+      </style>
+    </head>
+    <body>
+      <h1>${modalTitle}</h1>
+      <div class="report-meta">
+        ${dateRange ? `<p><strong>Khoảng thời gian:</strong> ${dateRange}</p>` : ""}
+        <p><strong>Xuất lúc:</strong> ${timestamp}</p>
+      </div>
+      ${content.innerHTML}
+    </body>
+    </html>
+  `;
+
+  const blob = new Blob(["\ufeff", wordHtml], { type: "application/msword;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  const fileName = `bao-cao-ai-${new Date().toISOString().slice(0, 10)}.doc`;
+  link.href = url;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+
+  // Feedback visual
+  const btn = document.getElementById("ai_export_word_btn");
+  if (btn) {
+    const orig = btn.innerHTML;
+    btn.innerHTML = '<i class="fa-solid fa-check"></i> Đã xuất!';
+    setTimeout(() => { btn.innerHTML = orig; }, 2000);
+  }
+}
+
+
+const AI_HISTORY_KEY = "dom_ai_summary_history";
+const AI_HISTORY_MAX = 10;
+
+function loadAiHistory() {
+  try { return JSON.parse(localStorage.getItem(AI_HISTORY_KEY) || "[]"); }
+  catch { return []; }
+}
+
+function saveAiHistory(html, label) {
+  const history = loadAiHistory();
+  const dateFrom = document.getElementById("date_from")?.value || "";
+  const dateTo = document.getElementById("date_to")?.value || "";
+  const entry = {
+    id: Date.now(),
+    timestamp: new Date().toLocaleString("vi-VN"),
+    label: label || "Tóm tắt chiến dịch",
+    dateRange: (dateFrom && dateTo) ? `${dateFrom} — ${dateTo}` : "N/A",
+    html,
+    preview: document.getElementById("ai_summary_content")?.innerText?.slice(0, 120) || ""
+  };
+  history.unshift(entry);
+  if (history.length > AI_HISTORY_MAX) history.splice(AI_HISTORY_MAX);
+  try { localStorage.setItem(AI_HISTORY_KEY, JSON.stringify(history)); } catch { }
+  updateAiHistoryBadge();
+}
+
+function confirmDeleteAiHistory(id) {
+  const overlay = document.createElement("div");
+  overlay.id = "ai_delete_confirm";
+  overlay.style.cssText = `
+    position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:99999;
+    display:flex;align-items:center;justify-content:center;
+  `;
+  overlay.innerHTML = `
+    <div style="
+      background:#fff;border-radius:16px;padding:3.2rem 3.6rem;
+      max-width:42rem;width:90%;text-align:center;
+      box-shadow:0 20px 60px rgba(0,0,0,0.18);
+      animation: fadeInScale .18s ease;
+    ">
+      <div style="font-size:3.6rem;margin-bottom:1.2rem;">🗑️</div>
+      <h3 style="font-size:1.8rem;font-weight:700;color:#111;margin:0 0 0.8rem;">Xóa bản tóm tắt?</h3>
+      <p style="color:#64748b;font-size:1.4rem;margin:0 0 2.4rem;">Hành động này không thể hoàn tác. Bản tóm tắt này sẽ bị xóa vĩnh viễn.</p>
+      <div style="display:flex;gap:1.2rem;justify-content:center;">
+        <button onclick="document.getElementById('ai_delete_confirm').remove()" style="
+          padding:0.9rem 2.4rem;border-radius:10px;border:1.5px solid #e2e8f0;
+          background:#fff;color:#64748b;font-size:1.4rem;font-weight:600;
+          cursor:pointer;transition:all .2s;
+        ">Hủy</button>
+        <button onclick="_doDeleteAiHistory(${id});document.getElementById('ai_delete_confirm').remove()" style="
+          padding:0.9rem 2.4rem;border-radius:10px;border:none;
+          background:#ef4444;color:#fff;font-size:1.4rem;font-weight:600;
+          cursor:pointer;transition:all .2s;
+        "><i class='fa-solid fa-trash'></i> Xóa</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  overlay.addEventListener("click", e => { if (e.target === overlay) overlay.remove(); });
+}
+
+function _doDeleteAiHistory(id) {
+  const history = loadAiHistory().filter(e => e.id !== id);
+  try { localStorage.setItem(AI_HISTORY_KEY, JSON.stringify(history)); } catch { }
+  updateAiHistoryBadge();
+  renderAiHistory();
+}
+
+function loadAiHistoryItem(id) {
+  const entry = loadAiHistory().find(e => e.id === id);
+  if (!entry) return;
+  const content = document.getElementById("ai_summary_content");
+  const emptyBox = document.getElementById("ai_empty_state");
+  if (content) content.innerHTML = entry.html;
+  if (emptyBox) emptyBox.style.display = "none";
+  const copyBtn = document.getElementById("ai_copy_btn");
+  const regenBtn = document.getElementById("ai_regenerate_btn");
+  const wordBtn = document.getElementById("ai_export_word_btn");
+  if (copyBtn) copyBtn.style.display = "flex";
+  if (regenBtn) regenBtn.style.display = "flex";
+  if (wordBtn) wordBtn.style.display = "flex";
+  switchAiTab("result");
+}
+
+function updateAiHistoryBadge() {
+  const count = loadAiHistory().length;
+  const badge = document.getElementById("ai_history_badge");
+  if (!badge) return;
+  badge.textContent = count;
+  badge.style.display = count > 0 ? "inline-block" : "none";
+}
+
+function renderAiHistory() {
+  const list = document.getElementById("ai_history_list");
+  if (!list) return;
+  const history = loadAiHistory();
+  if (!history.length) {
+    list.innerHTML = `<div class="ai_history_empty"><i class="fa-solid fa-clock-rotate-left"></i>Chưa có bản tóm tắt nào được lưu.</div>`;
+    return;
+  }
+  list.innerHTML = history.map(e => `
+    <div class="ai_history_item">
+      <!-- Status bar bên trong từng card -->
+      <div class="ai_status_bar">
+        <div class="ai_status_left">
+          <span>Chiến dịch phân tích:</span>
+          <div class="ai_badge_orange"><i class="fa-solid fa-bolt"></i> ${e.label}</div>
+          ${e.dateRange ? `<div class="ai_badge_gray"><i class="fa-solid fa-calendar-days"></i> ${e.dateRange}</div>` : ""}
+        </div>
+        <div class="ai_status_right">
+          <i class="fa-solid fa-circle" style="font-size:0.7rem"></i> ĐÃ HOÀN THÀNH
+        </div>
+      </div>
+      <!-- Footer card: thời gian + actions -->
+      <div class="ai_history_item_header">
+        <div class="ai_history_meta">
+          <span class="ai_history_time"><i class="fa-regular fa-clock"></i> ${e.timestamp}</span>
+        </div>
+        <div class="ai_history_actions">
+          <button class="ai_history_btn primary" onclick="loadAiHistoryItem(${e.id})"><i class="fa-solid fa-eye"></i> Xem</button>
+          <button class="ai_history_btn" onclick="confirmDeleteAiHistory(${e.id})"><i class="fa-solid fa-trash"></i></button>
+        </div>
+      </div>
+      <div class="ai_history_preview">${e.preview}</div>
+    </div>
+  `).join("");
+}
+
+// Abort controller cho request AI đang chạy
+let _aiController = null;
+
+function closeAiSummaryModal() {
+  // Huỷ request đang chạy (nếu có)
+  if (_aiController) {
+    _aiController.abort();
+    _aiController = null;
+  }
+  const modal = document.getElementById("ai_summary_modal");
+  if (modal) modal.style.display = "none";
+}
+
+async function runAiSummary() {
+  // Chuyển sang tab kết quả khi bắt đầu
+  switchAiTab("result");
+  const loading = document.getElementById("ai_summary_loading");
+  const content = document.getElementById("ai_summary_content");
+  const emptyBox = document.getElementById("ai_empty_state");
+  const copyBtn = document.getElementById("ai_copy_btn");
+  const regenBtn = document.getElementById("ai_regenerate_btn");
+  const dateBadge = document.getElementById("ai_date_range");
+
+  // Hiển thị dải ngày thực tế (nếu có trong app)
+  if (dateBadge) {
+    const start = document.getElementById("date_from")?.value || "N/A";
+    const end = document.getElementById("date_to")?.value || "N/A";
+    dateBadge.innerText = `${start} — ${end}`;
+  }
+
+  if (loading) loading.style.display = "block";
+  if (emptyBox) emptyBox.style.display = "none";
+  if (content) content.innerHTML = "";
+  if (copyBtn) copyBtn.style.display = "none";
+  if (regenBtn) regenBtn.style.display = "none";
+  const wordBtn = document.getElementById("ai_export_word_btn");
+  if (wordBtn) wordBtn.style.display = "none";
+
+  try {
+    // Dùng _FILTERED_CAMPAIGNS nếu đang lọc, fallback về _ALL_CAMPAIGNS
+    const isFiltered = window._FILTERED_CAMPAIGNS
+      && window._FILTERED_CAMPAIGNS !== window._ALL_CAMPAIGNS
+      && window._FILTERED_CAMPAIGNS.length < (window._ALL_CAMPAIGNS || []).length;
+
+    const campaigns = (window._FILTERED_CAMPAIGNS ?? window._ALL_CAMPAIGNS) || [];
+    if (!campaigns.length) {
+      if (content) content.innerHTML = "<p>⚠️ Chưa có dữ liệu campaign. Vui lòng load dữ liệu trước.</p>";
+      if (loading) loading.style.display = "none";
+      return;
+    }
+
+    // Cập nhật tiêu đề modal hiển thị filter context
+    const brandFilter = document.querySelector(".dom_selected")?.textContent?.trim() || "Tất cả";
+    const modalTitle = document.querySelector(".ai_modal_header span");
+    if (modalTitle) {
+      modalTitle.innerHTML = `AI Tóm tắt${isFiltered ? ` — ${brandFilter}` : " chiến dịch"}`;
+    }
+
+    // ====== Xây dựng dữ liệu chi tiết từng campaign + adset ======
+    const fmt = (n) => Math.round(n || 0).toLocaleString("vi-VN");
+    const fmtMoney = (n) => fmt(n) + "đ";
+    const fmtCpr = (spend, result) => result > 0 ? fmtMoney(spend / result) : "N/A";
+
+    const campaignBlocks = campaigns.map((c) => {
+      const cFreq = c.reach > 0 ? (c.impressions / c.reach).toFixed(2) : "N/A";
+      const cCpr = fmtCpr(c.spend, c.result);
+      const cCpm = c.impressions > 0 ? fmtMoney((c.spend / c.impressions) * 1000) : "N/A";
+
+      const adsetLines = (c.adsets || []).map((as) => {
+        const freq = as.reach > 0 ? (as.impressions / as.reach).toFixed(2) : "N/A";
+        const cpr = fmtCpr(as.spend, as.result);
+        const cpm = as.impressions > 0 ? fmtMoney((as.spend / as.impressions) * 1000) : "N/A";
+        const budget = as.daily_budget > 0
+          ? `daily ${fmtMoney(as.daily_budget)}`
+          : as.lifetime_budget > 0 ? `lifetime ${fmtMoney(as.lifetime_budget)}` : "N/A";
+        return `    • Adset: "${as.name}" | Goal: ${as.optimization_goal} | Spent: ${fmtMoney(as.spend)} | Reach: ${fmt(as.reach)} | Impressions: ${fmt(as.impressions)} | Freq: ${freq} | Results: ${as.result} | CPR: ${cpr} | CPM: ${cpm} | Clicks: ${fmt(as.link_clicks || 0)} | Reactions: ${fmt(as.reactions || 0)} | Budget: ${budget}`;
+      }).join("\n");
+
+      return `Campaign: "${c.name}"
+  Status: ${c.status || "N/A"} | Spent: ${fmtMoney(c.spend)} | Reach: ${fmt(c.reach)} | Impressions: ${fmt(c.impressions)} | Freq: ${cFreq} | Results: ${c.result} | CPR: ${cCpr} | CPM: ${cCpm} | Reactions: ${fmt(c.reactions || 0)} | Messages: ${fmt(c.message || 0)} | Leads: ${fmt(c.lead || 0)}
+${adsetLines}`;
+    });
+
+    const dateRange = document.querySelector(".dom_date")?.textContent?.trim() || "N/A";
+    const filterNote = isFiltered
+      ? `Brand đang lọc: **${brandFilter}** (${campaigns.length}/${(window._ALL_CAMPAIGNS || []).length} campaign)`
+      : `Toàn bộ tài khoản — ${campaigns.length} campaign`;
+
+    // Tổng hợp nhanh toàn account
+    const totalSpend = campaigns.reduce((s, c) => s + (c.spend || 0), 0);
+    const totalReach = campaigns.reduce((s, c) => s + (c.reach || 0), 0);
+    const totalResult = campaigns.reduce((s, c) => s + (c.result || 0), 0);
+
+    const prompt = `Bạn là chuyên gia phân tích quảng cáo Facebook Ads cao cấp. Hãy phân tích toàn diện và chi tiết dữ liệu sau, viết bằng tiếng Việt chuyên nghiệp.
+
+═══════════════════════════════
+THÔNG TIN CHUNG
+═══════════════════════════════
+- Khoảng thời gian: ${dateRange}
+- ${filterNote}
+- Tổng chi phí: ${fmtMoney(totalSpend)} | Tổng reach: ${fmt(totalReach)} | Tổng kết quả: ${fmt(totalResult)}
+- CPR trung bình toàn account: ${fmtCpr(totalSpend, totalResult)}
+
+═══════════════════════════════
+DỮ LIỆU CHI TIẾT THEO CAMPAIGN & ADSET
+═══════════════════════════════
+${campaignBlocks.join("\n\n")}
+
+═══════════════════════════════
+YÊU CẦU PHÂN TÍCH (đầy đủ, chi tiết, có số liệu cụ thể)
+═══════════════════════════════
+## 1. Tổng quan hiệu suất
+- Tổng hợp spend/reach/result/CPR/CPM toàn bộ
+- So sánh hiệu quả giữa các mục tiêu tối ưu (optimization goal)
+
+## 2. Phân tích Campaign & Adset nổi bật
+- Top 3 adset hiệu quả nhất (lý do: CPR thấp / reach cao / kết quả tốt)
+- Top 3 adset kém nhất cần xem xét (lý do cụ thể)
+- Campaign nào chi nhiều nhất nhưng kết quả không tương xứng?
+
+## 3. Phân tích theo Optimization Goal
+- So sánh hiệu quả giữa các nhóm: Awareness / Consideration / Conversion
+- Goal nào đang cho ROI tốt nhất? Goal nào chi phí quá cao?
+
+## 4. Phân tích Frequency & CPM
+- Adset nào có frequency cao (>3) — nguy cơ banner blindness?
+- CPM nào bất thường (quá cao hoặc quá thấp)?
+
+## 5. Điểm mạnh & điểm cần cải thiện
+- Liệt kê vài điểm mạnh với dẫn chứng số liệu
+- Liệt kê vài điểm yếu cụ thể cần khắc phục
+
+## 6. Đề xuất hành động
+- 5-7 gợi ý hành động cụ thể, có ưu tiên (cao/trung/thấp)
+- Đề xuất phân bổ ngân sách tối ưu hơn nếu có thể
+
+⚠️ QUY TẮC ĐỊNH DẠNG OUTPUT (bắt buộc tuân thủ):
+- Dùng ## cho section headers (ví dụ: ## 1. Tổng quan hiệu suất)
+- Dùng ### cho sub-section nếu cần
+- Dùng **bold** cho số liệu và từ khóa quan trọng
+- Dùng bullet points (-) cho danh sách, indent 2 dấu cách cho sub-bullet
+- KHÔNG dùng ký tự đặc biệt như ═══ hay ───
+- Có thể dùng markdown table (|---|) cho các phần so sánh dữ liệu hoặc phân đoạn khách hàng để báo cáo chuyên nghiệp hơn.
+- Viết bằng tiếng Việt, súc tích, có số liệu cụ thể từ dữ liệu được cung cấp.`;
+
+    // ── Huỷ request cũ nếu còn đang chạy ──
+    if (_aiController) _aiController.abort();
+    _aiController = new AbortController();
+    const signal = _aiController.signal;
+
+    // ── Gọi qua PHP proxy (API key ẩn phía server) ──
+    const PROXY_URL = "https://automation.ideas.edu.vn/dom.php";
+
+    const resp = await fetch(PROXY_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt }),
+      signal,
+    });
+
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data?.error || `Proxy error: ${resp.status}`);
+    const text = data?.text || "Không nhận được phản hồi từ AI.";
+
+    // Render markdown
+    if (content) content.innerHTML = simpleMarkdown(text);
+    if (copyBtn) copyBtn.style.display = "flex";
+    if (regenBtn) regenBtn.style.display = "flex";
+    const wordBtnFinal = document.getElementById("ai_export_word_btn");
+    if (wordBtnFinal) wordBtnFinal.style.display = "flex";
+
+    // Lưu vào lịch sử
+    const hBrand = document.querySelector(".dom_selected")?.textContent?.trim() || "";
+    const hDate = document.querySelector(".dom_date")?.textContent?.trim() || "";
+    const hLabel = `${hDate}${hBrand && hBrand !== "Ampersand" ? " — " + hBrand : ""}`;
+    saveAiHistory(content.innerHTML, hLabel || "Tóm tắt chiến dịch");
+
+  } catch (err) {
+    if (err.name === "AbortError") {
+      // Request bị huỷ chủ động (user đóng modal) — im lặng
+      console.log("⏹ AI request bị huỷ.");
+      return;
+    }
+    console.error("❌ AI Summary error:", err);
+    if (content) content.innerHTML = `<p style="color:#e05c1a">❌ Lỗi: ${err.message}</p>`;
+  } finally {
+    if (loading) loading.style.display = "none";
+    _aiController = null;
+  }
+}
+
+/**
+ * Chuyển markdown sang HTML — với table support
+ */
+function simpleMarkdown(text) {
+  let html = text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/^#### (.+)$/gm, "<h4>$1</h4>")
+    .replace(/^### (.+)$/gm, "<h3>$1</h3>")
+    .replace(/^## (.+)$/gm, "<h2>$1</h2>")
+    .replace(/^# (.+)$/gm, "<h1>$1</h1>")
+    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+    .replace(/\*(.+?)\*/g, "<em>$1</em>")
+    .replace(/`(.+?)`/g, "<code>$1</code>")
+    .replace(/^---$/gm, "<hr>");
+
+  const lines = html.split("\n");
+  const out = [];
+  let inUl = false, depth = 0;
+  let tblRows = [];
+
+  const closeUl = (d) => { while (depth > d) { out.push("</ul>"); depth--; } };
+
+  const flushTable = () => {
+    if (!tblRows.length) return;
+    const isSep = r => /^\|[\s\-:| ]+\|$/.test(r);
+    const parse = r => r.replace(/^\||\|$/g, "").split("|").map(c => c.trim());
+    const dataRows = tblRows.filter(r => !isSep(r));
+    if (!dataRows.length) { tblRows = []; return; }
+    const hdr = parse(dataRows[0]);
+    const body = dataRows.slice(1);
+    let t = `<table class="ai_tbl"><thead><tr>`;
+    hdr.forEach(h => t += `<th>${h}</th>`);
+    t += `</tr></thead><tbody>`;
+    body.forEach(r => {
+      const cells = parse(r);
+      t += `<tr>`;
+      hdr.forEach((_, i) => t += `<td>${cells[i] || ""}</td>`);
+      t += `</tr>`;
+    });
+    t += `</tbody></table>`;
+    out.push(t);
+    tblRows = [];
+  };
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+
+    // Table row
+    if (/^\|.+\|$/.test(trimmed)) {
+      closeUl(0);
+      if (inUl) { out.push("</ul>"); inUl = false; }
+      tblRows.push(trimmed);
+      continue;
+    }
+    flushTable();
+
+    // Sub-list (2+ leading spaces)
+    if (/^ {2,}[-*] (.+)$/.test(line)) {
+      const content = line.replace(/^ +[-*] /, "");
+      if (!inUl) { out.push("<ul>"); inUl = true; depth = 0; }
+      if (depth < 1) { out.push("<ul class='ai_sub'>"); depth = 1; }
+      out.push(`<li>${content}</li>`);
+      continue;
+    }
+
+    // Top-level bullet
+    if (/^[-*] (.+)$/.test(line)) {
+      const content = line.replace(/^[-*] /, "");
+      closeUl(0);
+      if (!inUl) { out.push("<ul>"); inUl = true; }
+      out.push(`<li>${content}</li>`);
+      continue;
+    }
+
+    // Non-list / non-table
+    closeUl(0);
+    if (inUl) { out.push("</ul>"); inUl = false; }
+    if (/^<h[1-4]|^<hr/.test(line)) {
+      out.push(line);
+    } else if (line.trim()) {
+      out.push(`<p>${line}</p>`);
+    }
+  }
+  flushTable();
+  closeUl(0);
+  if (inUl) out.push("</ul>");
+
+  return out.join("\n").replace(/<p><\/p>/g, "");
 }
 
 /**
  * 🧹 Reset toàn bộ filter về trạng thái mặc định
  */
 function resetAllFilters() {
-  // 1. Reset ô tìm kiếm
-  const campaignSearch = document.getElementById("campaign_filter");
-  if (campaignSearch) campaignSearch.value = "";
-
-  // 2. Xóa filter brand hiện tại
-  if (typeof CURRENT_CAMPAIGN_FILTER !== 'undefined') {
-    CURRENT_CAMPAIGN_FILTER = "";
+  // Dùng applyCampaignFilter("RESET") để đồng bộ: list + charts + dropdown
+  if (typeof applyCampaignFilter === "function") {
+    applyCampaignFilter("RESET");
+  } else {
+    // Fallback nếu hàm chưa sẵn
+    const campaignSearch = document.getElementById("campaign_filter");
+    if (campaignSearch) campaignSearch.value = "";
+    resetUIFilter();
+    loadAllDashboardCharts();
   }
-
-  // 3. Reset UI dropdown và các filter khác
-  resetUIFilter();
-
-  // 4. Tải lại toàn bộ dashboard
-  loadAllDashboardCharts();
+  // Xóa empty state dashboard
+  document.querySelector(".dom_container")?.classList.remove("is-empty");
 }
 
 main();
@@ -1250,27 +2061,25 @@ function addListeners() {
       e.stopPropagation();
       const campaignItem = campaignMain.closest(".campaign_item");
       if (!campaignItem) return;
-
+      // Toggle campaign hiện tại (cho phép mở nhiều campaign cùng lúc)
+      campaignItem.classList.toggle("show");
       if (campaignItem.classList.contains("show")) {
-        campaignItem.classList.remove("show");
-        return;
+        loadLazyImages(campaignItem);
       }
-      // Đóng tất cả campaign khác
-      wrap
-        .querySelectorAll(".campaign_item.show")
-        .forEach((c) => c.classList.remove("show"));
-      // Mở campaign hiện tại
-      campaignItem.classList.add("show");
-      loadLazyImages(campaignItem);
-      return; // Đã xử lý xong, không cần check thêm
+      return;
     }
 
-    // 1b. Xử lý click vào Adset (mở Ad)
+    // 1b-extra. Click vào nút insight của adset (PHẢI check trước .adset_item)
+    const adsetInsightBtn = e.target.closest(".adset_insight_btn");
+    if (adsetInsightBtn) {
+      e.stopPropagation();
+      handleAdsetInsightClick(adsetInsightBtn);
+      return;
+    }
+
+    // 1b. Xử lý click vào Adset (mở/đóng danh sách Ad)
     const adsetItem = e.target.closest(".adset_item");
     if (adsetItem) {
-      // Ngăn chặn khi click vào nút view
-      if (e.target.closest(".adset_view")) return;
-
       e.stopPropagation();
       adsetItem.classList.toggle("show");
       if (adsetItem.classList.contains("show")) {
@@ -1279,32 +2088,22 @@ function addListeners() {
           loadLazyImages(adItemBox);
         }
       }
-      return; // Đã xử lý xong
+      return;
     }
 
     // 1c. Xử lý click vào nút "View Ad Detail"
     const adViewBtn = e.target.closest(".ad_view");
     if (adViewBtn) {
       e.stopPropagation();
-      handleViewClick(e, "ad"); // Gọi hàm xử lý cũ
-      return; // Đã xử lý xong
+      handleViewClick(e, "ad");
+      return;
     }
-
-    // (Nếu có logic cho .adset_view, thêm vào đây)
-    // const adsetViewBtn = e.target.closest(".adset_view");
-    // if (adsetViewBtn) {
-    //   e.stopPropagation();
-    //   handleViewClick(e, "adset");
-    //   return;
-    // }
-  });
+  }); // ⎯⎯ end campaign list listener
 
   // 2. Listener cho việc đóng popup chi tiết
-  // (Listener này đã tối ưu, giữ nguyên)
   document.addEventListener("click", (e) => {
     const overlay = e.target.closest(".dom_overlay");
     if (!overlay) return;
-
     const domDetail = document.querySelector("#dom_detail");
     if (domDetail) domDetail.classList.remove("active");
   });
@@ -1313,13 +2112,201 @@ function addListeners() {
   const exportBtn = document.getElementById("export_csv_btn");
   if (exportBtn) {
     exportBtn.addEventListener("click", () => {
-      if (typeof exportAdsToCSV === "function") {
-        exportAdsToCSV();
-      }
+      if (typeof exportAdsToCSV === "function") exportAdsToCSV();
     });
   }
 }
 
+// ================================================================
+// ===================== ADSET INSIGHT HANDLER ====================
+// ================================================================
+async function handleAdsetInsightClick(btn) {
+  const adsetId = btn.dataset.adsetId;
+  if (!adsetId) return;
+
+  const name = btn.dataset.name || "Adset";
+  const goal = btn.dataset.goal || "";
+  const spend = parseFloat(btn.dataset.spend || 0);
+  const reach = parseFloat(btn.dataset.reach || 0);
+  const impressions = parseFloat(btn.dataset.impressions || 0);
+  const result = parseFloat(btn.dataset.result || 0);
+  const cpr = parseFloat(btn.dataset.cpr || 0);
+
+  // Cập nhật quick stats
+  const goalEl = document.querySelector("#detail_goal span");
+  const resultEl = document.querySelector("#detail_result span");
+  const spendEl = document.querySelector("#detail_spent span");
+  const cprEl = document.querySelector("#detail_cpr span");
+  if (goalEl) goalEl.textContent = goal;
+  if (spendEl) spendEl.textContent = formatMoney(spend);
+  if (resultEl) resultEl.textContent = formatNumber(result);
+  if (cprEl) cprEl.textContent = result ? formatMoney(cpr) : "-";
+
+  VIEW_GOAL = goal;
+
+  // Cập nhật frequency widget
+  const freqWrap = document.querySelector(".dom_frequency");
+  if (freqWrap && reach > 0) {
+    const frequency = impressions / reach;
+    const percent = Math.min((frequency / 4) * 100, 100);
+    const donut = freqWrap.querySelector(".semi-donut");
+    if (donut) donut.style.setProperty("--percentage", percent.toFixed(1));
+    const freqNum = freqWrap.querySelector(".frequency_number");
+    if (freqNum) freqNum.querySelector("span:nth-child(1)").textContent = frequency.toFixed(1);
+    const impLabel = freqWrap.querySelector(".dom_frequency_label_impression");
+    const reachLabel = freqWrap.querySelector(".dom_frequency_label_reach");
+    if (impLabel) impLabel.textContent = impressions.toLocaleString("vi-VN");
+    if (reachLabel) reachLabel.textContent = reach.toLocaleString("vi-VN");
+  }
+
+  // Mở panel
+  const domDetail = document.querySelector("#dom_detail");
+  if (domDetail) {
+    domDetail.classList.add("active");
+    // Ẩn Quick Preview — adset không có thẻ quảng cáo
+    const previewBox = domDetail.querySelector("#preview_box");
+    const previewBtn = domDetail.querySelector("#preview_button");
+    if (previewBox) { previewBox.innerHTML = ""; previewBox.style.display = "none"; }
+    if (previewBtn) previewBtn.style.display = "none";
+
+    // Cập nhật header
+    const img = domDetail.querySelector(".dom_detail_header img");
+    const idEl = domDetail.querySelector(".dom_detail_id");
+    if (img) img.src = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
+    if (idEl) idEl.innerHTML = `<span>${name}</span> <span>ID: ${adsetId}</span>`;
+  }
+
+  const loadingEl = document.querySelector(".loading");
+  if (loadingEl) loadingEl.classList.add("active");
+
+  try {
+    await showAdsetDetail(adsetId);
+  } catch (err) {
+    console.error("❌ Lỗi khi load chi tiết adset:", err);
+  } finally {
+    if (loadingEl) loadingEl.classList.remove("active");
+  }
+}
+
+async function showAdsetDetail(adset_id) {
+  if (!adset_id) return;
+
+  // Hủy chart cũ
+  [
+    window.detail_spent_chart_instance,
+    window.chartByHourInstance,
+    window.chart_by_age_gender_instance,
+    window.chart_by_region_instance,
+    window.chart_by_device_instance,
+  ].forEach((c) => { if (c && typeof c.destroy === "function") { try { c.destroy(); } catch (e) { } } });
+  window.detail_spent_chart_instance = null;
+  window.chartByHourInstance = null;
+  window.chart_by_age_gender_instance = null;
+  window.chart_by_region_instance = null;
+  window.chart_by_device_instance = null;
+
+  try {
+    const timeRangeParam = `&time_range[since]=${startDate}&time_range[until]=${endDate}`;
+    const batchRequests = [
+      { method: "GET", name: "targeting", relative_url: `${adset_id}?fields=targeting` },
+      { method: "GET", name: "byHour", relative_url: `${adset_id}/insights?fields=spend,impressions,reach,actions&breakdowns=hourly_stats_aggregated_by_advertiser_time_zone${timeRangeParam}` },
+      { method: "GET", name: "byAgeGender", relative_url: `${adset_id}/insights?fields=spend,impressions,reach,actions&breakdowns=age,gender${timeRangeParam}` },
+      { method: "GET", name: "byRegion", relative_url: `${adset_id}/insights?fields=spend,impressions,reach,actions&breakdowns=region${timeRangeParam}` },
+      { method: "GET", name: "byPlatform", relative_url: `${adset_id}/insights?fields=spend,impressions,reach,actions&breakdowns=publisher_platform,platform_position${timeRangeParam}` },
+      { method: "GET", name: "byDevice", relative_url: `${adset_id}/insights?fields=spend,impressions,reach,actions&breakdowns=impression_device${timeRangeParam}` },
+      { method: "GET", name: "byDate", relative_url: `${adset_id}/insights?fields=spend,impressions,reach,actions&time_increment=1${timeRangeParam}` },
+    ];
+
+    const batchResponse = await fetchJSON(BASE_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ access_token: META_TOKEN, batch: batchRequests, include_headers: false }),
+    });
+
+    if (!Array.isArray(batchResponse)) throw new Error("Invalid batch response");
+
+    const results = {};
+    batchResponse.forEach((item, i) => {
+      const name = batchRequests[i].name;
+      if (item && item.code === 200) {
+        try {
+          const parsed = JSON.parse(item.body);
+          // targeting trả về object, còn insights trả về { data: [...] }
+          results[name] = parsed.data ?? parsed;
+        } catch (e) {
+          results[name] = name === "targeting" ? {} : [];
+        }
+      } else {
+        results[name] = name === "targeting" ? {} : [];
+      }
+    });
+
+    // Render targeting (age, gender, location)
+    const targeting = results.targeting?.targeting || results.targeting || {};
+    renderTargetingToDOM(targeting);
+
+    const processBreakdown = (arr, k1, k2 = null) => {
+      const out = {};
+      (arr || []).forEach((item) => {
+        let key = item[k1] || "unknown";
+        if (k2) key = `${key}_${item[k2] || "unknown"}`;
+        if (!out[key]) out[key] = { spend: 0, impressions: 0, reach: 0, actions: {} };
+        out[key].spend += parseFloat(item.spend || 0);
+        out[key].impressions += parseInt(item.impressions || 0);
+        out[key].reach += parseInt(item.reach || 0);
+        (item.actions || []).forEach((a) => {
+          out[key].actions[a.action_type] = (out[key].actions[a.action_type] || 0) + parseInt(a.value || 0);
+        });
+      });
+      return out;
+    };
+
+    const processedByDate = {};
+    (results.byDate || []).forEach((item) => {
+      if (item.date_start) {
+        processedByDate[item.date_start] = {
+          spend: parseFloat(item.spend || 0),
+          impressions: parseInt(item.impressions || 0),
+          reach: parseInt(item.reach || 0),
+          actions: item.actions ? Object.fromEntries(item.actions.map((a) => [a.action_type, parseInt(a.value || 0)])) : {},
+        };
+      }
+    });
+
+    const processedByHour = processBreakdown(results.byHour, "hourly_stats_aggregated_by_advertiser_time_zone");
+    const processedByAgeGender = processBreakdown(results.byAgeGender, "age", "gender");
+    const processedByRegion = processBreakdown(results.byRegion, "region");
+    const processedByPlatform = processBreakdown(results.byPlatform, "publisher_platform", "platform_position");
+    const processedByDevice = processBreakdown(results.byDevice, "impression_device");
+
+    renderInteraction(processedByDate);
+    window.dataByDate = processedByDate;
+
+    renderCharts({
+      byHour: processedByHour,
+      byAgeGender: processedByAgeGender,
+      byRegion: processedByRegion,
+      byPlatform: processedByPlatform,
+      byDevice: processedByDevice,
+      byDate: processedByDate,
+    });
+
+    renderChartByPlatform({
+      byAgeGender: processedByAgeGender,
+      byRegion: processedByRegion,
+      byPlatform: processedByPlatform,
+      byDevice: processedByDevice,
+    });
+
+    window.processedByDate = processedByDate;
+    window.processedByHour = processedByHour;
+    window.processedByAgeGender = processedByAgeGender;
+    window.processedByRegion = processedByRegion;
+    window.processedByPlatform = processedByPlatform;
+  } catch (err) {
+    console.error("❌ Lỗi khi fetch adset detail:", err);
+  }
+}
 // ================================================================
 // ===================== BREAKDOWN FUNCTIONS ======================
 // ================================================================
@@ -1372,20 +2359,13 @@ async function handleViewClick(e, type = "ad") {
   VIEW_GOAL = goal;
   const freqWrap = document.querySelector(".dom_frequency");
   if (freqWrap && reach > 0) {
-    const frequency = impressions / reach; // tần suất hiển thị trung bình
-    const percent = Math.min((frequency / 4) * 100, 100); // ví dụ 3 = full bar
-
-    // Cập nhật progress (dạng donut/bar)
+    const frequency = impressions / reach;
+    const percent = Math.min((frequency / 4) * 100, 100);
     const donut = freqWrap.querySelector(".semi-donut");
     if (donut) donut.style.setProperty("--percentage", percent.toFixed(1));
-
-    // Text hiển thị frequency
     const freqNum = freqWrap.querySelector(".frequency_number");
     if (freqNum)
-      freqNum.querySelector("span:nth-child(1)").textContent =
-        frequency.toFixed(1);
-
-    // Impression & Reach labels
+      freqNum.querySelector("span:nth-child(1)").textContent = frequency.toFixed(1);
     const impLabel = freqWrap.querySelector(".dom_frequency_label_impression");
     const reachLabel = freqWrap.querySelector(".dom_frequency_label_reach");
     if (impLabel) impLabel.textContent = impressions.toLocaleString("vi-VN");
@@ -1396,22 +2376,16 @@ async function handleViewClick(e, type = "ad") {
   const domDetail = document.querySelector("#dom_detail");
   if (domDetail) {
     domDetail.classList.add("active");
+    // Đảm bảo preview_box và preview_button hiện lại khi xem Ad (không phải Adset)
+    const previewBox = domDetail.querySelector("#preview_box");
+    const previewBtn = domDetail.querySelector("#preview_button");
+    if (previewBox) previewBox.style.display = "";
+    if (previewBtn) previewBtn.style.display = "";
 
-    // Cập nhật header
     const img = domDetail.querySelector(".dom_detail_header img");
     const idEl = domDetail.querySelector(".dom_detail_id");
-    // const viewPostBtn = domDetail.querySelector(".view_post_btn");
-
     if (img) img.src = thumb;
-    if (idEl)
-      idEl.innerHTML = `
-    <span>${name}</span> <span> ID: ${id}</span>
-   `;
-
-    // if (viewPostBtn) {
-    //   viewPostBtn.href = postUrl;
-    //   viewPostBtn.style.display = postUrl === "#" ? "none" : "inline-block";
-    // }
+    if (idEl) idEl.innerHTML = `<span>${name}</span> <span> ID: ${id}</span>`;
   }
 
   // --- Loading overlay ---
@@ -1420,7 +2394,6 @@ async function handleViewClick(e, type = "ad") {
 
   try {
     if (type === "ad") {
-      // await fetchAdDetailBatch(id);
       await showAdDetail(id);
     } else {
       console.log("🔍 Xem chi tiết adset:", id, { spend, goal, result, cpr });
@@ -2031,6 +3004,7 @@ async function applyCampaignFilter(keyword) {
 
   // 🚩 Nếu filter = "RESET" thì load full data
   if (keyword && keyword.toUpperCase() === "RESET") {
+    window._FILTERED_CAMPAIGNS = window._ALL_CAMPAIGNS; // 👈 lưu lại
     renderCampaignView(window._ALL_CAMPAIGNS); // FULL_CAMPAIGN
     const allAds = window._ALL_CAMPAIGNS.flatMap((c) =>
       c.adsets.flatMap((as) =>
@@ -2053,19 +3027,24 @@ async function applyCampaignFilter(keyword) {
     )
     : window._ALL_CAMPAIGNS;
 
-  // 🔹 Render lại danh sách và tổng quan
+  // 🔹 Render lại danh sách campaign
+  window._FILTERED_CAMPAIGNS = filtered; // 👈 lưu lại cho AI Summary
   renderCampaignView(filtered);
 
-  // 🔹 Lấy ID campaign hợp lệ để gọi API (lọc bỏ null)
+  // 🚩 Nếu không có campaign nào khớp → show empty state dashboard ngay
+  if (filtered.length === 0) {
+    window._FILTERED_CAMPAIGNS = [];
+    document.querySelector(".dom_container")?.classList.add("is-empty");
+    return;
+  }
+
+  // Remove empty state nếu có data
+  document.querySelector(".dom_container")?.classList.remove("is-empty");
+
+  // 🔹 Lấy ID campaign hợp lệ để gọi API
   const ids = filtered.map((c) => c.id).filter(Boolean);
-  // loadPlatformSummary(ids);
-  // loadSpendPlatform(ids);
-  // loadRegionSpendChart(ids);
-  // loadAgeGenderSpendChart(ids);
-  // loadAllDashboardCharts(ids)
-  // const dailyData = ids.length ? await fetchDailySpendByCampaignIDs(ids) : [];
-  // renderDetailDailyChart2(dailyData, "spend");
-  await loadAllDashboardCharts(ids); // Pass mảng ids đã lọc
+  await loadAllDashboardCharts(ids);
+
   // 🔹 Render lại goal chart (dựa theo ad-level)
   const allAds = filtered.flatMap((c) =>
     c.adsets.flatMap((as) =>
@@ -3020,24 +3999,25 @@ function renderChartByDevice(dataByDevice) {
   const maxLabel = labels[maxIndex];
   const maxPercent = ((resultData[maxIndex] / total) * 100).toFixed(1);
 
-  // 🎯 Plugin custom: show % giữa lỗ
+  // 🎯 Plugin custom: show % giữa lỗ — dùng chartArea để tính tâm chính xác
   const centerTextPlugin = {
     id: "centerText",
     afterDraw(chart) {
-      const { width, height } = chart;
-      const ctx = chart.ctx;
+      const { width, ctx } = chart;
+      const { top, bottom } = chart.chartArea;
+      const centerX = width / 2;
+      const centerY = (top + bottom) / 2; // ← tâm thực sự của vùng chart
+
       ctx.save();
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
       ctx.fillStyle = "#333";
 
-      const centerY = height / 2 - 18;
-
       ctx.font = "bold 18px sans-serif";
-      ctx.fillText(`${maxPercent}%`, width / 2, centerY - 4);
+      ctx.fillText(`${maxPercent}%`, centerX, centerY - 11);
 
       ctx.font = "12px sans-serif";
-      ctx.fillText(maxLabel, width / 2, centerY + 18);
+      ctx.fillText(maxLabel, centerX, centerY + 11);
       ctx.restore();
     },
   };
@@ -3119,11 +4099,24 @@ function renderChartByRegion(dataByRegion) {
 
   if (!filtered.length) return;
 
+  // ✅ Top 5 cao nhất
   filtered.sort((a, b) => b.spend - a.spend);
+  const top5 = filtered.slice(0, 5);
 
-  const labels = filtered.map((e) => e.name);
-  const spentData = filtered.map((e) => e.spend);
-  const resultData = filtered.map((e) => e.result);
+  // ✅ Helper rút gọn tên vùng
+  const shortenName = (name) => {
+    let s = name
+      .replace(/\b(tỉnh|thành phố|tp\.|tp|province|city|region|state|district|area|zone)\b/gi, "")
+      .replace(/\s+/g, " ")
+      .trim()
+      .replace(/^\w/, (c) => c.toUpperCase());
+    return s.length > 12 ? s.slice(0, 11) + "…" : s;
+  };
+
+  const labels = top5.map((e) => shortenName(e.name));
+  const fullNamesDetail = top5.map((e) => e.name);
+  const spentData = top5.map((e) => e.spend);
+  const resultData = top5.map((e) => e.result);
 
   // 🎯 Highlight theo Result
   const maxResultIndex = resultData.indexOf(Math.max(...resultData));
@@ -3179,6 +4172,7 @@ function renderChartByRegion(dataByRegion) {
         legend: { display: false },
         tooltip: {
           callbacks: {
+            title: (ctx) => fullNamesDetail[ctx[0].dataIndex] || ctx[0].label,
             label: (ctx) =>
               `${ctx.dataset.label}: ${ctx.dataset.label === "Spent"
                 ? formatMoneyShort(ctx.raw)
@@ -4369,16 +5363,19 @@ function renderPlatformSpendUI(summary) {
   const centerPercentPlugin = {
     id: "centerPercent",
     afterDraw(chart) {
-      const { width, height } = chart;
-      const ctx = chart.ctx;
+      const { width, ctx } = chart;
+      const { top, bottom } = chart.chartArea;
+      const centerX = width / 2;
+      const centerY = (top + bottom) / 2;
+
       ctx.save();
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
       ctx.fillStyle = "#333";
       ctx.font = "bold 18px sans-serif";
-      ctx.fillText(`${maxPercent}%`, width / 2, height / 2 - 5);
+      ctx.fillText(`${maxPercent}%`, centerX, centerY - 11);
       ctx.font = "12px sans-serif";
-      ctx.fillText(maxLabel, width / 2, height / 2 + 15);
+      ctx.fillText(maxLabel, centerX, centerY + 11);
       ctx.restore();
     },
   };
@@ -4941,19 +5938,27 @@ function renderRegionChart(data = []) {
   const totalSpend = Object.values(regionSpend).reduce((a, b) => a + b, 0);
   if (totalSpend === 0) return;
 
-  // ✅ Lọc xuống đây
-  const filtered = Object.entries(regionSpend).filter(
-    ([_, v]) => (v / totalSpend) * 100 >= 2
-  );
+  // ✅ Top 5 cao nhất
+  const allEntries = Object.entries(regionSpend).filter(([_, v]) => v > 0);
+  allEntries.sort((a, b) => b[1] - a[1]);
+  const filtered = allEntries.slice(0, 5);
   if (!filtered.length) return;
 
-  // ✅ Chuẩn hoá label
-  const regions = filtered.map(([r]) =>
-    r
-      .toLowerCase()
-      .replace(/\b\w/g, (c) => c.toUpperCase())
-      .normalize("NFC")
+  // ✅ Helper rút gọn tên
+  const shortenRegion = (name) => {
+    let s = name
+      .replace(/\b(tỉnh|thành phố|thành phố trực thuộc trung ương|tp\.|tp|province|city|region|state|district|area|zone)\b/gi, "")
+      .replace(/\s+/g, " ")
       .trim()
+      .replace(/\b\w/g, (c) => c.toUpperCase())
+      .normalize("NFC");
+    return s.length > 12 ? s.slice(0, 11) + "…" : s;
+  };
+
+  // ✅ Chuẩn hoá label
+  const regions = filtered.map(([r]) => shortenRegion(r));
+  const fullNames = filtered.map(([r]) =>
+    r.replace(/\b\w/g, (c) => c.toUpperCase()).normalize("NFC").trim()
   );
 
   const values = filtered.map(([_, v]) => Math.round(v));
@@ -5003,7 +6008,7 @@ function renderRegionChart(data = []) {
         legend: { display: false },
         tooltip: {
           callbacks: {
-            title: (ctx) => `${ctx[0].label}`,
+            title: (ctx) => fullNames[ctx[0].dataIndex] || ctx[0].label,
             label: (ctx) => `Spend: ${formatMoneyShort(ctx.raw)}`,
           },
         },
@@ -5314,13 +6319,15 @@ document.addEventListener("DOMContentLoaded", () => {
 
       const imgEl = option.querySelector("img");
       const nameEl = option.querySelector("span");
-      const filterValue = option.dataset?.filter;
+      // data-filter="" = Ampersand (all), không undefined
+      const filterValue = option.dataset?.filter ?? null;
+      const isReset = filterValue === null ? false : filterValue.trim() === "";
 
-      if (!imgEl || !nameEl || !filterValue) return;
+      if (!imgEl || !nameEl) return;
 
       const imgSrc = imgEl.src;
       const name = nameEl.textContent.trim();
-      const filter = filterValue.trim().toLowerCase();
+      const filter = isReset ? "" : filterValue.trim().toLowerCase();
 
       // Update UI
       const parentImg = parent.querySelector("img");
@@ -5329,10 +6336,12 @@ document.addEventListener("DOMContentLoaded", () => {
       if (parentText) parentText.textContent = name;
 
       parent.classList.remove("active");
+      parent.querySelectorAll("li").forEach((li) => li.classList.remove("active"));
+      option.classList.add("active");
 
-      // Apply campaign filter if function exists
+      // Apply brand/campaign filter
       if (typeof applyCampaignFilter === "function") {
-        applyCampaignFilter(filter);
+        applyCampaignFilter(isReset ? "RESET" : filter);
       }
     }
   });
@@ -5914,6 +6923,15 @@ function resetUIFilter() {
   const searchInput = document.getElementById("campaign_filter");
   if (searchInput) searchInput.value = "";
 }
+
+// === Reset button inside campaign empty state ===
+document.addEventListener("click", (e) => {
+  const btn = e.target.closest(".view_campaign_empty .btn_reset_all");
+  if (!btn) return;
+  if (typeof applyCampaignFilter === "function") {
+    applyCampaignFilter("RESET");
+  }
+});
 
 // === Safe setup for campaign filter UI ===
 (function initCampaignFilterSafe() {
