@@ -67,6 +67,15 @@
           <span>Ad Account</span>
         </li>
       </ul>
+      <div class="dom_sidebar_bottom">
+        <p class="dom_text_menu">SYSTEM</p>
+        <ul class="dom_menu">
+          <li id="open_filter_settings">
+            <i class="fa-solid fa-gear"></i>
+            <span>Brand Settings</span>
+          </li>
+        </ul>
+      </div>
       <!-- <p class="dom_text_menu">OTHER APP</p>
       <ul class="dom_other_menu">
         <li class="" data-view="ads">
@@ -146,52 +155,66 @@
           </div>
           <p class="dom_date">-/-/- - -/-/-</p>
         </div>
-        <!-- Nhóm bên phải: AI Tóm tắt + Brand filter -->
-        <div style="display:flex;align-items:center;gap:1.2rem;">
-          <button id="ai_summary_btn" class="ai_report" title="Tóm tắt dữ liệu bằng AI"
-            style="border:none;font-size:1.3rem;margin:0;">
-            <i class="fa-solid fa-wand-magic-sparkles" style="font-size:1.6rem;"></i>
-            AI Tóm tắt
-          </button>
-          <!-- <div class="dom_filter">
-            <div class="dom_select quick_filter_detail">
+        <!-- Toolbar bên phải -->
+        <!-- Toolbar chính bên phải -->
+        <div class="dom_toolbar_right">
+          <!-- Nhóm nút chức năng -->
+          <div class="toolbar_actions_group">
+            <button id="ai_summary_btn" class="toolbar_btn toolbar_btn_primary" title="AI Phân tích">
+              <i class="fa-solid fa-wand-magic-sparkles"></i>
+              <span>AI Phân tích</span>
+            </button>
+            <button id="share_url_btn" class="toolbar_btn" title="Share (Ctrl+Shift+S)">
+              <i class="fa-solid fa-share-nodes"></i>
+              <span>Share</span>
+            </button>
+            <button id="kb_shortcut_btn" class="toolbar_btn icon_only" title="Shortcuts">
+              <i class="fa-solid fa-keyboard"></i>
+            </button>
+          </div>
+
+          <div class="toolbar_divider"></div>
+
+          <!-- Bộ lọc Brand (được kéo dài) -->
+          <div class="dom_filter">
+            <div class="dom_select quick_filter_detail toolbar_select">
               <img src="./adset/ampersand/ampersand_img.jpg" />
               <div class="flex">
-                <p class="dom_selected">Ampersand</p>
+                <p class="dom_selected">Ampersand Group</p>
               </div>
               <i class="fa-solid fa-angle-down"></i>
               <ul class="dom_select_show">
-                <li data-filter="TRB" class="">
+                <li data-filter="TRB">
                   <img src="./adset/ampersand/TRB.jpg" />
                   <span>The Running Bean</span>
                 </li>
-                <li data-filter="Haagen Dazs" class="">
+                <li data-filter="Haagen Dazs">
                   <img src="./adset/ampersand/HD.jpg" />
                   <span>Häagen-Dazs</span>
                 </li>
-                <li data-filter="BEAN" class="">
+                <li data-filter="BEAN">
                   <img src="./adset/ampersand/BEAN.jpg" />
                   <span> Be An Vegetarian</span>
                 </li>
-                <li data-filter="Esta" class="">
+                <li data-filter="Esta">
                   <img src="./adset/ampersand/Esta.jpg" />
                   <span> Esta Saigon</span>
                 </li>
-                <li data-filter="Le Petit" class="">
+                <li data-filter="Le Petit">
                   <img src="./adset/ampersand/LPT.jpg" />
                   <span> Le Petit</span>
                 </li>
-                <li data-filter="SNOWEE" class="">
+                <li data-filter="SNOWEE">
                   <img src="./adset/ampersand/SNOWEE.jpg" />
                   <span> SNOWEE</span>
                 </li>
-                <li data-filter="" class="">
+                <li data-filter="">
                   <img src="./adset/ampersand/ampersand_img.jpg" />
-                  <span> Ampersand</span>
+                  <span> Ampersand Filter</span>
                 </li>
               </ul>
             </div>
-          </div> -->
+          </div>
         </div>
       </div>
       <div class="dom_dashboard">
@@ -553,11 +576,11 @@
       <!-- Show All Button & Extra Details -->
       <div class="dom_row flex show_all_container">
         <button id="show_all_btn">
-          Show All Details <i class="fa-solid fa-angle-down"></i>
+          Detail spent <i class="fa-solid fa-angle-down"></i>
         </button>
       </div>
 
-      <div id="extra_details_container" class="dom_row flex" style="display: none; flex-wrap: wrap; margin-top: 1rem;">
+      <div id="extra_details_container" class="dom_row flex" style="display: flex; flex-wrap: wrap; margin-top: 1rem;">
 
         <!-- 1. Detail Metrics (Replaced by Platform Positions) -->
         <!-- 1. Overall Performance -->
@@ -745,6 +768,10 @@
                 <div class="detail_audience frequency_tag"></div>
                 <p class="detail_text">Exclude</p>
                 <div class="detail_exclude frequency_tag"></div>
+                <p class="detail_text">Device Platforms</p>
+                <div class="detail_device detail_gender_bar"></div>
+                <p class="detail_text">Brand Safety Excluded</p>
+                <div class="detail_brand_safety detail_gender_bar"></div>
               </div>
             </div>
           </div>
@@ -898,14 +925,50 @@
             </div>
           </div>
         </div>
-        <!-- <div class="dom_row">
-            <div class="dom_inner dom_fade_item w50 box_shadow chart trendline">
-              Us
+        <!-- ===== ACTIVITY LOG ===== -->
+        <div class="dom_row" style="margin-top: 2rem;">
+          <div class="dom_inner dom_fade_item w100 box_shadow chart" id="account_activity_section">
+            <div
+              style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:1rem; margin-bottom:1.8rem;">
+              <h2 style="margin:0; display:flex; align-items:center; gap:0.8rem;">
+                <i class="fa-solid fa-clock-rotate-left main_clr"></i> Activities Logs
+                <span id="activity_count_badge"
+                  style="background:#f1f5f9; color:#64748b; font-size:1.1rem; font-weight:600; padding:0.2rem 0.8rem; border-radius:20px; display:none;"></span>
+              </h2>
+              <button id="activity_refresh_btn" onclick="loadAccountActivities(true)"
+                style="background:var(--mainClr); color:#fff; border:none; padding:0.7rem 1.4rem; border-radius:8px; font-size:1.2rem; cursor:pointer; display:flex; align-items:center; gap:0.6rem;">
+                <i class="fa-solid fa-rotate-right"></i> Refresh
+              </button>
             </div>
-            <div class="dom_inner dom_fade_item w50 box_shadow chart trendline">
-              sđá
+            <!-- Filter chips -->
+            <div id="activity_filters" style="display:flex; gap:0.6rem; flex-wrap:wrap; margin-bottom:1.4rem;">
+              <button class="act_chip active" data-category="" onclick="setActivityCategory(this)">All</button>
+              <button class="act_chip" data-category="CAMPAIGN" onclick="setActivityCategory(this)">Campaign</button>
+              <button class="act_chip" data-category="AD_SET" onclick="setActivityCategory(this)">Ad Set</button>
+              <button class="act_chip" data-category="AD" onclick="setActivityCategory(this)">Ad</button>
+              <button class="act_chip" data-category="BUDGET" onclick="setActivityCategory(this)">Budget</button>
+              <button class="act_chip" data-category="STATUS" onclick="setActivityCategory(this)">Status</button>
+              <button class="act_chip" data-category="TARGETING" onclick="setActivityCategory(this)">Targeting</button>
+              <button class="act_chip" data-category="AUDIENCE" onclick="setActivityCategory(this)">Audience</button>
+              <button class="act_chip" data-category="ACCOUNT" onclick="setActivityCategory(this)">Account</button>
             </div>
-          </div> -->
+            <!-- List -->
+            <div id="activity_log_list" style="display:flex; flex-direction:column; gap:0.8rem;">
+              <div class="activity_skeleton"></div>
+              <div class="activity_skeleton"></div>
+              <div class="activity_skeleton"></div>
+            </div>
+            <!-- Load More -->
+            <div id="activity_load_more_wrap" style="display:none; text-align:center; margin-top:1.6rem;">
+              <button id="activity_load_more_btn" onclick="loadMoreActivities()"
+                style="background:#f1f5f9; color:#475569; border:1.5px solid #e2e8f0; padding:0.9rem 2.4rem; border-radius:10px; font-size:1.25rem; font-weight:600; cursor:pointer; display:inline-flex; align-items:center; gap:0.7rem; transition:all .2s;"
+                onmouseover="this.style.background='var(--mainClr)';this.style.color='#fff';this.style.borderColor='var(--mainClr)'"
+                onmouseout="this.style.background='#f1f5f9';this.style.color='#475569';this.style.borderColor='#e2e8f0'">
+                <i class="fa-solid fa-chevron-down"></i> Load more
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
       <div class="dom_ai_report">
         <i class="fa-solid fa-xmark dom_ai_report_close"></i>
@@ -968,20 +1031,9 @@
             <i class="fa-solid fa-chart-line"></i>
           </div>
           <div class="ai_home_card_content">
-            <h3>Phân tích theo thời gian</h3>
-            <p>AI tổng hợp và phân tích toàn bộ hiệu suất campaign trong khoảng thời gian chọn.</p>
-            <div class="ai_home_date_pills" id="ai_date_pills">
-              <button class="ai_date_pill active" onclick="setAiDatePreset('current', this)">Hiện tại</button>
-              <button class="ai_date_pill" onclick="setAiDatePreset('7d', this)">7 ngày</button>
-              <button class="ai_date_pill" onclick="setAiDatePreset('14d', this)">14 ngày</button>
-              <button class="ai_date_pill" onclick="setAiDatePreset('30d', this)">30 ngày</button>
-              <button class="ai_date_pill" onclick="setAiDatePreset('custom', this)">Tùy chỉnh</button>
-            </div>
-            <div id="ai_custom_date_row" style="display:none;">
-              <input type="date" id="ai_custom_from" class="ai_date_input">
-              <span style="color:#94a3b8;font-size:1.2rem;">→</span>
-              <input type="date" id="ai_custom_to" class="ai_date_input">
-            </div>
+            <h3>Phân tích dữ liệu hiện tại</h3>
+            <p>AI tổng hợp và phân tích toàn bộ hiệu suất campaign dựa trên bộ lọc và thời gian bạn đang xem trên
+              dashboard.</p>
           </div>
           <button class="ai_home_run_btn" onclick="runAiSummaryFromHome()">
             <i class="fa-solid fa-wand-magic-sparkles"></i> Chạy phân tích
@@ -1071,11 +1123,60 @@
   </div>
 
 
+  <!-- ========== BRAND SETTINGS MODAL ========== -->
+  <div id="filter_settings_modal" class="ai_modal_overlay" style="display:none">
+    <div class="ai_modal_box" style="width: min(700px, 96vw); max-height: 90vh; display:flex; flex-direction:column;">
+      <div class="ai_modal_header">
+        <div class="ai_modal_header_left">
+          <i class="fa-solid fa-sliders" style="color: var(--mainClr);"></i>
+          <span>Brand Settings</span>
+        </div>
+        <button class="ai_close_btn" onclick="closeFilterSettings()"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+
+      <!-- Description bar -->
+      <div
+        style="padding: 1.2rem 2.4rem; background: linear-gradient(135deg,#fffbeb,#fef3c7); border-bottom: 1px solid #fde68a; display:flex; align-items:center; gap:1rem; flex-shrink:0;">
+        <i class="fa-solid fa-circle-info" style="color:#f59e0b; font-size:1.6rem;"></i>
+        <div>
+          <p style="font-size:1.3rem; font-weight:700; color:#92400e; margin:0 0 0.2rem;">Quản lý bộ lọc thương hiệu
+          </p>
+          <p style="font-size:1.2rem; color:#78350f; margin:0; opacity: .8;">Mỗi brand có <b>từ khóa</b> để lọc chiến
+            dịch theo tên. Ảnh avatar hiển thị trực tiếp trong dropdown.</p>
+        </div>
+      </div>
+
+      <div class="ai_modal_body" style="flex:1; overflow-y:auto; padding: 2rem 2.4rem;">
+        <div id="brand_settings_list" style="display:flex; flex-direction:column; gap:1.4rem;">
+          <!-- List items will be here -->
+        </div>
+
+        <!-- Add button -->
+        <button onclick="addNewBrandSetting()"
+          style="margin-top:1.8rem; width:100%; padding:1.1rem; border-radius:12px; border:2px dashed #cbd5e1; background:transparent; color:#64748b; font-size:1.3rem; font-weight:600; cursor:pointer; display:flex; align-items:center; justify-content:center; gap:0.8rem; transition:all .2s;"
+          onmouseover="this.style.borderColor='#f59e0b'; this.style.color='#f59e0b'; this.style.background='#fffbeb'"
+          onmouseout="this.style.borderColor='#cbd5e1'; this.style.color='#64748b'; this.style.background='transparent'">
+          <i class="fa-solid fa-plus-circle"></i> Thêm thương hiệu mới
+        </button>
+      </div>
+
+      <div class="ai_modal_footer" style="flex-shrink:0; justify-content:space-between;">
+        <button class="ai_back_btn" onclick="closeFilterSettings()">
+          <i class="fa-solid fa-arrow-left"></i> Hủy
+        </button>
+        <button onclick="saveBrandSettings()"
+          style="background: var(--mainClr); color:#fff; border-color: var(--mainClr); font-weight:700; gap: 0.6rem; display:flex; align-items:center;">
+          <i class="fa-solid fa-floppy-disk"></i> Lưu cấu hình
+        </button>
+      </div>
+    </div>
+  </div>
 
 </body>
 <script src="./token.js"></script>
 <script src="./setup.js"></script>
 <script src="./main.js"></script>
 <script src="./extra_details.js"></script>
+
 
 </html>

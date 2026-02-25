@@ -6,18 +6,24 @@ function setupShowAllDetails() {
 
     if (!btn || !container) return;
 
+    // Default to open
+    container.style.display = "flex";
+    container.style.paddingBottom = "15rem";
+    btn.classList.add("open");
+    btn.innerHTML = 'Detail spent <i class="fa-solid fa-angle-up"></i>';
+
     btn.addEventListener("click", () => {
         const isHidden = container.style.display === "none";
         if (isHidden) {
             container.style.display = "flex";
-            container.style.paddingBottom = "15rem"; // Tăng thêm khoảng cách dưới cùng
+            container.style.paddingBottom = "15rem";
             btn.classList.add("open");
-            btn.innerHTML = 'Hide Details <i class="fa-solid fa-angle-down"></i>';
+            btn.innerHTML = 'Detail spent <i class="fa-solid fa-angle-up"></i>';
             loadExtraCharts();
         } else {
             container.style.display = "none";
             btn.classList.remove("open");
-            btn.innerHTML = 'Show All Details <i class="fa-solid fa-angle-down"></i>';
+            btn.innerHTML = 'Detail spent <i class="fa-solid fa-angle-down"></i>';
         }
     });
 }

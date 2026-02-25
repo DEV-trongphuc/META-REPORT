@@ -90,12 +90,68 @@ function getCampaignIcon(optimizationGoal) {
   const goalGroup = GOAL_GROUP_LOOKUP[optimizationGoal];
   return campaignIconMapping[goalGroup] || campaignIconMapping.DEFAULT;
 }
-// ================== Helper ==================
-
 /**
- * ⭐ TỐI ƯU: Thay thế .find() bằng for loop
- * Hàm này được gọi trong getReaction, vốn được gọi nhiều lần trong groupByCampaign
+ * 🦴 Skeleton Loader Helper
+ * Tự động tạo và điều khiển skeletons dựa trên cấu trúc card
  */
+function toggleSkeletons(scopeSelector, isLoading) {
+  const scope = document.querySelector(scopeSelector);
+  if (!scope) return;
+
+  if (isLoading) {
+    scope.classList.add("is-loading");
+    // Tìm các thẻ card/chart chính
+    const cards = scope.querySelectorAll(".dom_inner");
+    cards.forEach((card) => {
+      card.classList.add("is-loading"); // Thêm cho từng card để bắt CSS absolute
+      let skeleton = card.querySelector(".skeleton-container");
+      if (!skeleton) {
+        skeleton = document.createElement("div");
+        skeleton.className = "skeleton-container";
+        const isChart = card.querySelector("canvas");
+        const isList = card.querySelector("ul.dom_toplist");
+
+        if (isChart) {
+          skeleton.innerHTML = `
+            <div class="skeleton skeleton-title" style="margin-bottom:2rem"></div>
+            <div class="skeleton skeleton-chart"></div>
+          `;
+        } else if (isList || card.id === "detail_total_report" || card.id === "interaction_stats_card") {
+          skeleton.innerHTML = `
+            <div class="skeleton skeleton-title"></div>
+            <div class="skeleton skeleton-text"></div>
+            <div class="skeleton skeleton-text"></div>
+            <div class="skeleton skeleton-text" style="width:70%"></div>
+          `;
+        } else {
+          skeleton.innerHTML = `
+            <div class="skeleton skeleton-title"></div>
+            <div class="skeleton skeleton-text"></div>
+            <div class="skeleton skeleton-text" style="width:80%"></div>
+          `;
+        }
+        card.prepend(skeleton);
+      }
+
+      // Ẩn các con trực tiếp trừ skeleton
+      Array.from(card.children).forEach((child) => {
+        if (!child.classList.contains("skeleton-container")) {
+          child.classList.add("hide-on-load");
+        }
+      });
+    });
+  } else {
+    scope.classList.remove("is-loading");
+    const cards = scope.querySelectorAll(".dom_inner");
+    cards.forEach((card) => {
+      card.classList.remove("is-loading");
+      const skeletons = card.querySelectorAll(".skeleton-container");
+      skeletons.forEach((s) => s.remove()); // Xóa hẳn khỏi DOM
+      card.querySelectorAll(".hide-on-load").forEach((el) => el.classList.remove("hide-on-load"));
+    });
+  }
+}
+
 function getAction(actions, type) {
   if (!actions || !Array.isArray(actions)) return 0;
   for (let i = 0; i < actions.length; i++) {
@@ -133,48 +189,67 @@ function getResults(item, goal) {
   const insights = item.insights?.data?.[0] || item.insights || item;
   if (!insights) return 0;
 
-  const optimization_goal =
+  let optGoal =
     goal ||
     VIEW_GOAL ||
     item.optimization_goal ||
     insights.optimization_goal ||
     "";
 
-  if (optimization_goal === "REACH") {
-    return +insights.reach || 0;
+  // Nếu goal truyền vào là tên nhóm (VD: "Lead Form"), tìm goal kĩ thuật tương ứng
+  let goalKey = GOAL_GROUP_LOOKUP[optGoal];
+  if (!goalKey && goalMapping[optGoal]) {
+    goalKey = optGoal;
+    optGoal = goalMapping[goalKey][0]; // Lấy goal đầu tiên trong nhóm làm đại diện
   }
-  if (optimization_goal === "IMPRESSIONS") {
+
+  // Đặc biệt: Awareness/Reach
+  if (optGoal === "REACH" || goalKey === "Awareness") {
+    // Meta hourly breakdown thường không có reach, nên lấy impressions để biểu đồ không bị trắng
+    return +(insights.reach || insights.impressions || 0);
+  }
+  if (optGoal === "IMPRESSIONS") {
     return +insights.impressions || 0;
   }
 
   const actions = insights.actions || {};
+  let resultType = resultMapping[optGoal];
 
-  // ⭐ TỐI ƯU: Dùng O(1) lookup thay vì Object.keys().find()
-  const goalKey = GOAL_GROUP_LOOKUP[optimization_goal];
+  // Nếu không thấy mapping trực tiếp, thử lấy từ nhóm
+  if (!resultType && goalKey) {
+    resultType = resultMapping[goalMapping[goalKey][0]];
+  }
 
-  let resultType =
-    resultMapping[optimization_goal] ||
-    (goalKey ? resultMapping[goalMapping[goalKey][0]] : resultMapping.DEFAULT);
+  // Fallback mặc định
+  if (!resultType) resultType = resultMapping.DEFAULT;
 
   if (Array.isArray(actions)) {
-    // Dùng for loop thay vì find() để tối ưu performance
     for (let i = 0; i < actions.length; i++) {
-      const a = actions[i];
-      if (a.action_type === resultType) {
-        return +a.value || 0;
+      if (actions[i].action_type === resultType) return +actions[i].value || 0;
+    }
+    // Deep search trong nhóm nếu không thấy loại chính
+    if (goalKey) {
+      for (const g of goalMapping[goalKey]) {
+        const altType = resultMapping[g];
+        if (!altType) continue;
+        for (let i = 0; i < actions.length; i++) {
+          if (actions[i].action_type === altType) return +actions[i].value || 0;
+        }
       }
     }
     return 0;
   } else {
-    // Dùng cho breakdown (actions là object)
-    if (
-      !actions[resultType] &&
-      (resultType === "lead" || resultType === "quality_lead") &&
-      actions["onsite_conversion.lead_grouped"]
-    ) {
-      resultType = "onsite_conversion.lead_grouped"; // Fallback cho chart
+    // Định dạng Object (từ processBreakdown)
+    if (actions[resultType]) return +actions[resultType];
+
+    // Fallback cho Lead/Message/Video
+    if (goalKey) {
+      for (const g of goalMapping[goalKey]) {
+        const altType = resultMapping[g];
+        if (altType && actions[altType]) return +actions[altType];
+      }
     }
-    return actions[resultType] ? +actions[resultType] : 0;
+    return 0;
   }
 }
 // ===================== UTILS =====================
@@ -731,6 +806,22 @@ function renderCampaignView(data) {
 
     const firstGoal = adsets?.[0]?.optimization_goal || "";
     const iconClass = getCampaignIcon(firstGoal);
+
+    // Collect up to 3 unique ad thumbnails from all adsets
+    const thumbUrls = [];
+    for (const adset of (adsets || [])) {
+      for (const ad of (adset.ads || [])) {
+        if (ad.thumbnail && thumbUrls.length < 3) thumbUrls.push(ad.thumbnail);
+        if (thumbUrls.length >= 3) break;
+      }
+      if (thumbUrls.length >= 3) break;
+    }
+    const hasThumbs = thumbUrls.length > 0;
+    // Fan/stacked card HTML
+    const fanHtml = hasThumbs
+      ? `<div class="cmp_fan_wrap" data-count="${thumbUrls.length}">${thumbUrls.map((url, idx) => `<img class="cmp_fan_img" style="--fi:${idx}" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-src="${url}" />`).join('')}</div>`
+      : `<div class="campaign_icon_wrap ${hasActiveAdset ? '' : 'inactive'}"><i class="${iconClass}"></i></div>`;
+
     const campaignCpr =
       c.result > 0
         ? firstGoal === "REACH"
@@ -743,10 +834,7 @@ function renderCampaignView(data) {
       <div class="campaign_item ${campaignStatusClass}">
         <div class="campaign_main">
           <div class="ads_name">
-            <div class="campaign_thumb campaign_icon_wrap ${hasActiveAdset ? "" : "inactive"
-      }">
-              <i class="${iconClass}"></i>
-            </div>
+            ${fanHtml}
             <p class="ad_name">${c.name}</p>
           </div>
           <div class="ad_status ${campaignStatusClass}">${campaignStatusText}</div>
@@ -907,7 +995,9 @@ function renderCampaignView(data) {
         <div class="adset_item ${adsetStatusClass}">
           <div class="ads_name">
             <a>
-              <img src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-src="${as.ads?.[0]?.thumbnail}" />
+              <div class="adset_goal_thumb ${hasActiveAd ? '' : 'inactive'}">
+                <i class="${getCampaignIcon(as.optimization_goal)}"></i>
+              </div>
               <p class="ad_name">${as.name}</p>
             </a>
           </div>
@@ -937,6 +1027,7 @@ function renderCampaignView(data) {
               data-impressions="${as.impressions}"
               data-result="${as.result}"
               data-cpr="${adsetCpr}"
+              data-thumbs="${encodeURIComponent(JSON.stringify((as.ads || []).slice(0, 3).map(a => a.thumbnail || '').filter(Boolean)))}"
               title="Xem insight adset">
               <i class="fa-solid fa-magnifying-glass-chart"></i>
             </div>
@@ -1128,6 +1219,8 @@ async function loadCampaignList() {
       )
     );
     renderGoalChart(allAds);
+    // ✅ Load extra details (Device, Platform position, overall stats)
+    if (typeof loadExtraCharts === "function") loadExtraCharts();
     // updateSummaryUI(campaigns);
   } catch (err) {
     console.error("❌ Error in Flow 2 (Campaign List):", err);
@@ -1167,12 +1260,9 @@ async function loadDashboardData() {
   const loading = document.querySelector(".loading");
   if (loading) loading.classList.add("active");
 
-  // 🔁 Chạy song song các luồng
-  // loadDailyChart();
-  // loadPlatformSummary();
-  // loadSpendPlatform();
-  // loadAgeGenderSpendChart();
-  // loadRegionSpendChart();
+  // 🦴 Skeleton start
+  toggleSkeletons(".dom_dashboard", true);
+
   loadAllDashboardCharts();
   initializeYearData();
 
@@ -1180,6 +1270,8 @@ async function loadDashboardData() {
   resetFilterDropdownTo("spend");
   loadCampaignList().finally(() => {
     if (loading) loading.classList.remove("active");
+    // 🦴 Skeleton end
+    toggleSkeletons(".dom_dashboard", false);
   });
 }
 
@@ -1188,6 +1280,10 @@ async function main() {
   renderYears();
   initDashboard();
   await initAccountSelector(); // 👈 Khởi tạo chọn tài khoản động
+
+  // 🏷️ Khởi tạo bộ lọc thương hiệu
+  updateBrandDropdownUI();
+
   await loadDashboardData();
 
   // 🖱️ Lắng nghe sự kiện Reset All Filters từ Empty Card
@@ -1222,6 +1318,15 @@ async function main() {
   if (overlay) overlay.addEventListener("click", (e) => {
     if (e.target === overlay) closeAiSummaryModal();
   });
+
+  // ⚙️ Brand Settings
+  const settingsBtn = document.getElementById("open_filter_settings");
+  if (settingsBtn) settingsBtn.addEventListener("click", openFilterSettings);
+
+  const settingsModal = document.getElementById("filter_settings_modal");
+  if (settingsModal) settingsModal.addEventListener("click", (e) => {
+    if (e.target === settingsModal) closeFilterSettings();
+  });
 }
 
 function openAiSummaryModal() {
@@ -1229,8 +1334,6 @@ function openAiSummaryModal() {
   if (modal) modal.style.display = "flex";
   updateAiHistoryBadge();
   switchAiTab("home");
-  // Pre-select "Hiện tại" pill
-  setAiDatePreset("current", document.querySelector(".ai_date_pill"));
 }
 
 function switchAiTab(tab) {
@@ -1244,8 +1347,8 @@ function switchAiTab(tab) {
 
   const panel = document.getElementById(`ai_panel_${tab}`);
   if (panel) {
-    // home panel is a flex container (2-column grid)
-    panel.style.display = tab === "home" ? "flex" : "block";
+    // modal panels are flex containers to allow children to fill space
+    panel.style.display = "flex";
   }
   const footer = document.getElementById(`ai_footer_${tab}`);
   if (footer) footer.style.display = "flex";
@@ -1254,50 +1357,8 @@ function switchAiTab(tab) {
   if (tab === "compare") renderCompareCampaigns();
 }
 
-// ─── Date Preset for Home panel ───────────────────────────────
-
-let _aiDatePreset = "current";
-
-function setAiDatePreset(preset, btn) {
-  _aiDatePreset = preset;
-  document.querySelectorAll(".ai_date_pill").forEach(b => b.classList.remove("active"));
-  if (btn) btn.classList.add("active");
-  const customRow = document.getElementById("ai_custom_date_row");
-  if (customRow) customRow.style.display = preset === "custom" ? "flex" : "none";
-  // Pre-fill custom inputs với ngày hiện tại của app
-  if (preset === "custom") {
-    const cf = document.getElementById("ai_custom_from");
-    const ct = document.getElementById("ai_custom_to");
-    if (cf && !cf.value) cf.value = document.getElementById("date_from")?.value || "";
-    if (ct && !ct.value) ct.value = document.getElementById("date_to")?.value || "";
-  }
-}
-
-function getAiDateRange() {
-  const today = new Date();
-  const fmt = d => d.toISOString().slice(0, 10);
-  if (_aiDatePreset === "7d") return { from: fmt(new Date(today - 7 * 864e5)), to: fmt(today) };
-  if (_aiDatePreset === "14d") return { from: fmt(new Date(today - 14 * 864e5)), to: fmt(today) };
-  if (_aiDatePreset === "30d") return { from: fmt(new Date(today - 30 * 864e5)), to: fmt(today) };
-  if (_aiDatePreset === "custom") return {
-    from: document.getElementById("ai_custom_from")?.value || "",
-    to: document.getElementById("ai_custom_to")?.value || "",
-  };
-  // "current" — dùng filter hiện tại
-  return {
-    from: document.getElementById("date_from")?.value || "",
-    to: document.getElementById("date_to")?.value || "",
-  };
-}
-
+// ─── AI Analysis Home Trigger ──────────────────────────────────
 function runAiSummaryFromHome() {
-  const { from, to } = getAiDateRange();
-  if (_aiDatePreset !== "current" && from && to) {
-    const df = document.getElementById("date_from");
-    const dt = document.getElementById("date_to");
-    if (df) df.value = from;
-    if (dt) dt.value = to;
-  }
   switchAiTab("result");
   runAiSummary();
 }
@@ -1355,29 +1416,21 @@ function renderCompareCampaigns() {
       <div class="ai_compare_item_body">
         <div class="ai_cmp_top_row">
           <div class="ai_compare_item_name">${c.name || "Campaign " + (i + 1)}</div>
+          <div class="ai_cmp_spend_badge">${spend}đ</div>
         </div>
         <div class="ai_cmp_spend_bar_wrap">
           <div class="ai_cmp_spend_bar" style="width:${spendPct}%"></div>
         </div>
         <div class="ai_compare_item_stats">
-          <span class="ai_cmp_stat spend"><i class="fa-solid fa-sack-dollar"></i> ${spend}đ</span>
-          <span class="ai_cmp_stat"><i class="fa-solid fa-users"></i> ${reach}</span>
-          <span class="ai_cmp_stat"><i class="fa-solid fa-bullseye"></i> ${result} KQ</span>
-          <span class="ai_cmp_stat"><i class="fa-solid fa-tag"></i> ${cpr}</span>
+          <span class="ai_cmp_stat"><i class="fa-solid fa-users"></i> Reach: ${reach}</span>
+          <span class="ai_cmp_stat"><i class="fa-solid fa-bullseye"></i> KQ: ${result}</span>
+          <span class="ai_cmp_stat"><i class="fa-solid fa-tag"></i> CPR: ${cpr}</span>
           <span class="ai_cmp_stat"><i class="fa-solid fa-layer-group"></i> ${adsetCnt} adset</span>
+          ${goalBadge}
         </div>
       </div>
     </label>`;
   }).join("");
-
-  // Sync real checkbox với custom UI
-  document.querySelectorAll(".ai_compare_item").forEach(label => {
-    label.addEventListener("click", e => {
-      if (e.target.closest(".ai_cmp_checkbox") || e.target.classList.contains("ai_compare_cb")) return;
-      const cb = label.querySelector(".ai_compare_cb");
-      if (cb) { cb.checked = !cb.checked; updateCompareCount(); }
-    });
-  });
 
   updateCompareCount();
 }
@@ -1514,9 +1567,11 @@ function exportAiToWord() {
 
   const modalTitle = document.querySelector(".ai_modal_header span")?.innerText || "Báo cáo AI";
   const dateRange = document.getElementById("ai_date_range")?.innerText || "";
-  const timestamp = new Date().toLocaleString("vi-VN");
-  const brandFilter = document.querySelector(".dom_selected")?.textContent?.trim() || "Tất cả";
-  const dateText = document.querySelector(".dom_date")?.textContent?.trim() || dateRange || "N/A";
+  const brandFilter = content.getAttribute("data-brand")
+    || document.querySelector(".dom_selected")?.textContent?.trim()
+    || "Tất cả";
+  const dateText = dateRange || document.querySelector(".dom_date")?.textContent?.trim() || "N/A";
+  const timestamp = content.getAttribute("data-timestamp") || new Date().toLocaleString("vi-VN");
 
   const wordHtml = `
     <!DOCTYPE html>
@@ -1534,63 +1589,62 @@ function exportAiToWord() {
       </w:WordDocument></xml>
       <![endif]-->
       <style>
-        @page { margin: 2cm 2.5cm 2.5cm 2.5cm; }
+        @page { margin: 1.8cm 2cm 2cm 2cm; }
 
         body {
           font-family: "Calibri", "Arial", sans-serif;
           font-size: 11pt;
-          color: #222;
-          line-height: 1.65;
+          color: #333;
+          line-height: 1.6;
           margin: 0;
-          background: #f0f2f5;
+          background: #fff;
         }
 
         /* ── Header ── */
         .doc-header {
-          background: #1e293b;
-          color: #fff;
-          padding: 20pt 28pt 16pt;
+          background: #ffffff;
+          color: #111;
+          padding: 20pt 0 10pt;
           text-align: center;
+          border-bottom: 1pt solid #ddd;
         }
         .doc-header-logo {
           font-size: 8.5pt;
-          color: #94a3b8;
-          letter-spacing: 0.14em;
+          color: #666;
+          letter-spacing: 0.1em;
           text-transform: uppercase;
-          margin-bottom: 6pt;
+          margin-bottom: 4pt;
         }
         .doc-header h1 {
-          font-size: 22pt;
+          font-size: 20pt;
           font-weight: bold;
-          color: #fff;
+          color: #111;
           margin: 0 0 4pt;
           text-align: center;
           border: none;
           padding: 0;
-          letter-spacing: -0.01em;
         }
         .doc-header-sub {
           font-size: 9.5pt;
-          color: #cbd5e1;
+          color: #666;
           margin: 0;
           text-align: center;
         }
 
         /* ── Meta bar ── */
         .doc-meta {
-          background: #e8eaf0;
-          border-left: 4pt solid #1e293b;
-          padding: 9pt 16pt;
-          margin: 0 0 18pt;
+          background: #f8f8f8;
+          border: 1pt solid #eee;
+          padding: 8pt 12pt;
+          margin: 10pt 0 15pt;
           font-size: 9pt;
-          color: #475569;
+          color: #555;
         }
-        .doc-meta span { font-weight: bold; color: #1e293b; }
+        .doc-meta span { font-weight: bold; color: #111; }
 
-        /* ── White content card ── */
+        /* ── Content ── */
         .doc-body {
-          background: #fff;
-          padding: 20pt 24pt;
+          padding: 15pt 0;
           margin-bottom: 0;
         }
 
@@ -1598,29 +1652,27 @@ function exportAiToWord() {
         h1 {
           font-size: 18pt;
           font-weight: bold;
-          color: #1e293b;
+          color: #111;
           text-align: center;
-          border-bottom: 2pt solid #cbd5e1;
-          padding-bottom: 5pt;
-          margin: 20pt 0 8pt;
+          border-bottom: 1.5pt solid #eee;
+          padding-bottom: 6pt;
+          margin: 20pt 0 10pt;
         }
         h2 {
-          font-size: 12.5pt;
+          font-size: 13pt;
           font-weight: bold;
-          color: #fff;
-          background: #334155;
-          padding: 6pt 12pt;
-          border: none;
-          margin: 20pt 0 7pt;
+          color: #111;
+          border-bottom: 1.5pt solid #333;
+          padding: 0 0 3pt;
+          margin: 18pt 0 6pt;
           text-transform: uppercase;
-          letter-spacing: 0.05em;
         }
         h3 {
           font-size: 11.5pt;
           font-weight: bold;
-          color: #1e293b;
+          color: #333;
           margin: 14pt 0 4pt;
-          border-bottom: 1pt solid #e2e8f0;
+          border-bottom: 1pt solid #eee;
           padding-bottom: 2pt;
         }
         h4 {
@@ -1652,14 +1704,13 @@ function exportAiToWord() {
           font-size: 9.5pt;
         }
         table th {
-          background: #334155;
-          color: #fff;
+          background: #f0f0f0;
+          color: #111;
           font-weight: bold;
           text-transform: uppercase;
           font-size: 8.5pt;
-          letter-spacing: 0.04em;
           padding: 7pt 9pt;
-          border: 1pt solid #475569;
+          border: 1pt solid #ccc;
           text-align: left;
         }
         table td {
@@ -1685,13 +1736,13 @@ function exportAiToWord() {
 
         /* ── Footer ── */
         .doc-footer {
-          background: #1e293b;
-          padding: 8pt 16pt;
+          border-top: 1pt solid #ddd;
+          padding: 10pt 0;
           font-size: 8pt;
-          color: #94a3b8;
+          color: #888;
           text-align: center;
         }
-        .doc-footer-brand { color: #fff; font-weight: bold; }
+        .doc-footer-brand { color: #333; font-weight: bold; }
       </style>
     </head>
     <body>
@@ -1700,7 +1751,6 @@ function exportAiToWord() {
       <div class="doc-header">
         <div class="doc-header-logo">DOM AI &mdash; Báo cáo phân tích quảng cáo</div>
         <h1>${modalTitle}</h1>
-        <p class="doc-header-sub">${brandFilter !== "Tất cả" ? "Brand: " + brandFilter + " &nbsp;|&nbsp; " : ""}${dateText}</p>
       </div>
 
       <!-- Meta bar -->
@@ -1758,11 +1808,14 @@ function saveAiHistory(html, label) {
   const history = loadAiHistory();
   const dateFrom = document.getElementById("date_from")?.value || "";
   const dateTo = document.getElementById("date_to")?.value || "";
+  const brand = document.querySelector(".dom_selected")?.textContent?.trim() || "Tất cả";
+
   const entry = {
     id: Date.now(),
     timestamp: new Date().toLocaleString("vi-VN"),
     label: label || "Tóm tắt chiến dịch",
-    dateRange: (dateFrom && dateTo) ? `${dateFrom} — ${dateTo} ` : "N/A",
+    brand: brand,
+    dateRange: (dateFrom && dateTo) ? `${dateFrom} — ${dateTo}` : "",
     html,
     preview: document.getElementById("ai_summary_content")?.innerText?.slice(0, 120) || ""
   };
@@ -1776,17 +1829,17 @@ function confirmDeleteAiHistory(id) {
   const overlay = document.createElement("div");
   overlay.id = "ai_delete_confirm";
   overlay.style.cssText = `
-  position: fixed; inset: 0; background: rgba(0, 0, 0, 0.55); z - index: 99999;
-  display: flex; align - items: center; justify - content: center;
+    position: fixed; inset: 0; background: rgba(0,0,0,0.55); z-index: 99999;
+    display: flex; align-items: center; justify-content: center;
   `;
   overlay.innerHTML = `
-    < div style = "
-  background: #fff; border - radius: 16px; padding: 3.2rem 3.6rem;
-  max - width: 42rem; width: 90 %; text - align: center;
-  box - shadow: 0 20px 60px rgba(0, 0, 0, 0.18);
-  animation: fadeInScale .18s ease;
-  ">
-    < div style = "font-size:3.6rem;margin-bottom:1.2rem;" >🗑️</div >
+    <div style="
+      background: #fff; border-radius: 16px; padding: 3.2rem 3.6rem;
+      max-width: 42rem; width: 90%; text-align: center;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.18);
+      animation: fadeInScale .18s ease;
+    ">
+      <div style="font-size:3.6rem;margin-bottom:1.2rem;">🗑️</div>
       <h3 style="font-size:1.8rem;font-weight:700;color:#111;margin:0 0 0.8rem;">Xóa bản tóm tắt?</h3>
       <p style="color:#64748b;font-size:1.4rem;margin:0 0 2.4rem;">Hành động này không thể hoàn tác. Bản tóm tắt này sẽ bị xóa vĩnh viễn.</p>
       <div style="display:flex;gap:1.2rem;justify-content:center;">
@@ -1801,8 +1854,8 @@ function confirmDeleteAiHistory(id) {
           cursor:pointer;transition:all .2s;
         "><i class='fa-solid fa-trash'></i> Xóa</button>
       </div>
-    </div >
-    `;
+    </div>
+  `;
   document.body.appendChild(overlay);
   overlay.addEventListener("click", e => { if (e.target === overlay) overlay.remove(); });
 }
@@ -1819,7 +1872,16 @@ function loadAiHistoryItem(id) {
   if (!entry) return;
   const content = document.getElementById("ai_summary_content");
   const emptyBox = document.getElementById("ai_empty_state");
-  if (content) content.innerHTML = entry.html;
+  const dateBadge = document.getElementById("ai_date_range");
+
+  if (content) {
+    content.innerHTML = entry.html;
+    content.setAttribute("data-brand", entry.brand || "Tất cả");
+    content.setAttribute("data-timestamp", entry.timestamp || "");
+  }
+  if (dateBadge) {
+    dateBadge.innerText = entry.dateRange || "N/A";
+  }
   if (emptyBox) emptyBox.style.display = "none";
   const copyBtn = document.getElementById("ai_copy_btn");
   const regenBtn = document.getElementById("ai_regenerate_btn");
@@ -1937,29 +1999,28 @@ async function runAiSummary() {
     const fmtMoney = (n) => fmt(n) + "đ";
     const fmtCpr = (spend, result) => result > 0 ? fmtMoney(spend / result) : "N/A";
 
-    const campaignBlocks = campaigns.map((c) => {
+    // ====== Xây dựng danh sách Campaign riêng ======
+    const campaignLines = campaigns.map((c) => {
       const cFreq = c.reach > 0 ? (c.impressions / c.reach).toFixed(2) : "N/A";
       const cCpr = fmtCpr(c.spend, c.result);
       const cCpm = c.impressions > 0 ? fmtMoney((c.spend / c.impressions) * 1000) : "N/A";
+      return `• Campaign: "${c.name}" | Status: ${c.status || "N/A"} | Spent: ${fmtMoney(c.spend)} | Reach: ${fmt(c.reach)} | Impressions: ${fmt(c.impressions)} | Freq: ${cFreq} | Results: ${c.result} | CPR: ${cCpr} | CPM: ${cCpm}`;
+    }).join("\n");
 
-      const adsetLines = (c.adsets || []).map((as) => {
-        const freq = as.reach > 0 ? (as.impressions / as.reach).toFixed(2) : "N/A";
-        const cpr = fmtCpr(as.spend, as.result);
-        const cpm = as.impressions > 0 ? fmtMoney((as.spend / as.impressions) * 1000) : "N/A";
-        const budget = as.daily_budget > 0
-          ? `daily ${fmtMoney(as.daily_budget)} `
-          : as.lifetime_budget > 0 ? `lifetime ${fmtMoney(as.lifetime_budget)} ` : "N/A";
-        return `    • Adset: "${as.name}" | Goal: ${as.optimization_goal} | Spent: ${fmtMoney(as.spend)} | Reach: ${fmt(as.reach)} | Impressions: ${fmt(as.impressions)} | Freq: ${freq} | Results: ${as.result} | CPR: ${cpr} | CPM: ${cpm} | Clicks: ${fmt(as.link_clicks || 0)} | Reactions: ${fmt(as.reactions || 0)} | Budget: ${budget} `;
-      }).join("\n");
-
-      return `Campaign: "${c.name}"
-  Status: ${c.status || "N/A"} | Spent: ${fmtMoney(c.spend)} | Reach: ${fmt(c.reach)} | Impressions: ${fmt(c.impressions)} | Freq: ${cFreq} | Results: ${c.result} | CPR: ${cCpr} | CPM: ${cCpm} | Reactions: ${fmt(c.reactions || 0)} | Messages: ${fmt(c.message || 0)} | Leads: ${fmt(c.lead || 0)}
-${adsetLines} `;
-    });
+    // ====== Xây dựng danh sách Adset riêng ======
+    const adsetLines = campaigns.flatMap(c => (c.adsets || []).map(as => {
+      const freq = as.reach > 0 ? (as.impressions / as.reach).toFixed(2) : "N/A";
+      const cpr = fmtCpr(as.spend, as.result);
+      const cpm = as.impressions > 0 ? fmtMoney((as.spend / as.impressions) * 1000) : "N/A";
+      const budget = as.daily_budget > 0
+        ? `daily ${fmtMoney(as.daily_budget)}`
+        : as.lifetime_budget > 0 ? `lifetime ${fmtMoney(as.lifetime_budget)}` : "N/A";
+      return `• Adset: "${as.name}" (thuộc Campaign: "${c.name}") | Goal: ${as.optimization_goal} | Spent: ${fmtMoney(as.spend)} | Reach: ${fmt(as.reach)} | Results: ${as.result} | CPR: ${cpr} | Budget: ${budget}`;
+    })).join("\n");
 
     const dateRange = document.querySelector(".dom_date")?.textContent?.trim() || "N/A";
     const filterNote = isFiltered
-      ? `Brand đang lọc: ** ${brandFilter}** (${campaigns.length}/${(window._ALL_CAMPAIGNS || []).length} campaign)`
+      ? `Brand đang lọc: **${brandFilter}** (${campaigns.length}/${(window._ALL_CAMPAIGNS || []).length} campaign)`
       : `Toàn bộ tài khoản — ${campaigns.length} campaign`;
 
     // Tổng hợp nhanh toàn account
@@ -1967,7 +2028,12 @@ ${adsetLines} `;
     const totalReach = campaigns.reduce((s, c) => s + (c.reach || 0), 0);
     const totalResult = campaigns.reduce((s, c) => s + (c.result || 0), 0);
 
-    const prompt = `Bạn là chuyên gia phân tích quảng cáo Facebook Ads cao cấp.Hãy phân tích toàn diện và chi tiết dữ liệu sau, viết bằng tiếng Việt chuyên nghiệp.
+    const prompt = `Bạn là chuyên gia phân tích quảng cáo Facebook Ads cao cấp. Hãy phân tích toàn diện và chi tiết dữ liệu sau, viết bằng tiếng Việt chuyên nghiệp.
+
+⚠️ QUY TẮC QUAN TRỌNG VỀ DỮ LIỆU:
+- Dữ liệu của từng Campaign và từng Adset được cung cấp là số liệu thực tế ĐỘC LẬP. 
+- **TUYỆT ĐỐI KHÔNG** tự ý cộng dồn (sum) các chỉ số của Adset để tính lại cho Campaign. Hãy sử dụng trực tiếp số liệu của Campaign đã cung cấp để phân tích.
+- Tránh việc tính toán dư thừa gây ra sai số không đáng có.
 
 ═══════════════════════════════
 THÔNG TIN CHUNG
@@ -1975,49 +2041,53 @@ THÔNG TIN CHUNG
   - Khoảng thời gian: ${dateRange}
   - ${filterNote}
   - Tổng chi phí: ${fmtMoney(totalSpend)} | Tổng reach: ${fmt(totalReach)} | Tổng kết quả: ${fmt(totalResult)}
-  - CPR trung bình toàn account: ${fmtCpr(totalSpend, totalResult)}
 
 ═══════════════════════════════
-DỮ LIỆU CHI TIẾT THEO CAMPAIGN & ADSET
+DANH SÁCH CAMPAIGN
 ═══════════════════════════════
-${campaignBlocks.join("\n\n")}
+${campaignLines}
 
 ═══════════════════════════════
-YÊU CẦU PHÂN TÍCH(đầy đủ, chi tiết, có số liệu cụ thể)
+DANH SÁCH ADSET CHI TIẾT
+═══════════════════════════════
+${adsetLines}
+
+═══════════════════════════════
+YÊU CẦU PHÂN TÍCH (đầy đủ, chi tiết, có số liệu cụ thể)
 ═══════════════════════════════
 ## 1. Tổng quan hiệu suất
     - Tổng hợp spend / reach / result / CPR / CPM toàn bộ
-      - So sánh hiệu quả giữa các mục tiêu tối ưu(optimization goal)
+    - So sánh hiệu quả giữa các mục tiêu tối ưu (optimization goal)
 
 ## 2. Phân tích Campaign & Adset nổi bật
-    - Top 3 adset hiệu quả nhất(lý do: CPR thấp / reach cao / kết quả tốt)
-  - Top 3 adset kém nhất cần xem xét(lý do cụ thể)
-  - Campaign nào chi nhiều nhất nhưng kết quả không tương xứng ?
+    - Top 3 adset hiệu quả nhất (lý do: CPR thấp / reach cao / kết quả tốt)
+    - Top 3 adset kém nhất cần xem xét (lý do cụ thể)
+    - Campaign nào chi nhiều nhất nhưng kết quả không tương xứng?
 
 ## 3. Phân tích theo Optimization Goal
     - So sánh hiệu quả giữa các nhóm: Awareness / Consideration / Conversion
-      - Goal nào đang cho ROI tốt nhất ? Goal nào chi phí quá cao ?
+    - Goal nào đang cho ROI tốt nhất? Goal nào chi phí quá cao?
 
 ## 4. Phân tích Frequency & CPM
-    - Adset nào có frequency cao(> 3) — nguy cơ banner blindness ?
-      - CPM nào bất thường(quá cao hoặc quá thấp) ?
+    - Adset nào có frequency cao (> 3) — nguy cơ banner blindness?
+    - CPM nào bất thường (quá cao hoặc quá thấp)?
 
 ## 5. Điểm mạnh & điểm cần cải thiện
     - Liệt kê vài điểm mạnh với dẫn chứng số liệu
-      - Liệt kê vài điểm yếu cụ thể cần khắc phục
+    - Liệt kê vài điểm yếu cụ thể cần khắc phục
 
 ## 6. Đề xuất hành động
-    - 5 - 7 gợi ý hành động cụ thể, có ưu tiên(cao / trung / thấp)
-      - Đề xuất phân bổ ngân sách tối ưu hơn nếu có thể
+    - 5 - 7 gợi ý hành động cụ thể, có ưu tiên (cao / trung / thấp)
+    - Đề xuất phân bổ ngân sách tối ưu hơn nếu có thể
 
-⚠️ QUY TẮC ĐỊNH DẠNG OUTPUT(bắt buộc tuân thủ):
-  - Dùng ## cho section headers(ví dụ: ## 1. Tổng quan hiệu suất)
-    - Dùng ### cho sub - section nếu cần
-      - Dùng ** bold ** cho số liệu và từ khóa quan trọng
-        - Dùng bullet points(-) cho danh sách, indent 2 dấu cách cho sub - bullet
-          - KHÔNG dùng ký tự đặc biệt như ═══ hay ───
-  - Có thể dùng markdown table(| ---|) cho các phần so sánh dữ liệu hoặc phân đoạn khách hàng để báo cáo chuyên nghiệp hơn.
-- Viết bằng tiếng Việt, súc tích, có số liệu cụ thể từ dữ liệu được cung cấp.`;
+⚠️ QUY TẮC ĐỊNH DẠNG OUTPUT (bắt buộc tuân thủ):
+  - Dùng ## cho section headers (ví dụ: ## 1. Tổng quan hiệu suất)
+  - Dùng ### cho sub-section nếu cần
+  - Dùng **bold** cho số liệu và từ khóa quan trọng
+  - Dùng bullet points (-) cho danh sách, indent 2 dấu cách cho sub-bullet
+  - KHÔNG dùng ký tự đặc biệt như ═══ hay ───
+  - Có thể dùng markdown table (|---|) cho các phần so sánh dữ liệu để báo cáo chuyên nghiệp hơn.
+  - Viết bằng tiếng Việt, súc tích, có số liệu cụ thể từ dữ liệu được cung cấp.`;
 
     // ── Huỷ request cũ nếu còn đang chạy ──
     if (_aiController) _aiController.abort();
@@ -2039,17 +2109,20 @@ YÊU CẦU PHÂN TÍCH(đầy đủ, chi tiết, có số liệu cụ thể)
     const text = data?.text || "Không nhận được phản hồi từ AI.";
 
     // Render markdown
-    if (content) content.innerHTML = simpleMarkdown(text);
+    if (content) {
+      content.innerHTML = simpleMarkdown(text);
+      content.setAttribute("data-brand", brandFilter);
+      content.setAttribute("data-timestamp", new Date().toLocaleString("vi-VN"));
+    }
     if (copyBtn) copyBtn.style.display = "flex";
     if (regenBtn) regenBtn.style.display = "flex";
     const wordBtnFinal = document.getElementById("ai_export_word_btn");
     if (wordBtnFinal) wordBtnFinal.style.display = "flex";
 
-    // Lưu vào lịch sử
+    // Lưu vào lịch sử: Chỉ lấy tên Brand làm label để tránh lặp ngày
     const hBrand = document.querySelector(".dom_selected")?.textContent?.trim() || "";
-    const hDate = document.querySelector(".dom_date")?.textContent?.trim() || "";
-    const hLabel = `${hDate}${hBrand && hBrand !== "Ampersand" ? " — " + hBrand : ""} `;
-    saveAiHistory(content.innerHTML, hLabel || "Tóm tắt chiến dịch");
+    const hLabel = (hBrand && hBrand !== "Ampersand") ? hBrand : "Tất cả chiến dịch";
+    saveAiHistory(content.innerHTML, hLabel);
 
   } catch (err) {
     if (err.name === "AbortError") {
@@ -2058,7 +2131,7 @@ YÊU CẦU PHÂN TÍCH(đầy đủ, chi tiết, có số liệu cụ thể)
       return;
     }
     console.error("❌ AI Summary error:", err);
-    if (content) content.innerHTML = `< p style = "color:#e05c1a" >❌ Lỗi: ${err.message}</p > `;
+    if (content) content.innerHTML = `<p style="color:#e05c1a">❌ Lỗi: ${err.message}</p>`;
   } finally {
     if (loading) loading.style.display = "none";
     _aiController = null;
@@ -2097,7 +2170,7 @@ function simpleMarkdown(text) {
     if (!dataRows.length) { tblRows = []; return; }
     const hdr = parse(dataRows[0]);
     const body = dataRows.slice(1);
-    let t = `< table class="ai_tbl" ><thead><tr>`;
+    let t = `<table class="ai_tbl"><thead><tr>`;
     hdr.forEach(h => t += `<th>${h}</th>`);
     t += `</tr></thead><tbody>`;
     body.forEach(r => {
@@ -2106,7 +2179,7 @@ function simpleMarkdown(text) {
       hdr.forEach((_, i) => t += `<td>${cells[i] || ""}</td>`);
       t += `</tr>`;
     });
-    t += `</tbody></table > `;
+    t += `</tbody></table>`;
     out.push(t);
     tblRows = [];
   };
@@ -2128,7 +2201,7 @@ function simpleMarkdown(text) {
       const content = line.replace(/^ +[-*] /, "");
       if (!inUl) { out.push("<ul>"); inUl = true; depth = 0; }
       if (depth < 1) { out.push("<ul class='ai_sub'>"); depth = 1; }
-      out.push(`< li > ${content}</li > `);
+      out.push(`<li>${content}</li>`);
       continue;
     }
 
@@ -2137,7 +2210,7 @@ function simpleMarkdown(text) {
       const content = line.replace(/^[-*] /, "");
       closeUl(0);
       if (!inUl) { out.push("<ul>"); inUl = true; }
-      out.push(`< li > ${content}</li > `);
+      out.push(`<li>${content}</li>`);
       continue;
     }
 
@@ -2147,7 +2220,7 @@ function simpleMarkdown(text) {
     if (/^<h[1-4]|^<hr/.test(line)) {
       out.push(line);
     } else if (line.trim()) {
-      out.push(`< p > ${line}</p > `);
+      out.push(`<p>${line}</p>`);
     }
   }
   flushTable();
@@ -2335,11 +2408,39 @@ async function handleAdsetInsightClick(btn) {
     if (previewBox) { previewBox.innerHTML = ""; previewBox.style.display = "none"; }
     if (previewBtn) previewBtn.style.display = "none";
 
-    // Cập nhật header
-    const img = domDetail.querySelector(".dom_detail_header img");
+    // Cập nhật header thumbnail → fan cards nếu có nhiều ảnh
+    const headerThumbWrap = domDetail.querySelector(".dom_detail_header_first > div");
+    if (headerThumbWrap) {
+      let thumbs = [];
+      try { thumbs = JSON.parse(decodeURIComponent(btn.dataset.thumbs || "[]")) || []; } catch (e) { thumbs = []; }
+      if (thumbs.length > 1) {
+        // Render fan cards
+        headerThumbWrap.querySelector("img") && (headerThumbWrap.querySelector("img").style.display = "none");
+        let fanEl = headerThumbWrap.querySelector(".detail_fan_wrap");
+        if (!fanEl) {
+          fanEl = document.createElement("div");
+          fanEl.className = "detail_fan_wrap";
+          headerThumbWrap.insertBefore(fanEl, headerThumbWrap.firstChild);
+        }
+        fanEl.setAttribute("data-count", thumbs.length);
+        fanEl.innerHTML = thumbs.map((url, idx) =>
+          `<img class="cmp_fan_img" style="--fi:${idx}" src="${url}" />`
+        ).join("");
+        fanEl.style.display = "";
+      } else {
+        // Single image or none
+        const existFan = headerThumbWrap.querySelector(".detail_fan_wrap");
+        if (existFan) existFan.style.display = "none";
+        const imgEl = headerThumbWrap.querySelector("img");
+        if (imgEl) {
+          imgEl.style.display = "";
+          imgEl.src = thumbs[0] || "https://dev-trongphuc.github.io/DOM_MISA_IDEAS_CRM/logotarget.png";
+        }
+      }
+    }
+    // Update name + ID label
     const idEl = domDetail.querySelector(".dom_detail_id");
-    if (img) img.src = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
-    if (idEl) idEl.innerHTML = `< span > ${name}</span > <span>ID: ${adsetId}</span>`;
+    if (idEl) idEl.innerHTML = `<span>${name}</span> <span>ID: ${adsetId}</span>`;
   }
 
   const loadingEl = document.querySelector(".loading");
@@ -2357,6 +2458,9 @@ async function handleAdsetInsightClick(btn) {
 async function showAdsetDetail(adset_id) {
   if (!adset_id) return;
 
+  // 🦴 Skeleton start
+  toggleSkeletons("#dom_detail", true);
+
   // Hủy chart cũ
   [
     window.detail_spent_chart_instance,
@@ -2372,9 +2476,11 @@ async function showAdsetDetail(adset_id) {
   window.chart_by_device_instance = null;
 
   try {
-    const timeRangeParam = `& time_range[since]=${startDate}& time_range[until]=${endDate} `;
+    // ✅ Fix: bỏ khoảng trắng thừa — trước đây "&  time_range[since]= " gây lỗi API
+    const timeRangeParam = `&time_range[since]=${startDate}&time_range[until]=${endDate}`;
     const batchRequests = [
-      { method: "GET", name: "targeting", relative_url: `${adset_id}?fields = targeting` },
+      // ✅ Fix: bỏ khoảng trắng trong "fields = targeting"
+      { method: "GET", name: "targeting", relative_url: `${adset_id}?fields=targeting` },
       {
         method: "GET", name: "byHour", relative_url: `${adset_id}/insights?fields=spend,impressions,reach,actions&breakdowns=hourly_stats_aggregated_by_advertiser_time_zone${timeRangeParam}`
       },
@@ -2393,24 +2499,31 @@ async function showAdsetDetail(adset_id) {
 
     if (!Array.isArray(batchResponse)) throw new Error("Invalid batch response");
 
+    // ✅ Parse cùng pattern với fetchAdDetailBatch
     const results = {};
     batchResponse.forEach((item, i) => {
       const name = batchRequests[i].name;
+      const defaultEmpty = name === "targeting" ? {} : [];
+      results[name] = defaultEmpty;
+
       if (item && item.code === 200) {
         try {
           const parsed = JSON.parse(item.body);
-          // targeting trả về object, còn insights trả về { data: [...] }
-          results[name] = parsed.data ?? parsed;
+          if (name === "targeting") {
+            results[name] = parsed.targeting || {};
+          } else {
+            results[name] = parsed.data || [];
+          }
         } catch (e) {
-          results[name] = name === "targeting" ? {} : [];
+          console.warn(`⚠️ Failed to parse batch response for ${name}`, e);
         }
       } else {
-        results[name] = name === "targeting" ? {} : [];
+        console.warn(`⚠️ Batch request for ${name} failed.`, item);
       }
     });
 
-    // Render targeting (age, gender, location)
-    const targeting = results.targeting?.targeting || results.targeting || {};
+    // Render targeting
+    const targeting = results.targeting || {};
     renderTargetingToDOM(targeting);
 
     const processBreakdown = (arr, k1, k2 = null) => {
@@ -2447,6 +2560,30 @@ async function showAdsetDetail(adset_id) {
     const processedByPlatform = processBreakdown(results.byPlatform, "publisher_platform", "platform_position");
     const processedByDevice = processBreakdown(results.byDevice, "impression_device");
 
+    const totalSpend = Object.values(processedByDate).reduce((t, d) => t + d.spend, 0);
+    const totalActions = Object.values(processedByDate).reduce((t, d) =>
+      t + Object.values(d.actions || {}).reduce((sum, v) => sum + v, 0), 0);
+
+    const domDetail = document.querySelector("#dom_detail");
+    if (totalSpend === 0 && totalActions === 0) {
+      domDetail.classList.add("no-data");
+      let emptyMsg = domDetail.querySelector(".detail_empty_msg");
+      if (!emptyMsg) {
+        emptyMsg = document.createElement("div");
+        emptyMsg.className = "detail_empty_msg";
+        emptyMsg.innerHTML = `
+          <div class="empty_content">
+             <i class="fa-solid fa-folder-open"></i>
+             <h3>Không có dữ liệu chi tiết</h3>
+             <p>Không tìm thấy chỉ số Spend hoặc Actions cho Adset này trong khoảng thời gian đã chọn.</p>
+          </div>
+        `;
+        domDetail.appendChild(emptyMsg);
+      }
+    } else {
+      domDetail.classList.remove("no-data");
+    }
+
     renderInteraction(processedByDate);
     window.dataByDate = processedByDate;
 
@@ -2466,6 +2603,15 @@ async function showAdsetDetail(adset_id) {
       byDevice: processedByDevice,
     });
 
+    // ✅ Lưu toàn bộ global data để AI Deep Report hoạt động (giống showAdDetail)
+    window.campaignSummaryData = {
+      spend: totalSpend,
+      impressions: Object.values(processedByDate).reduce((t, d) => t + d.impressions, 0),
+      reach: Object.values(processedByDate).reduce((t, d) => t + d.reach, 0),
+      results: totalActions,
+    };
+
+    window.targetingData = targeting;
     window.processedByDate = processedByDate;
     window.processedByHour = processedByHour;
     window.processedByAgeGender = processedByAgeGender;
@@ -2473,6 +2619,9 @@ async function showAdsetDetail(adset_id) {
     window.processedByPlatform = processedByPlatform;
   } catch (err) {
     console.error("❌ Lỗi khi fetch adset detail:", err);
+  } finally {
+    // 🦴 Skeleton end
+    toggleSkeletons("#dom_detail", false);
   }
 }
 // ================================================================
@@ -3188,11 +3337,28 @@ async function applyCampaignFilter(keyword) {
     return;
   }
 
-  // 🔹 Lọc campaign theo tên (không phân biệt hoa thường)
+  // 🔹 Lọc campaign theo tên, ID, hoặc chứa adset/ad có tên/ID khớp
   const filtered = keyword
-    ? window._ALL_CAMPAIGNS.filter((c) =>
-      (c.name || "").toLowerCase().includes(keyword.toLowerCase())
-    )
+    ? window._ALL_CAMPAIGNS.filter((c) => {
+      const lowerKw = keyword.toLowerCase();
+      // 1. Tên hoặc ID Campaign
+      if ((c.name || "").toLowerCase().includes(lowerKw)) return true;
+      if (c.id === keyword) return true;
+
+      // 2. Tên hoặc ID Adset trong campaign
+      const hasAdset = (c.adsets || []).some(as =>
+        (as.name || "").toLowerCase().includes(lowerKw) || as.id === keyword
+      );
+      if (hasAdset) return true;
+
+      // 3. Tên hoặc ID Ad trong campaign
+      const hasAd = (c.adsets || []).some(as =>
+        (as.ads || []).some(ad => (ad.name || "").toLowerCase().includes(lowerKw) || ad.id === keyword)
+      );
+      if (hasAd) return true;
+
+      return false;
+    })
     : window._ALL_CAMPAIGNS;
 
   // 🔹 Render lại danh sách campaign
@@ -3521,6 +3687,42 @@ function renderTargetingToDOM(targeting) {
         ? "No Advantage Audience"
         : "Advantage Audience";
     optimizeWrap.textContent = adv;
+  }
+
+  // === DEVICE PLATFORMS ===
+  const deviceWrap = targetBox.querySelector(".detail_device");
+  if (deviceWrap) {
+    const deviceIconMap = {
+      mobile: "fa-solid fa-mobile-screen-button",
+      desktop: "fa-solid fa-desktop",
+    };
+    const devices = Array.isArray(targeting.device_platforms) ? targeting.device_platforms : [];
+    deviceWrap.innerHTML = devices.length
+      ? devices.map((d) => {
+        const icon = deviceIconMap[d.toLowerCase()] || "fa-solid fa-display";
+        return `<p><i class="${icon}"></i> ${d.charAt(0).toUpperCase() + d.slice(1)}</p>`;
+      }).join("")
+      : `<p><i class="fa-solid fa-display"></i> All Devices</p>`;
+  }
+
+  // === BRAND SAFETY EXCLUDED ===
+  const brandSafetyWrap = targetBox.querySelector(".detail_brand_safety");
+  if (brandSafetyWrap) {
+    const excluded = Array.isArray(targeting.excluded_brand_safety_content_types)
+      ? targeting.excluded_brand_safety_content_types
+      : [];
+    const labelMap = {
+      INSTREAM_LIVE: "Live Stream",
+      INSTREAM_VIDEO_MATURE: "Mature Videos",
+      FACEBOOK_LIVE: "Facebook Live",
+      INSTAGRAM_LIVE: "Instagram Live",
+    };
+    brandSafetyWrap.innerHTML = excluded.length
+      ? excluded.map((t) => {
+        const label = labelMap[t] || t.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+        return `<p><i class="fa-solid fa-shield-halved" style="color:#ef4444"></i> ${label}</p>`;
+      }).join("")
+      : `<p style="opacity:0.5"><i class="fa-solid fa-shield-check" style="color:#22c55e"></i> None excluded</p>`;
   }
 }
 
@@ -5023,15 +5225,27 @@ function updatePlatformSummaryUI(currentData, previousData = []) {
     console.log(previousValue);
     console.log(previousData);
 
-    let titleText = ` ${previousValue.toLocaleString("vi-VN")} - (${previousData?.[0]?.date_start
-      } to ${previousData?.[0]?.date_stop})`;
+    const fmtDate = (d) => {
+      if (!d) return "??/??";
+      const parts = d.split("-");
+      return `${parts[2]}/${parts[1]}`;
+    };
+
+    const s = new Date(startDate + "T00:00:00");
+    const e = new Date(endDate + "T00:00:00");
+    const durationDays = Math.round((e - s) / 86400000) + 1;
+
+    let titleText = `Kỳ trước: ${isCurrency ? formatMoney(previousValue) : previousValue.toLocaleString("vi-VN")} (${fmtDate(previousData?.[0]?.date_start)} - ${fmtDate(previousData?.[0]?.date_stop)}) • ${durationDays} ngày trước đó`;
     const valueEl = document.querySelector(`#${id} span:first-child`);
     const changeEl = document.querySelector(`#${id} span:last-child`);
-    changeEl.setAttribute("title", titleText);
+
     if (!valueEl || !changeEl) {
       console.warn(`Không tìm thấy element cho ID: ${id}`);
       return;
     }
+
+    changeEl.removeAttribute("title");
+    changeEl.setAttribute("data-tooltip", titleText);
 
     // Định dạng giá trị hiện tại
     valueEl.textContent = isCurrency
@@ -6419,6 +6633,7 @@ document.addEventListener("DOMContentLoaded", () => {
       // 👉 Nếu là nút account thì mới fetch
       if (view === "account") {
         fetchAdAccountInfo();
+        loadAccountActivities(true);
       }
 
       // Close the sidebar on mobile after a menu click
@@ -8544,4 +8759,894 @@ function exportAdsToCSV() {
   document.body.removeChild(link);
 }
 
+/* --- BRAND SETTINGS LOGIC --- */
+
+const BRAND_SETTINGS_KEY = "dom_brand_filters";
+const DEFAULT_BRANDS = [
+  { filter: "TRB", img: "./adset/ampersand/TRB.jpg", name: "The Running Bean" },
+  { filter: "Haagen Dazs", img: "./adset/ampersand/HD.jpg", name: "Häagen-Dazs" },
+  { filter: "BEAN", img: "./adset/ampersand/BEAN.jpg", name: "Be An Vegetarian" },
+  { filter: "Esta", img: "./adset/ampersand/Esta.jpg", name: "Esta Saigon" },
+  { filter: "Le Petit", img: "./adset/ampersand/LPT.jpg", name: "Le Petit" },
+  { filter: "SNOWEE", img: "./adset/ampersand/SNOWEE.jpg", name: "SNOWEE" },
+  { filter: "", img: "./adset/ampersand/ampersand_img.jpg", name: "Ampersand" }
+];
+
+function loadBrandSettings() {
+  const saved = localStorage.getItem(BRAND_SETTINGS_KEY);
+  if (saved) {
+    try { return JSON.parse(saved); } catch (e) { return DEFAULT_BRANDS; }
+  }
+  return DEFAULT_BRANDS;
+}
+
+function updateBrandDropdownUI() {
+  const brands = loadBrandSettings();
+  const dropdownUl = document.querySelector(".quick_filter_detail .dom_select_show");
+  if (!dropdownUl) return;
+
+  dropdownUl.innerHTML = brands.map(b => `
+    <li data-filter="${b.filter}" class="">
+      <img src="${b.img}" />
+      <span>${b.name}</span>
+    </li>
+  `).join('');
+
+  // Update currently selected if it exists
+  const selectedBrand = brands.find(b => b.filter === CURRENT_CAMPAIGN_FILTER) || brands[brands.length - 1];
+  if (selectedBrand) {
+    const parent = dropdownUl.closest(".quick_filter_detail");
+    if (parent) {
+      const parentImg = parent.querySelector("img");
+      const parentText = parent.querySelector(".dom_selected");
+      if (parentImg) parentImg.src = selectedBrand.img;
+      if (parentText) parentText.textContent = selectedBrand.name;
+    }
+  }
+}
+
+function openFilterSettings() {
+  const modal = document.getElementById("filter_settings_modal");
+  if (modal) modal.style.display = "flex";
+  renderBrandSettingsToModal();
+}
+
+function closeFilterSettings() {
+  const modal = document.getElementById("filter_settings_modal");
+  if (modal) modal.style.display = "none";
+}
+
+function renderBrandSettingsToModal() {
+  const brands = loadBrandSettings();
+  const listContainer = document.getElementById("brand_settings_list");
+  if (!listContainer) return;
+
+  listContainer.innerHTML = brands.map((b, i) => `
+    <div class="brand_setting_item" style="background:#fff; border-radius:14px; border:1.5px solid #e2e8f0; overflow:hidden; box-shadow:0 2px 8px rgba(0,0,0,0.05);">
+      <!-- Header bar -->
+      <div style="display:flex; align-items:center; justify-content:space-between; padding:0.9rem 1.4rem; background:linear-gradient(135deg,#f8fafc,#f1f5f9); border-bottom:1px solid #e2e8f0;">
+        <div style="display:flex;align-items:center;gap:0.8rem;">
+          <span style="background:#e2e8f0; color:#64748b; font-size:1rem; font-weight:700; padding:0.2rem 0.7rem; border-radius:20px;">#${i + 1}</span>
+          <span style="font-weight:700; color:#1e293b; font-size:1.3rem;" class="brand_label_preview">${b.name || 'Brand mới'}</span>
+        </div>
+        <button onclick="removeBrandSetting(${i})" style="background:#fee2e2; color:#ef4444; border:none; width:3rem; height:3rem; border-radius:8px; cursor:pointer; display:flex; align-items:center; justify-content:center; font-size:1.2rem; transition:background .2s;" onmouseover="this.style.background='#fecaca'" onmouseout="this.style.background='#fee2e2'">
+          <i class="fa-solid fa-trash"></i>
+        </button>
+      </div>
+      <!-- Body -->
+      <div style="display:flex; gap:1.6rem; padding:1.4rem; align-items:flex-start;">
+        <!-- Avatar preview -->
+        <div style="flex-shrink:0; display:flex; flex-direction:column; align-items:center; gap:0.6rem;">
+          <img class="brand_avatar_preview" src="${b.img || ''}" onerror="this.src=''" style="width:5.6rem; height:5.6rem; border-radius:12px; object-fit:cover; border:2px solid #e2e8f0; background:#f1f5f9;">
+          <span style="font-size:1rem; color:#94a3b8;">Avatar</span>
+        </div>
+        <!-- Fields -->
+        <div style="flex:1; display:grid; grid-template-columns:1fr 1fr; gap:0.8rem 1.2rem;">
+          <div>
+            <label style="display:block; font-size:1.1rem; font-weight:600; color:#475569; margin-bottom:0.35rem;">Tên thương hiệu</label>
+            <input type="text" placeholder="VD: The Running Bean" class="brand_name bsi_input" value="${b.name}"
+              oninput="this.closest('.brand_setting_item').querySelector('.brand_label_preview').textContent = this.value || 'Brand mới'"
+              style="width:100%; padding:0.65rem 0.9rem; border-radius:8px; border:1.5px solid #e2e8f0; font-size:1.25rem; outline:none; transition:border .2s; box-sizing:border-box;"
+              onfocus="this.style.borderColor='#f59e0b'" onblur="this.style.borderColor='#e2e8f0'">
+          </div>
+          <div>
+            <label style="display:block; font-size:1.1rem; font-weight:600; color:#475569; margin-bottom:0.35rem;">Từ khóa (Campaign name)</label>
+            <input type="text" placeholder="VD: TRB" class="brand_filter bsi_input" value="${b.filter}"
+              style="width:100%; padding:0.65rem 0.9rem; border-radius:8px; border:1.5px solid #e2e8f0; font-size:1.25rem; outline:none; transition:border .2s; font-family:monospace; box-sizing:border-box;"
+              onfocus="this.style.borderColor='#f59e0b'" onblur="this.style.borderColor='#e2e8f0'">
+          </div>
+          <div style="grid-column:1/-1;">
+            <label style="display:block; font-size:1.1rem; font-weight:600; color:#475569; margin-bottom:0.35rem;">Đường dẫn ảnh Avatar</label>
+            <input type="text" placeholder="VD: ./adset/ampersand/TRB.jpg" class="brand_img bsi_input" value="${b.img}"
+              oninput="const preview=this.closest('.brand_setting_item').querySelector('.brand_avatar_preview'); preview.src=this.value;"
+              style="width:100%; padding:0.65rem 0.9rem; border-radius:8px; border:1.5px solid #e2e8f0; font-size:1.2rem; outline:none; transition:border .2s; font-family:monospace; color:#64748b; box-sizing:border-box;"
+              onfocus="this.style.borderColor='#f59e0b'" onblur="this.style.borderColor='#e2e8f0'">
+          </div>
+        </div>
+      </div>
+    </div>
+  `).join('');
+}
+
+function addNewBrandSetting() {
+  const listContainer = document.getElementById("brand_settings_list");
+  if (!listContainer) return;
+  const div = document.createElement("div");
+  div.className = "brand_setting_item";
+  div.style.cssText = "background:#fff; border-radius:14px; border:1.5px solid #fde68a; overflow:hidden; box-shadow:0 2px 8px rgba(245,158,11,0.1);";
+  div.innerHTML = `
+    <div style="display:flex; align-items:center; justify-content:space-between; padding:0.9rem 1.4rem; background:linear-gradient(135deg,#fffbeb,#fef3c7); border-bottom:1px solid #fde68a;">
+      <div style="display:flex;align-items:center;gap:0.8rem;">
+        <span style="background:#fde68a; color:#92400e; font-size:1rem; font-weight:700; padding:0.2rem 0.7rem; border-radius:20px;">Mới</span>
+        <span style="font-weight:700; color:#1e293b; font-size:1.3rem;" class="brand_label_preview">Brand mới</span>
+      </div>
+      <button onclick="this.closest('.brand_setting_item').remove()" style="background:#fee2e2; color:#ef4444; border:none; width:3rem; height:3rem; border-radius:8px; cursor:pointer; display:flex; align-items:center; justify-content:center; font-size:1.2rem;">
+        <i class="fa-solid fa-trash"></i>
+      </button>
+    </div>
+    <div style="display:flex; gap:1.6rem; padding:1.4rem; align-items:flex-start;">
+      <div style="flex-shrink:0; display:flex; flex-direction:column; align-items:center; gap:0.6rem;">
+        <img class="brand_avatar_preview" src="" onerror="this.src=''" style="width:5.6rem; height:5.6rem; border-radius:12px; object-fit:cover; border:2px solid #e2e8f0; background:#f1f5f9;">
+        <span style="font-size:1rem; color:#94a3b8;">Avatar</span>
+      </div>
+      <div style="flex:1; display:grid; grid-template-columns:1fr 1fr; gap:0.8rem 1.2rem;">
+        <div>
+          <label style="display:block; font-size:1.1rem; font-weight:600; color:#475569; margin-bottom:0.35rem;">Tên thương hiệu</label>
+          <input type="text" placeholder="VD: The Running Bean" class="brand_name bsi_input" value=""
+            oninput="this.closest('.brand_setting_item').querySelector('.brand_label_preview').textContent = this.value || 'Brand mới'"
+            style="width:100%; padding:0.65rem 0.9rem; border-radius:8px; border:1.5px solid #e2e8f0; font-size:1.25rem; outline:none; transition:border .2s; box-sizing:border-box;"
+            onfocus="this.style.borderColor='#f59e0b'" onblur="this.style.borderColor='#e2e8f0'">
+        </div>
+        <div>
+          <label style="display:block; font-size:1.1rem; font-weight:600; color:#475569; margin-bottom:0.35rem;">Từ khóa (Campaign name)</label>
+          <input type="text" placeholder="VD: TRB" class="brand_filter bsi_input" value=""
+            style="width:100%; padding:0.65rem 0.9rem; border-radius:8px; border:1.5px solid #e2e8f0; font-size:1.25rem; outline:none; transition:border .2s; font-family:monospace; box-sizing:border-box;"
+            onfocus="this.style.borderColor='#f59e0b'" onblur="this.style.borderColor='#e2e8f0'">
+        </div>
+        <div style="grid-column:1/-1;">
+          <label style="display:block; font-size:1.1rem; font-weight:600; color:#475569; margin-bottom:0.35rem;">Đường dẫn ảnh Avatar</label>
+          <input type="text" placeholder="VD: ./adset/ampersand/TRB.jpg" class="brand_img bsi_input" value=""
+            oninput="const preview=this.closest('.brand_setting_item').querySelector('.brand_avatar_preview'); preview.src=this.value;"
+            style="width:100%; padding:0.65rem 0.9rem; border-radius:8px; border:1.5px solid #e2e8f0; font-size:1.2rem; outline:none; transition:border .2s; font-family:monospace; color:#64748b; box-sizing:border-box;"
+            onfocus="this.style.borderColor='#f59e0b'" onblur="this.style.borderColor='#e2e8f0'">
+        </div>
+      </div>
+    </div>
+  `;
+  listContainer.appendChild(div);
+  div.querySelector(".brand_name").focus();
+}
+
+function removeBrandSetting(index) {
+  const items = document.querySelectorAll("#brand_settings_list .brand_setting_item");
+  if (items[index]) items[index].remove();
+}
+
+function saveBrandSettings() {
+  const items = document.querySelectorAll("#brand_settings_list .brand_setting_item");
+  const brands = Array.from(items).map(item => ({
+    name: item.querySelector(".brand_name").value,
+    img: item.querySelector(".brand_img").value,
+    filter: item.querySelector(".brand_filter").value
+  }));
+
+  localStorage.setItem(BRAND_SETTINGS_KEY, JSON.stringify(brands));
+  updateBrandDropdownUI();
+  closeFilterSettings();
+}
+
+// Expose functions to global scope for onclick attributes
+window.openFilterSettings = openFilterSettings;
+window.closeFilterSettings = closeFilterSettings;
+window.addNewBrandSetting = addNewBrandSetting;
+window.removeBrandSetting = removeBrandSetting;
+window.saveBrandSettings = saveBrandSettings;
+
+/* =============================================
+   ACCOUNT ACTIVITY LOG
+   ============================================= */
+
+let _activityAllData = [];       // all fetched from API (cur page batch)
+let _activityCursor = null;      // after cursor for next page
+let _activityLoading = false;
+let _activityCategory = "";      // current filter category
+
+// Category → event_type mapping (source: Meta API doc /ad-activity/)
+const ACTIVITY_CATEGORY_MAP = {
+  // CAMPAIGN category per doc
+  CAMPAIGN: [
+    "create_campaign_group",
+    "create_campaign_legacy",
+    "update_campaign_duration",
+    "update_campaign_name",
+    "update_campaign_run_status",
+  ],
+  // AD_SET category per doc
+  AD_SET: [
+    "create_ad_set",
+    "update_ad_set_bidding",
+    "update_ad_set_bid_strategy",
+    "update_ad_set_bid_adjustments",
+    "update_ad_set_budget",
+    "update_ad_set_duration",
+    "update_ad_set_name",
+    "update_ad_set_run_status",
+    "update_ad_set_target_spec",
+    "update_ad_set_ad_keywords",
+  ],
+  // AD category per doc
+  AD: [
+    "ad_review_approved",
+    "ad_review_declined",
+    "create_ad",
+    "update_ad_creative",
+    "edit_and_update_ad_creative",
+    "update_ad_friendly_name",
+    "update_ad_run_status",
+    "update_ad_run_status_to_be_set_after_review",
+  ],
+  // BUDGET category per doc
+  BUDGET: [
+    "ad_account_billing_charge",
+    "ad_account_billing_chargeback",
+    "ad_account_billing_chargeback_reversal",
+    "ad_account_billing_decline",
+    "ad_account_billing_refund",
+    "ad_account_remove_spend_limit",
+    "ad_account_reset_spend_limit",
+    "ad_account_update_spend_limit",
+    "add_funding_source",
+    "remove_funding_source",
+    "billing_event",
+    "funding_event_initiated",
+    "funding_event_successful",
+    "update_ad_set_budget",
+    "update_campaign_budget",
+    "update_campaign_group_spend_cap",
+  ],
+  // STATUS category per doc
+  STATUS: [
+    "ad_account_update_status",
+    "update_ad_run_status",
+    "update_ad_run_status_to_be_set_after_review",
+    "update_ad_set_run_status",
+    "update_campaign_run_status",
+  ],
+  // ACCOUNT category per doc
+  ACCOUNT: [
+    "ad_review_approved",
+    "ad_review_declined",
+    "ad_account_set_business_information",
+    "ad_account_update_status",
+    "ad_account_add_user_to_role",
+    "ad_account_remove_user_from_role",
+    "add_images",
+    "edit_images",
+  ],
+  // TARGETING category per doc
+  TARGETING: [
+    "update_ad_set_target_spec",
+    "update_ad_targets_spec",
+  ],
+  // AUDIENCE category per doc
+  AUDIENCE: [
+    "create_audience",
+    "update_audience",
+    "delete_audience",
+    "share_audience",
+    "receive_audience",
+    "unshare_audience",
+    "remove_shared_audience",
+    "update_adgroup_stop_delivery",
+  ],
+};
+
+function getActivityIcon(event_type) {
+  if (!event_type) return "fa-clock-rotate-left";
+  const t = event_type.toLowerCase();
+  if (t.includes("create")) return "fa-plus";
+  if (t.includes("approved")) return "fa-check";
+  if (t.includes("declined") || t.includes("failed")) return "fa-xmark";
+  if (t.includes("budget") || t.includes("billing") || t.includes("funding") || t.includes("spend")) return "fa-wallet";
+  if (t.includes("run_status") || t.includes("update_status")) return "fa-toggle-on";
+  if (t.includes("target") || t.includes("audience")) return "fa-crosshairs";
+  if (t.includes("bid")) return "fa-gavel";
+  if (t.includes("creative") || t.includes("image")) return "fa-image";
+  if (t.includes("user") || t.includes("role")) return "fa-user-gear";
+  if (t.includes("schedule") || t.includes("duration")) return "fa-calendar-days";
+  if (t.includes("name")) return "fa-pencil";
+  return "fa-clock-rotate-left";
+}
+
+// Infer the correct object type label from event_type (more accurate than API's object_type field)
+function inferTypeLabel(event_type, object_type) {
+  const et = (event_type || "").toLowerCase();
+
+  // Ad Set events — API often wrongly returns object_type=CAMPAIGN for these
+  if (
+    et.startsWith("create_ad_set") ||
+    et.startsWith("update_ad_set_")
+  ) return "Ad Set";
+
+  // Campaign events
+  if (
+    et.startsWith("create_campaign") ||
+    et.startsWith("update_campaign_")
+  ) return "Campaign";
+
+  // Ad events
+  if (
+    et === "create_ad" ||
+    et.startsWith("update_ad_") ||
+    et.startsWith("edit_and_update_ad") ||
+    et === "ad_review_approved" ||
+    et === "ad_review_declined" ||
+    et === "update_ad_run_status_to_be_set_after_review"
+  ) return "Ad";
+
+  // Audience events
+  if (et.includes("audience")) return "Audience";
+
+  // Account events
+  if (et.startsWith("ad_account_") || et === "add_images" || et === "edit_images") return "Account";
+
+  // Fallback to API-provided object_type
+  if (!object_type) return "";
+  const map = { ADGROUP: "Ad Set", AD_SET: "Ad Set", AD: "Ad", CAMPAIGN: "Campaign", ACCOUNT: "Account" };
+  return map[object_type.toUpperCase()] || "";
+}
+
+// Convert event_type to short action phrase
+function actionPhrase(event_type, translated) {
+  if (!event_type) return translated || "updated";
+  const t = event_type.toLowerCase();
+  if (t.includes("create")) return "created";
+  if (t.includes("approved")) return "approved ad";
+  if (t.includes("declined")) return "declined ad";
+  if (t.includes("update_ad_set_budget") || t.includes("update_campaign_budget")) return "updated budget for";
+  if (t.includes("budget")) return "updated budget for";
+  if (t.includes("run_status")) return "changed status of";
+  if (t.includes("target_spec") || t.includes("target")) return "updated targeting of";
+  if (t.includes("bidding") || t.includes("bid_strategy") || t.includes("bid_info")) return "updated bidding of";
+  if (t.includes("name")) return "renamed";
+  if (t.includes("schedule") || t.includes("duration")) return "updated schedule of";
+  if (t.includes("creative")) return "updated creative of";
+  if (t.includes("optimization")) return "changed optimization of";
+  if (t.includes("audience")) return "modified audience";
+  if (t.includes("user") || t.includes("role")) return "changed user role";
+  if (t.includes("billing") || t.includes("funding")) return "billing event";
+  if (t.includes("add_images") || t.includes("edit_images")) return "edited images";
+  return (translated || event_type.replace(/_/g, " ")).toLowerCase();
+}
+
+function formatActivityTime(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  const now = new Date();
+  const diffMins = Math.floor((now - d) / 60000);
+  if (diffMins < 1) return "just now";
+  if (diffMins < 60) return `${diffMins}m ago`;
+  const diffHrs = Math.floor(diffMins / 60);
+  if (diffHrs < 24) return `${diffHrs}h ago`;
+  const diffDays = Math.floor(diffHrs / 24);
+  if (diffDays < 7) return `${diffDays}d ago`;
+  return d.toLocaleDateString("vi-VN", { day: "2-digit", month: "2-digit", year: "numeric" });
+}
+
+function renderActivityRow(item) {
+  const icon = getActivityIcon(item.event_type);
+  const actor = item.actor_name || "";
+  const action = actionPhrase(item.event_type, item.translated_event_type);
+  const objName = item.object_name || "";
+  const objType = inferTypeLabel(item.event_type, item.object_type);
+  const timeStr = formatActivityTime(item.event_time);
+  const dtLocal = item.date_time_in_timezone || "";
+
+  // Infer clickability: clickable if we can tell it's a Campaign/AdSet/Ad
+  const inferredType = inferTypeLabel(item.event_type, item.object_type);
+  const isClickable = ["Campaign", "Ad Set", "Ad"].includes(inferredType);
+  const objHtml = objName
+    ? `<span class="act_obj ${isClickable ? 'clickable' : ''}" 
+        ${isClickable ? `onclick="navigateToAdObject('${item.object_id}', '${objName.replace(/'/g, "\\'")}', '${item.object_type}')"` : ''}
+        title="Click to view details">${objName}</span>`
+    : "";
+
+  // Simple gray icons as requested
+  const iconColor = "#94a3b8";
+  const iconBg = "#f1f5f9";
+
+  return `
+    <div class="activity_row premium_row">
+      <div class="activity_icon" style="background: ${iconBg}; color: ${iconColor};">
+        <i class="fa-solid ${icon}"></i>
+      </div>
+      <div class="activity_body">
+        <div class="activity_sentence">
+          <span class="act_actor">${actor}</span>
+          <span class="act_action"> ${action} </span>${objHtml}${objType ? `<span class="act_type_badge">${objType}</span>` : ""}
+        </div>
+        <div class="activity_meta">
+          ${dtLocal ? `<span><i class="fa-regular fa-clock"></i> ${dtLocal}</span>` : ""}
+          ${item.object_id ? `<span class="act_id_small"><i class="fa-solid fa-fingerprint"></i> ID: ${item.object_id}</span>` : ""}
+        </div>
+      </div>
+      <div class="activity_time">${timeStr}</div>
+    </div>
+  `;
+}
+
+
+function renderActivityList(items) {
+  const container = document.getElementById("activity_log_list");
+  if (!container) return;
+
+  // 1. Filter out system/Meta actor
+  let display = items.filter(item => {
+    const a = (item.actor_name || "").trim();
+    return a.length > 0 && a.toLowerCase() !== "meta";
+  });
+
+  // 2. Client-side category filter
+  if (_activityCategory && ACTIVITY_CATEGORY_MAP[_activityCategory]) {
+    const allowed = new Set(ACTIVITY_CATEGORY_MAP[_activityCategory]);
+    display = display.filter(item => allowed.has(item.event_type));
+  }
+
+  const html = display.map(renderActivityRow).join("");
+  container.innerHTML = html || `
+    <div style="text-align:center;padding:4rem 2rem;color:#94a3b8;font-size:1.3rem;background:#f8fafc;border-radius:12px;border:1.5px dashed #e2e8f0;margin:1rem 0;">
+      <i class="fa-solid fa-inbox" style="font-size:3rem;display:block;margin-bottom:1.5rem;color:#cbd5e1;"></i>
+      No activities found for this category.
+      <p style="font-size:1.1rem;margin-top:0.5rem;color:#cbd5e1;">Try a different filter or load more entries.</p>
+    </div>`;
+}
+
+function handleActivitySearch(val) {
+  // Disabling search for now as requested
+}
+
+function navigateToAdObject(id, name, type) {
+  // 1. Switch to Campaign details view via the menu
+  const menuItems = document.querySelectorAll(".dom_menu li");
+  let detailLi = null;
+  menuItems.forEach(li => {
+    if (li.dataset.view === "ad_detail") detailLi = li;
+  });
+
+  if (detailLi) {
+    detailLi.click();
+
+    // 2. Clear then Fill search filter in that view
+    const filterInput = document.getElementById("filter");
+    if (filterInput) {
+      filterInput.value = id || name;
+      // Trigger the filter logic
+      applyCampaignFilter(id || name);
+
+      // 3. Smooth scroll to the table area
+      setTimeout(() => {
+        const targetView = document.querySelector(".view_campaign");
+        if (targetView) {
+          targetView.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+          // 4. Subtle visual feedback (highlighting matches)
+          setTimeout(() => {
+            const rows = document.querySelectorAll(".view_campaign_box .campaign_main");
+            rows.forEach(r => {
+              if (r.innerText.includes(id) || r.innerText.includes(name)) {
+                r.style.backgroundColor = "rgba(245, 158, 11, 0.12)";
+                r.style.transition = "background-color 0.4s";
+                setTimeout(() => r.style.backgroundColor = "", 2500);
+              }
+            });
+          }, 600);
+        }
+      }, 300);
+    }
+  }
+}
+
+function setActivityCategory(btn) {
+  document.querySelectorAll(".act_chip").forEach(c => c.classList.remove("active"));
+  btn.classList.add("active");
+  _activityCategory = btn.dataset.category || "";
+  // Client-side filter: re-render from already-fetched data — no new API call needed
+  renderActivityList(_activityAllData, false);
+  // Update badge count to reflect filtered total
+  const allowed = _activityCategory && ACTIVITY_CATEGORY_MAP[_activityCategory]
+    ? new Set(ACTIVITY_CATEGORY_MAP[_activityCategory])
+    : null;
+  const filteredCount = allowed
+    ? _activityAllData.filter(i => allowed.has(i.event_type)).length
+    : _activityAllData.length;
+  const badge = document.getElementById("activity_count_badge");
+  if (badge) {
+    badge.textContent = `${filteredCount}${_activityHasMore ? "+" : ""} entries`;
+  }
+}
+
+async function loadAccountActivities(reset = false) {
+  if (_activityLoading) return;
+  _activityLoading = true;
+
+  const btn = document.getElementById("activity_refresh_btn");
+  if (btn) btn.innerHTML = `<i class="fa-solid fa-rotate-right fa-spin"></i> Loading…`;
+
+  if (reset) {
+    _activityAllData = [];
+    _activityCursor = null;
+    _activityHasMore = false;
+    const container = document.getElementById("activity_log_list");
+    if (container) container.innerHTML = `<div class="activity_skeleton"></div><div class="activity_skeleton"></div><div class="activity_skeleton"></div>`;
+    document.getElementById("activity_load_more_wrap").style.display = "none";
+  }
+
+  try {
+    const fields = "actor_id,actor_name,event_time,event_type,object_id,object_name,object_type,translated_event_type,date_time_in_timezone";
+    const limit = 30;
+
+    // Fetch ALL events — API ignores event_type filter so we filter client-side
+    let url = `${BASE_URL}/act_${ACCOUNT_ID}/activities?fields=${fields}&limit=${limit}&access_token=${META_TOKEN}`;
+    if (_activityCursor) {
+      url += `&after=${encodeURIComponent(_activityCursor)}`;
+    }
+
+    const res = await fetchJSON(url);
+    const newItems = res.data || [];
+    _activityAllData.push(...newItems);
+
+    // Paging
+    const paging = res.paging || {};
+    const nextCursor = paging.cursors?.after || null;
+    const hasNextPage = !!(paging.next);
+    _activityCursor = hasNextPage ? nextCursor : null;
+    _activityHasMore = hasNextPage;
+
+    // Update badge (total fetched)
+    const badge = document.getElementById("activity_count_badge");
+    if (badge) {
+      badge.textContent = `${_activityAllData.length}${_activityHasMore ? "+" : ""} entries`;
+      badge.style.display = "inline-block";
+    }
+
+    // Render (client-side filter applied inside renderActivityList)
+    renderActivityList(_activityAllData, false);
+
+    // Load more button
+    const wrap = document.getElementById("activity_load_more_wrap");
+    if (wrap) wrap.style.display = _activityHasMore ? "block" : "none";
+
+  } catch (err) {
+    console.error("❌ Failed to load activities:", err);
+    const container = document.getElementById("activity_log_list");
+    if (!container) return;
+
+    const isPermissionErr = err?.message?.includes("Code: 200") || err?.message?.includes("200");
+    if (isPermissionErr) {
+      container.innerHTML = `
+        <div style="text-align:center;padding:3.5rem 2rem;background:#fffbeb;border-radius:14px;border:1.5px solid #fde68a;margin:1rem 0;">
+          <i class="fa-solid fa-lock" style="font-size:3rem;display:block;margin-bottom:1.2rem;color:#f59e0b;"></i>
+          <p style="font-size:1.4rem;font-weight:700;color:#92400e;margin:0 0 0.5rem;">Permission Required: <code>ads_management</code></p>
+          <p style="font-size:1.15rem;color:#78350f;margin:0 0 1.5rem;">The current access token only has <b>ads_read</b>.<br>
+          The <b>/activities</b> endpoint requires <b>ads_management</b> permission.</p>
+          <div style="background:#fff8e7;border-radius:10px;padding:1.2rem 1.6rem;text-align:left;max-width:500px;margin:0 auto;font-size:1.1rem;color:#78350f;line-height:1.8;">
+            <b>Cách lấy token mới:</b><br>
+            1. Vào <a href="https://developers.facebook.com/tools/explorer/" target="_blank" style="color:#d97706;">Graph API Explorer</a><br>
+            2. Chọn <b>User Token</b> → Add permission: <code>ads_management</code><br>
+            3. Generate Token → cập nhật vào <code>token.js</code>
+          </div>
+        </div>`;
+    } else {
+      container.innerHTML = `
+        <div style="text-align:center;padding:3rem;color:#ef4444;font-size:1.3rem;background:#fef2f2;border-radius:12px;border:1.5px dashed #fca5a5;margin:1rem 0;">
+          <i class="fa-solid fa-triangle-exclamation" style="font-size:2.5rem;display:block;margin-bottom:1rem;"></i>
+          Failed to load activities.<br>
+          <span style="font-size:1rem;color:#b91c1c;">${err?.message || "Unknown error"}</span>
+        </div>`;
+    }
+  } finally {
+    _activityLoading = false;
+    const b = document.getElementById("activity_refresh_btn");
+    if (b) b.innerHTML = `<i class="fa-solid fa-rotate-right"></i> Refresh`;
+  }
+}
+
+async function loadMoreActivities() {
+  if (!_activityHasMore || _activityLoading) return;
+  const btn = document.getElementById("activity_load_more_btn");
+  if (btn) btn.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> Loading…`;
+  await loadAccountActivities(false);
+  if (btn) btn.innerHTML = `<i class="fa-solid fa-chevron-down"></i> Load more`;
+}
+
+// Auto-load when ad account section becomes visible (triggered from loadDashboardData / tab switch)
+window.loadAccountActivities = loadAccountActivities;
+window.loadMoreActivities = loadMoreActivities;
+window.setActivityCategory = setActivityCategory;
+window.handleActivitySearch = handleActivitySearch;
+window.navigateToAdObject = navigateToAdObject;
+
+// ================================================================
+// =================== KEYBOARD SHORTCUTS =========================
+// ================================================================
+(function initKeyboardShortcuts() {
+  const isMac = navigator.platform.toUpperCase().includes("MAC");
+  const mod = isMac ? "⌘" : "Ctrl";
+
+  const SHORTCUTS = [
+    { keys: ["?"], desc: "Show keyboard shortcuts", group: "General" },
+    { keys: [mod, "Shift", "S"], desc: "Share current view URL", group: "General" },
+    { keys: [mod, "E"], desc: "Export CSV", group: "General" },
+    { keys: [mod, "K"], desc: "Focus brand filter / search", group: "Navigation" },
+    { keys: ["Esc"], desc: "Close panel / modal", group: "Navigation" },
+    { keys: ["ArrowDown"], desc: "Expand next campaign", group: "Navigation" },
+    { keys: ["ArrowUp"], desc: "Collapse / go to previous", group: "Navigation" },
+    { keys: [mod, "ArrowRight"], desc: "Shift date range forward 7 days", group: "Date" },
+    { keys: [mod, "ArrowLeft"], desc: "Shift date range back 7 days", group: "Date" },
+    { keys: [mod, "1"], desc: "Quick range: Today", group: "Date" },
+    { keys: [mod, "2"], desc: "Quick range: Last 7 days", group: "Date" },
+    { keys: [mod, "3"], desc: "Quick range: Last 30 days", group: "Date" },
+    { keys: [mod, "4"], desc: "Quick range: This month", group: "Date" },
+    { keys: [mod, "5"], desc: "Quick range: Last month", group: "Date" },
+    { keys: [mod, "R"], desc: "Refresh data", group: "Data" },
+    { keys: [mod, "Shift", "R"], desc: "Reset all filters", group: "Data" },
+    { keys: [mod, "Shift", "A"], desc: "Expand all campaigns", group: "Campaigns" },
+    { keys: [mod, "Shift", "C"], desc: "Collapse all campaigns", group: "Campaigns" },
+  ];
+
+  // ── Build and inject the help modal ─────────────────────────
+  function buildShortcutModal() {
+    const el = document.getElementById("kb_shortcut_modal");
+    if (el) return;
+
+    const groups = {};
+    SHORTCUTS.forEach(s => {
+      if (!groups[s.group]) groups[s.group] = [];
+      groups[s.group].push(s);
+    });
+
+    const rows = Object.entries(groups).map(([gname, items]) => `
+      <div class="kb_group">
+        <p class="kb_group_title">${gname}</p>
+        ${items.map(s => `
+          <div class="kb_row">
+            <span class="kb_desc">${s.desc}</span>
+            <span class="kb_keys">${s.keys.map(k => `<kbd>${k}</kbd>`).join(" + ")}</span>
+          </div>`).join("")}
+      </div>`).join("");
+
+    const modal = document.createElement("div");
+    modal.id = "kb_shortcut_modal";
+    modal.innerHTML = `
+      <div class="kb_backdrop"></div>
+      <div class="kb_panel box_shadow">
+        <div class="kb_header">
+          <h3><i class="fa-solid fa-keyboard"></i> Keyboard Shortcuts</h3>
+          <span class="kb_os_badge">${isMac ? "macOS" : "Windows"}</span>
+          <button class="kb_close"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div class="kb_body">${rows}</div>
+      </div>`;
+    document.body.appendChild(modal);
+    modal.querySelector(".kb_close").addEventListener("click", closeShortcutModal);
+    modal.querySelector(".kb_backdrop").addEventListener("click", closeShortcutModal);
+  }
+
+  function openShortcutModal() { buildShortcutModal(); document.getElementById("kb_shortcut_modal")?.classList.add("active"); }
+  function closeShortcutModal() { document.getElementById("kb_shortcut_modal")?.classList.remove("active"); }
+  function toggleShortcutModal() { document.getElementById("kb_shortcut_modal")?.classList.contains("active") ? closeShortcutModal() : openShortcutModal(); }
+
+  document.getElementById("kb_shortcut_btn")?.addEventListener("click", toggleShortcutModal);
+
+  // ── Keyboard listener ────────────────────────────────────────
+  document.addEventListener("keydown", (e) => {
+    // Don't fire inside inputs
+    const tag = document.activeElement?.tagName;
+    const inInput = tag === "INPUT" || tag === "TEXTAREA" || document.activeElement?.isContentEditable;
+
+    const ctrl = isMac ? e.metaKey : e.ctrlKey;
+    const shift = e.shiftKey;
+    const key = e.key;
+
+    // ? → toggle shortcuts
+    if (!inInput && key === "?") { e.preventDefault(); toggleShortcutModal(); return; }
+
+    // Esc → close panels/modals
+    if (key === "Escape") {
+      closeShortcutModal();
+      document.getElementById("dom_detail")?.classList.remove("active");
+      document.querySelector(".dom_overlay")?.classList.remove("active");
+      return;
+    }
+
+    if (inInput) return;
+
+    // Ctrl/Cmd + Shift + S → Share
+    if (ctrl && shift && key.toLowerCase() === "s") { e.preventDefault(); shareCurrentView(); return; }
+
+    // Ctrl/Cmd + K → focus brand filter
+    if (ctrl && key.toLowerCase() === "k") {
+      e.preventDefault();
+      const filterToggle = document.querySelector(".dom_select.quick_filter_detail");
+      filterToggle?.click();
+      return;
+    }
+
+    // Ctrl/Cmd + E → export CSV
+    if (ctrl && key.toLowerCase() === "e") {
+      e.preventDefault();
+      document.getElementById("export_csv_btn")?.click();
+      return;
+    }
+
+    // Ctrl/Cmd + R → refresh
+    if (ctrl && !shift && key.toLowerCase() === "r") {
+      e.preventDefault();
+      if (typeof loadDashboardData === "function") loadDashboardData();
+      return;
+    }
+
+    // Ctrl/Cmd + Shift + R → reset all filters
+    if (ctrl && shift && key.toLowerCase() === "r") {
+      e.preventDefault();
+      document.querySelector(".btn_reset_all")?.click();
+      return;
+    }
+
+    // Ctrl/Cmd + Shift + A → expand all campaigns
+    if (ctrl && shift && key.toLowerCase() === "a") {
+      e.preventDefault();
+      document.querySelectorAll(".campaign_item:not(.show)").forEach(el => el.classList.add("show"));
+      document.querySelectorAll(".adset_item:not(.show)").forEach(el => el.classList.add("show"));
+      return;
+    }
+
+    // Ctrl/Cmd + Shift + C → collapse all
+    if (ctrl && shift && key.toLowerCase() === "c") {
+      e.preventDefault();
+      document.querySelectorAll(".campaign_item.show, .adset_item.show").forEach(el => el.classList.remove("show"));
+      return;
+    }
+
+    // Ctrl/Cmd + Arrow → shift date range
+    if (ctrl && !shift && (key === "ArrowRight" || key === "ArrowLeft")) {
+      e.preventDefault();
+      shiftDateRange(key === "ArrowRight" ? 7 : -7);
+      return;
+    }
+
+    // Ctrl/Cmd + 1-5 → quick date ranges
+    if (ctrl && !shift) {
+      const rangeMap = { "1": "today", "2": "last_7days", "3": "last_30days", "4": "this_month", "5": "last_month" };
+      if (rangeMap[key]) {
+        e.preventDefault();
+        applyQuickRange(rangeMap[key]);
+        return;
+      }
+    }
+
+    // Arrow keys → navigate campaigns
+    if (key === "ArrowDown" || key === "ArrowUp") {
+      e.preventDefault();
+      navigateCampaigns(key === "ArrowDown" ? 1 : -1);
+    }
+  });
+
+  // ── Helper: shift date ────────────────────────────────────────
+  function shiftDateRange(days) {
+    if (!window.startDate || !window.endDate) return;
+    const s = new Date(startDate + "T00:00:00");
+    const en = new Date(endDate + "T00:00:00");
+    s.setDate(s.getDate() + days);
+    en.setDate(en.getDate() + days);
+    const fmt = d => d.toISOString().split("T")[0];
+    startDate = fmt(s);
+    endDate = fmt(en);
+    if (typeof loadDashboardData === "function") loadDashboardData();
+    showToast(`📅 ${startDate} → ${endDate}`, 2000);
+  }
+
+  function applyQuickRange(id) {
+    if (typeof getDateRange !== "function") return;
+    const r = getDateRange(id);
+    if (!r) return;
+    startDate = r.start;
+    endDate = r.end;
+    if (typeof loadDashboardData === "function") loadDashboardData();
+    showToast(`📅 ${startDate} → ${endDate}`, 2000);
+  }
+
+  let _kbFocusedIdx = -1;
+  function navigateCampaigns(dir) {
+    const items = [...document.querySelectorAll(".campaign_item .campaign_main")];
+    if (!items.length) return;
+    _kbFocusedIdx = Math.min(Math.max(0, _kbFocusedIdx + dir), items.length - 1);
+    items[_kbFocusedIdx]?.scrollIntoView({ behavior: "smooth", block: "center" });
+    items[_kbFocusedIdx]?.closest(".campaign_item")?.classList.add("show");
+  }
+})();
+
+// ================================================================
+// =================== SHARE URL FEATURE ==========================
+// ================================================================
+function shareCurrentView() {
+  const url = new URL(window.location.href);
+  url.searchParams.set("since", startDate || "");
+  url.searchParams.set("until", endDate || "");
+  if (CURRENT_CAMPAIGN_FILTER && CURRENT_CAMPAIGN_FILTER.toUpperCase() !== "RESET") {
+    url.searchParams.set("brand", CURRENT_CAMPAIGN_FILTER);
+  } else {
+    url.searchParams.delete("brand");
+  }
+  const shareUrl = url.toString();
+  navigator.clipboard.writeText(shareUrl).then(() => {
+    showToast("🔗 Link copied! Date range & brand filter included.", 3000);
+  }).catch(() => {
+    // Fallback for non-https
+    prompt("Copy this link:", shareUrl);
+  });
+  // Update browser URL without reload
+  window.history.replaceState({}, "", shareUrl);
+}
+
+// Auto-restore state from URL params on load
+(function restoreStateFromURL() {
+  const params = new URLSearchParams(window.location.search);
+  const since = params.get("since");
+  const until = params.get("until");
+  const brand = params.get("brand");
+
+  if (since && until) {
+    // Will be applied after initDashboard sets defaults
+    window._URL_RESTORE = { since, until, brand: brand || "" };
+  }
+})();
+
+// Hook into initDashboard to restore URL params after init
+const _origInitDashboard = typeof initDashboard === "function" ? initDashboard : null;
+if (_origInitDashboard) {
+  window.initDashboard = function () {
+    _origInitDashboard.call(this);
+    if (window._URL_RESTORE) {
+      const { since, until, brand: brandFilter } = window._URL_RESTORE;
+      startDate = since;
+      endDate = until;
+      // Defer until after first data load
+      window._URL_RESTORE_BRAND = brandFilter;
+      showToast(`🔗 Restored view: ${since} → ${until}${brandFilter ? " | Brand: " + brandFilter : ""}`, 4000);
+    }
+  };
+}
+
+// Patch loadDashboardData to apply brand after data loads
+const _origLoadDashboardData = typeof loadDashboardData === "function" ? loadDashboardData : null;
+if (_origLoadDashboardData) {
+  window.loadDashboardData = async function (...args) {
+    await _origLoadDashboardData.apply(this, args);
+    if (window._URL_RESTORE_BRAND !== undefined) {
+      const b = window._URL_RESTORE_BRAND;
+      window._URL_RESTORE_BRAND = undefined;
+      if (b && typeof applyCampaignFilter === "function") {
+        await applyCampaignFilter(b);
+      }
+    }
+  };
+}
+
+// Wire up Share button
+document.getElementById("share_url_btn")?.addEventListener("click", shareCurrentView);
+
+// ── Toast notification utility ────────────────────────────────
+function showToast(msg, duration = 2500) {
+  let toast = document.getElementById("kb_toast");
+  if (!toast) {
+    toast = document.createElement("div");
+    toast.id = "kb_toast";
+    document.body.appendChild(toast);
+  }
+  toast.textContent = msg;
+  toast.classList.add("show");
+  clearTimeout(toast._timer);
+  toast._timer = setTimeout(() => toast.classList.remove("show"), duration);
+}
 
