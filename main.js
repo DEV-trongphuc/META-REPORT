@@ -2608,6 +2608,11 @@ async function main() {
     const gadsItem = document.getElementById("gads_menu_item");
     if (gadsTitle) gadsTitle.style.display = "none";
     if (gadsItem) gadsItem.style.display = "none";
+
+    // 📌 Đẩy nút Share ra ngoài cùng bên phải trong pill toolbar
+    const shareBtn = document.getElementById("share_url_btn");
+    const actionsGroup = document.querySelector(".toolbar_actions_group");
+    if (shareBtn && actionsGroup) actionsGroup.appendChild(shareBtn);
   }
 
   // 🚩 Xử lý ẩn Brand Filter nếu BRAND_FILTER_SETUP là false

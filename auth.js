@@ -218,9 +218,10 @@
     }
 
     function _showRequested() {
+        const adminLabel = _maskedAdmin();
         _html(_card(`
             ${_icon("fa-solid fa-paper-plane", "linear-gradient(135deg,#ffa900,#d88200)")}
-            ${_title("Đã gửi yêu cầu!", "Yêu cầu đã được ghi nhận. Admin sẽ phê duyệt sớm nhất có thể.")}
+            ${_title("Đã gửi yêu cầu!", `Yêu cầu đã được ghi nhận. Admin sẽ phê duyệt sớm nhất có thể.<br><span style="font-size:1.1rem;color:#94a3b8;margin-top:.5rem;display:block;">Phê duyệt bởi <b style="color:#64748b;">${adminLabel}</b></span>`)}
             ${_outBtn()}`));
     }
 
