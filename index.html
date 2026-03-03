@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 
 <head>
@@ -25,6 +25,135 @@
 </head>
 
 <body>
+  <!-- ⚙️ Column Settings Modal -->
+  <div id="column_settings_modal" class="ai_modal_overlay" style="display: none;">
+    <div class="ai_modal_box" style="width: 85rem;">
+      <div
+        style="padding: 2rem 3rem; background: #f8f9fa; border-bottom: 1px solid #eee; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem;">
+        <!-- Title area: thường thì icon+h2, khi edit preset thì ẩn h2 và hiện name input tại đây -->
+        <div id="col_modal_title_area" style="display:flex; align-items:center; gap:1rem;">
+          <i class="fa-solid fa-table-columns main_clr" style="font-size:2rem;"></i>
+          <h2 id="col_modal_title" style="font-size:2rem; margin:0;">Tùy chỉnh cột hiển thị</h2>
+          <!-- Preset name input — ẩn mặc định, hiện khi create/edit preset tại chỗ title -->
+          <div id="preset_edit_banner" style="display:none; align-items:center; gap:0.8rem;
+            background:#fffbeb; border:1.5px solid #fde68a; border-radius:0.9rem;
+            padding:0.5rem 1.2rem;">
+            <i class="fa-solid fa-pen-to-square" style="color:#f59e0b;"></i>
+            <input id="preset_edit_name_input" type="text" maxlength="40" style="border:none; outline:none; font-size:1.5rem; font-weight:700;
+                color:#78350f; background:transparent; min-width:16rem;
+                border-bottom:2px solid #f59e0b; padding:0.2rem 0.4rem;" placeholder="Nhập tên preset..." />
+          </div>
+        </div>
+
+        <!-- Preset select + save-as-preset (hiện khi không edit) -->
+        <div id="col_modal_preset_controls" style="display:flex; align-items:center; gap:0.8rem; flex-wrap:wrap;">
+          <div style="display:flex; align-items:center; gap:0.5rem; background:#fff;
+            border:1.5px solid #e2e8f0; border-radius:0.8rem; padding:0.4rem 1rem;">
+            <i class="fa-solid fa-layer-group" style="color:#f59e0b; font-size:1.2rem;"></i>
+            <select id="preset_select" style="border:none; outline:none; font-size:1.2rem; color:#374151;
+                background:transparent; cursor:pointer; min-width:13rem;"
+              onchange="window.applyViewPreset(this.value)">
+              <option value="">-- Chọn preset --</option>
+            </select>
+          </div>
+          <button onclick="window.saveCurrentAsPreset()" style="padding:0.6rem 1.2rem; border-radius:0.7rem; border:1.5px solid #f59e0b;
+              background:#fffbeb; color:#b45309; font-size:1.2rem; font-weight:600;
+              cursor:pointer; display:flex; align-items:center; gap:0.4rem; white-space:nowrap;">
+            <i class="fa-solid fa-floppy-disk"></i> Lưu làm Preset
+          </button>
+        </div>
+
+        <i class="fa-solid fa-xmark" id="close_column_settings"
+          style="cursor: pointer; font-size: 2rem; color: #999;"></i>
+      </div>
+
+      <div
+        style="flex: 1; overflow-y: auto; padding: 3rem; display: grid; grid-template-columns: 1fr 1.2fr; gap: 3rem;">
+
+        <!-- Left: Metrics Selection -->
+        <div style="display: flex; flex-direction: column; gap: 2rem;">
+          <div>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem;">
+              <h3 style="font-size: 1.6rem; color: #333; font-weight: 700; margin:0;">Metrics khả dụng</h3>
+              <div style="display:flex; gap:1.2rem;">
+                <button onclick="window.selectAllMetrics()"
+                  style="background:transparent; border:none; color:var(--mainClr); font-weight:600; cursor:pointer; font-size:1.3rem;">Chọn
+                  hết</button>
+                <button onclick="window.deselectAllMetrics()"
+                  style="background:transparent; border:none; color:#666; font-weight:500; cursor:pointer; font-size:1.3rem;">Bỏ
+                  hết</button>
+              </div>
+            </div>
+
+            <!-- 🔍 SEARCH BAR -->
+            <div style="position: relative; margin-bottom: 1.5rem;">
+              <i class="fa-solid fa-magnifying-glass"
+                style="position: absolute; left: 1.2rem; top: 50%; transform: translateY(-50%); color: #94a3b8; font-size: 1.3rem;"></i>
+              <input type="text" id="metric_search_input" placeholder="Tìm kiếm metric..."
+                style="width: 100%; padding: 1.1rem 1.2rem 1.1rem 3.4rem; border: 1.8px solid #e2e8f0; border-radius: 1.1rem; font-size: 1.35rem; transition:all .2s; outline:none;"
+                onfocus="this.style.borderColor='var(--mainClr)'; this.style.boxShadow='0 0 0 3px rgba(255,169,0,0.1)';"
+                onblur="this.style.borderColor='#e2e8f0'; this.style.boxShadow='none';"
+                oninput="window.filterAvailableMetrics(this.value)">
+            </div>
+
+            <div id="available_metrics_list"
+              style="display: flex; flex-wrap: wrap; gap: 0.8rem; max-height: 30rem; overflow-y: auto; padding-right: 1rem;">
+              <!-- JS populated -->
+            </div>
+          </div>
+
+          <div style="padding-top: 2rem; border-top: 1px solid #eee;">
+            <h3 style="font-size: 1.6rem; margin-bottom: 1.5rem; color: #333; font-weight: 700;">Thêm Custom Metric</h3>
+            <div style="display: flex; flex-direction: column; gap: 1rem;">
+              <input type="text" id="custom_metric_name" placeholder="Tên metric (VD: CPV)"
+                style="padding: 1.2rem; border: 1.5px solid #ddd; border-radius: 1rem; font-size: 1.3rem;">
+              <div style="position: relative;">
+                <textarea id="custom_metric_formula" placeholder="Công thức (VD: {{spend}} / {{video_view}})"
+                  style="width: 100%; padding: 1.2rem; border: 1.5px solid #ddd; border-radius: 1rem; font-size: 1.3rem; height: 10rem; resize: none;"></textarea>
+                <div style="font-size: 1rem; color: #999; margin-top: 0.5rem;">Sử dụng {{id}} để gọi các metric cơ bản.
+                  Hỗ trợ +, -, *, /, ( )</div>
+              </div>
+              <button id="add_custom_metric_btn" class="ai_report"
+                style="width: fit-content; padding: 1rem 2rem; font-size: 1.3rem;">Tạo Metric</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Right: Active Columns & Reordering -->
+        <div
+          style="background: #fcfcfc; border: 1px solid #f0f0f0; border-radius: 1.5rem; padding: 2rem; display: flex; flex-direction: column; gap: 1.5rem;">
+          <h3 style="font-size: 1.6rem; color: #333; font-weight: 700; display: flex; justify-content: space-between;">
+            Cột đang chọn (Tối đa 15 cột)
+            <small style="font-weight: 400; color: #999; font-size: 1.2rem;">Kéo thả để sắp xếp (sắp tới)</small>
+          </h3>
+          <div id="active_columns_list" style="display: flex; flex-direction: column; gap: 0.8rem;">
+            <!-- JS populated -->
+          </div>
+        </div>
+
+      </div>
+
+      <div
+        style="padding: 2rem 3rem; background: #f8f9fa; border-top: 1px solid #eee; display: flex; justify-content: space-between; align-items:center; gap: 1.5rem;">
+        <div style="display:flex;gap:1rem;">
+          <button id="reset_column_config"
+            style="padding: 1.2rem 2.5rem; border: 1.5px solid #ddd; background: #fff; border-radius: 1rem; cursor: pointer; font-size: 1.4rem; color: #666;">Reset
+            mặc định</button>
+        </div>
+        <div style="display:flex;gap:1rem;">
+          <!-- Cancel edit preset (hidden by default) -->
+          <button id="cancel_edit_preset_btn" onclick="window._cancelEditPreset()" style="display:none;
+            padding:1.2rem 2.5rem; border:1.5px solid #e2e8f0; background:#fff;
+            border-radius:1rem; cursor:pointer; font-size:1.4rem; color:#64748b;">
+            <i class="fa-solid fa-ban"></i> Hủy chỉnh
+          </button>
+          <button id="save_column_config_btn" class="ai_report" style="padding: 1.2rem 4rem; font-size: 1.5rem;">
+            <i class="fa-solid fa-floppy-disk"></i> <span id="save_btn_label">Lưu thay đổi</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
   <section id="dom" class="flex">
     <div class="dom_sidebar box_shadow flex">
       <div class="dom_logo">
@@ -32,7 +161,7 @@
             src="https://raw.githubusercontent.com/DEV-trongphuc/DOM_MISA_IDEAS_CRM/refs/heads/main/Coffee%20Talk%20AI%20LEARNING%20(9).png"
             alt="DOM Report Logo"
           /> -->
-        <img src="./logo.png" alt="DOM Report Logo" />
+        <img src="https://ampersand-reports-dom.netlify.app/DOM-img/DOM_LOGO.png" alt="DOM Report Logo" />
         <i id="mobile_menu" class="fa-solid fa-square-caret-left"></i>
       </div>
       <p class="dom_text_menu">PROJECT VIEW</p>
@@ -52,7 +181,7 @@
         <!-- Dropdown list — được JS render vào khi initAccountSelector() chạy -->
         <ul class="box_shadow"></ul>
       </div>
-      <p class="dom_text_menu">MAIN MENU</p>
+      <p class="dom_text_menu">META REPORT</p>
       <ul class="dom_menu">
         <li class="active" data-view="dashboard">
           <i class="fa-solid fa-chart-column"></i>
@@ -66,7 +195,14 @@
           <i class="fa-solid fa-money-check"></i>
           <span>Ad Account</span>
         </li>
+        <p class="dom_text_menu" id="gads_menu_title">GOOGLE ADS</p>
+        <li class="" data-view="google_ads" id="gads_menu_item">
+          <i class="fa-brands fa-google"></i>
+          <span>Google ads</span>
+        </li>
+
       </ul>
+
       <div class="dom_sidebar_bottom">
         <p class="dom_text_menu">SYSTEM</p>
         <ul class="dom_menu">
@@ -177,14 +313,14 @@
 
           <!-- Bộ lọc Brand (được kéo dài) -->
           <div class="dom_filter">
-            <div class="dom_select quick_filter_detail toolbar_select">
+            <div class="dom_select quick_filter_detail toolbar_select" style="padding-left: 0 !important;">
               <img src="./adset/ampersand/ampersand_img.jpg" />
               <div class="flex">
                 <p class="dom_selected">Ampersand Group</p>
               </div>
               <i class="fa-solid fa-angle-down"></i>
               <ul class="dom_select_show">
-                <!-- <li data-filter="TRB">
+                <li data-filter="TRB">
                   <img src="./adset/ampersand/TRB.jpg" />
                   <span>The Running Bean</span>
                 </li>
@@ -211,7 +347,7 @@
                 <li data-filter="">
                   <img src="./adset/ampersand/ampersand_img.jpg" />
                   <span> Ampersand Filter</span>
-                </li> -->
+                </li>
               </ul>
             </div>
           </div>
@@ -221,70 +357,39 @@
         <!-- 📭 Empty State Card -->
         <div class="dom_empty_state">
           <div class="empty_card">
-            <i class="fa-solid fa-folder-open"></i>
+            <i class="fa-solid fa-chart-pie" style="font-size:4rem;color:#e2e8f0;margin-bottom:1.2rem;"></i>
             <h3>Không có dữ liệu</h3>
-            <p>Không tìm thấy dữ liệu chi phí quảng cáo cho khoảng thời gian hoặc bộ lọc này. Vui lòng thử lại với mốc
-              thời gian khác hoặc xóa bộ lọc.</p>
-            <button class="btn_reset_all">Xóa tất cả bộ lọc</button>
+            <p>Không tìm thấy dữ liệu chi phí quảng cáo cho khoảng thời gian hoặc bộ lọc đã chọn.</p>
+            <div style="display:flex;gap:1rem;justify-content:center;flex-wrap:wrap;margin-top:1.5rem;">
+              <button class="btn_reset_all" style="display:flex;align-items:center;gap:.5rem;">
+                <i class="fa-solid fa-filter-circle-xmark"></i> Xóa tất cả bộ lọc
+              </button>
+              <button onclick="document.querySelector('.time_picker_panel')?.style.setProperty('display','block')"
+                style="display:flex;align-items:center;gap:.5rem;background:#f1f5f9;border:1.5px solid #e2e8f0;padding:.8rem 1.8rem;border-radius:.8rem;cursor:pointer;font-size:1.3rem;font-weight:600;color:#475569;transition:background .15s;"
+                onmouseover="this.style.background='#e2e8f0'" onmouseout="this.style.background='#f1f5f9'">
+                <i class="fa-solid fa-calendar-days"></i> Đổi khoảng thời gian
+              </button>
+            </div>
           </div>
         </div>
 
-        <!-- <div class="dom_row flex sale_report">
-            <i class="fa-solid fa-xmark sale_report_close"></i>
-            <div class="dom_select saleperson_detail">
-              <img src="./adset/ampersand/ampersand_img.jpg" />
-              <div class="flex">
-                <p class="dom_selected">Ampersand</p>
-              </div>
-              <i class="fa-solid fa-angle-down"></i>
-              <ul class="dom_select_show">
-                <li data-date="today" class="">
-                  <img src="./adset/ampersand/TRB.jpg" />
-                  <span>The Running Bean</span>
-                </li>
-                <li data-date="today" class="">
-                  <img src="./adset/ampersand/HD.jpg" />
-                  <span>Häagen-Dazs</span>
-                </li>
-                <li data-date="today" class="">
-                  <img src="./adset/ampersand/BEAN.jpg" />
-                  <span> Be An Vegetarian</span>
-                </li>
-                <li data-date="today" class="">
-                  <img src="./adset/ampersand/Esta.jpg" />
-                  <span> Esta Saigon</span>
-                </li>
-                <li data-date="today" class="">
-                  <img src="./adset/ampersand/LPT.jpg" />
-                  <span> Le Petit</span>
-                </li>
-                <li data-date="today" class="">
-                  <img src="./adset/ampersand/SNOWEE.jpg" />
-                  <span> SNOWEE</span>
-                </li>
-                <li data-date="today" class="">
-                  <img src="./adset/ampersand/ampersand_img.jpg" />
-                  <span> Ampersand</span>
-                </li>
-              </ul>
-            </div>
-            <h4>
-              <i class="fa-solid fa-calendar-days"></i> Detail data:
-              <span class="sale_report_calender">1/1/2025 - 10/1/2025</span>
-            </h4>
-            <div class="toogle_filter box_shadow ai_report_sale">
-              <i class="fa-solid fa-wand-magic-sparkles"></i>
-              <p>AI Summary</p>
-            </div>
-          </div> -->
         <div class="dom_row flex">
-          <div class="dom_inner dom_fade_item w20 box_shadow chart">
+          <div class="dom_inner dom_fade_item w20 box_shadow chart" style="position: relative;">
+            <div class="summary_expand_btn" onclick="openPerformanceDetail()" title="Detailed Performance">
+              <i class="fa-solid fa-chevron-right"></i>
+            </div>
             <div class="dom_total_report">
               <ul>
                 <li class="total_spent">
-                  <span><i class="fa-solid fa-circle-dollar-to-slot"></i>
-                    Spent</span>
+                  <span><i class="fa-solid fa-circle-dollar-to-slot"></i> Spent</span>
                   <p id="spent">
+                    <span>-</span>
+                    <span>-%</span>
+                  </p>
+                </li>
+                <li>
+                  <span><i class="fa-solid fa-eye"></i> Impression</span>
+                  <p id="impression">
                     <span>-</span>
                     <span>-%</span>
                   </p>
@@ -297,17 +402,8 @@
                   </p>
                 </li>
                 <li>
-                  <span><i class="fa-brands fa-facebook-messenger"></i>
-                    Message</span>
+                  <span><i class="fa-brands fa-facebook-messenger"></i> Message</span>
                   <p id="message">
-                    <span>-</span>
-                    <span>-%</span>
-                  </p>
-                </li>
-                <li>
-                  <span><i class="fa-solid fa-bullseye"></i> Lead
-                    Generation</span>
-                  <p id="lead">
                     <span>-</span>
                     <span>-%</span>
                   </p>
@@ -327,17 +423,20 @@
                 </div>
                 <i class="fa-solid fa-angle-down"></i>
                 <ul class="dom_select_show">
-                  <li data-view="lead" class="">
-                    <span class="radio_box"></span> <span>Lead</span>
+                  <li data-view="spend" class="active">
+                    <span class="radio_box active"></span> <span>Spent</span>
                   </li>
-                  <li data-view="spend" class="">
-                    <span class="radio_box"></span> <span>Spent</span>
+                  <li data-view="impression" class="">
+                    <span class="radio_box"></span> <span>Impression</span>
+                  </li>
+                  <li data-view="reach" class="">
+                    <span class="radio_box"></span> <span>Reach</span>
                   </li>
                   <li data-view="message" class="">
                     <span class="radio_box"></span> <span>Message</span>
                   </li>
-                  <li data-view="reach" class="">
-                    <span class="radio_box"></span> <span>Reach</span>
+                  <li data-view="lead" class="">
+                    <span class="radio_box"></span> <span>Lead</span>
                   </li>
                   <li data-view="like" class="">
                     <span class="radio_box"></span> <span>Page Like</span>
@@ -349,26 +448,24 @@
               <canvas id="leadTrendChart"></canvas>
             </div>
           </div>
-          <div class="dom_inner dom_fade_item w35 box_shadow chart full trendline dom_region_inner active">
+          <div class="dom_inner dom_fade_item w35 box_shadow chart full trendline dom_region_inner">
             <h2 class="">
               <span>
-                <i class="fa-solid fa-chart-simple main_clr"></i> Optimization
-                goal</span>
-              <span class="dom_title_button region"><i class="fa-solid fa-repeat"></i> Region Chart</span>
+                <i class="fa-solid fa-chart-simple main_clr"></i> Custom Bar Chart
+              </span>
+              <div style="display:flex;align-items:center;gap:0.8rem;">
+                <span id="goal_chart_mode_toggle" class="dom_title_button" onclick="window.quickToggleGoalChartMode()"
+                  title="Switch: Brand / Keyword">
+                  <i class="fa-solid fa-repeat"></i>
+                  <span id="goal_mode_label">Keyword</span>
+                </span>
+                <i class="fa-solid fa-gear chart_settings_btn" id="goal_settings_btn"
+                  style="cursor: pointer; opacity: 0.5; transition: opacity 0.2s;" onmouseover="this.style.opacity=1"
+                  onmouseout="this.style.opacity=0.5" onclick="openGoalSettings()"></i>
+              </div>
             </h2>
             <div>
               <canvas id="goal_chart"></canvas>
-            </div>
-            <div class="dom_platform_abs">
-              <h2 class="">
-                <span>
-                  <i class="fa-solid fa-chart-simple main_clr"></i> Region
-                  Spent</span>
-                <span class="dom_title_button region"><i class="fa-solid fa-repeat"></i> GOAL Chart</span>
-              </h2>
-              <div id="region_chart_wrap">
-                <canvas id="region_chart"></canvas>
-              </div>
             </div>
           </div>
           <!-- <div class="dom_inner dom_fade_item w35 box_shadow chart">
@@ -392,33 +489,39 @@
                   <span class="live-dot"></span>-/-
                 </span>
               </div>
+              <div class="dom_active_cp">
+                <span>Active Ads</span>
+                <span class="inactive">
+                  <span class="live-dot"></span>-/-
+                </span>
+              </div>
             </div>
             <div class="dom_interaction">
               <h2>Interaction</h2>
               <div class="dom_interaction_item">
+                <div class="dom_interaction_note">
+                  <span>Video Plays</span>
+                  <span class="dom_interaction_video_play"> - </span>
+                </div>
+                <div class="dom_interaction_note">
+                  <span>ThruPlays</span>
+                  <span class="dom_interaction_thruplay"> - </span>
+                </div>
+                <div class="dom_interaction_note">
+                  <span>Link Click</span>
+                  <span class="dom_interaction_link_click"> - </span>
+                </div>
+                <div class="dom_interaction_note">
+                  <span>Post Engagement</span>
+                  <span class="dom_interaction_post_engagement"> - </span>
+                </div>
                 <div class="dom_interaction_note">
                   <span>Reactions</span>
                   <span class="dom_interaction_reaction"> - </span>
                 </div>
                 <div class="dom_interaction_note">
                   <span>Follows</span>
-                  <span class="dom_interaction_like"> - </span>
-                </div>
-                <div class="dom_interaction_note">
-                  <span>Comment</span>
-                  <span class="dom_interaction_comment"> - </span>
-                </div>
-                <div class="dom_interaction_note">
-                  <span>Share</span>
-                  <span class="dom_interaction_share"> - </span>
-                </div>
-                <div class="dom_interaction_note">
-                  <span>Link Clicks</span>
-                  <span class="dom_interaction_click"> - </span>
-                </div>
-                <div class="dom_interaction_note">
-                  <span>Video view</span>
-                  <span class="dom_interaction_view"> - </span>
+                  <span class="dom_interaction_follow"> - </span>
                 </div>
               </div>
             </div>
@@ -449,7 +552,8 @@
                 </div>
                 <div class="dom_platform_item">
                   <p>
-                    <img src="https://freelogopng.com/images/all_img/1664035778meta-icon-png.png" />
+                    <img
+                      src="https://assets.streamlinehq.com/image/private/w_300,h_300,ar_1/f_auto/v1/icons/social-medias/thread-block-logo-1-i73pfbwpt6bmcgvlcae3sc.png/thread-block-logo-1-14s5twxzakpdzka2bufeir.png" />
                     <span> Other Platform</span>
                   </p>
                   <p id="other_spent">-</p>
@@ -470,12 +574,26 @@
               <div class="dom_platform_abs_item dom_toplist"></div>
             </div>
           </div>
-          <div class="dom_inner dom_fade_item w35 box_shadow chart full trendline">
-            <h2>
-              <i class="fa-solid fa-chart-simple main_clr"></i> Age & Gender
+          <div class="dom_inner dom_fade_item w35 box_shadow chart full trendline dom_region_inner"
+            id="region_inner_card">
+            <h2 class="">
+              <span><i class="fa-solid fa-chart-simple main_clr"></i> Age &amp; Gender</span>
+              <span class="dom_title_button region" onclick="toggleRegionView()"><i class="fa-solid fa-repeat"></i>
+                Region Chart</span>
             </h2>
             <div>
               <canvas id="age_gender_total"></canvas>
+            </div>
+            <div class="dom_platform_abs">
+              <h2 class="">
+                <span>
+                  <i class="fa-solid fa-chart-simple main_clr"></i> Region Spent</span>
+                <span class="dom_title_button region" onclick="toggleRegionView()"><i class="fa-solid fa-repeat"></i>
+                  Age &amp; Gender</span>
+              </h2>
+              <div id="region_chart_wrap">
+                <canvas id="region_chart"></canvas>
+              </div>
             </div>
           </div>
         </div>
@@ -502,6 +620,10 @@
                       CAMPAIGNS</span>
                   </li>
                   <li class="">
+                    <span data-view="spent_ads" class="view_quick"></span>
+                    <span><i class="fa-solid fa-coins" style="color:#f59e0b;"></i> Campaign has Spend</span>
+                  </li>
+                  <li class="">
                     <span data-view="lead_ads_goal" class="view_quick"></span>
                     <span><i class="fa-solid fa-bullseye"></i> Lead
                       Campaign</span>
@@ -512,6 +634,22 @@
                       Campaign</span>
                   </li>
                   <li class="">
+                    <span data-view="traffic_ads_goal" class="view_quick"></span>
+                    <span><i class="fa-solid fa-link"></i> Traffic Campaign</span>
+                  </li>
+                  <li class="">
+                    <span data-view="sales_ads_goal" class="view_quick"></span>
+                    <span><i class="fa-solid fa-cart-shopping"></i> Sales Campaign</span>
+                  </li>
+                  <li class="">
+                    <span data-view="video_ads_goal" class="view_quick"></span>
+                    <span><i class="fa-solid fa-circle-play"></i> Video Campaign</span>
+                  </li>
+                  <li class="">
+                    <span data-view="app_ads_goal" class="view_quick"></span>
+                    <span><i class="fa-solid fa-mobile-screen-button"></i> App Promotion</span>
+                  </li>
+                  <li class="">
                     <span data-view="ba_ads_goal" class="view_quick"></span>
                     <span><i class="fa-solid fa-eye"></i> Brand Awareness</span>
                   </li>
@@ -519,6 +657,17 @@
                     <span data-view="engage_ads_goal" class="view_quick"></span>
                     <span><i class="fa-solid fa-thumbs-up"></i> Engagement
                       Page</span>
+                  </li>
+                  <li
+                    style="padding: 0.5rem 1.5rem; font-size: 1.1rem; color: #94a3b8; font-weight: 700; border-top: 1px solid #f1f5f9; margin-top: 0.5rem; text-transform: uppercase; letter-spacing: 0.05em;">
+                    Performance</li>
+                  <li class="">
+                    <span data-view="high_ctr" class="view_quick"></span>
+                    <span><i class="fa-solid fa-chart-line" style="color:#6366f1;"></i> High CTR (>1%)</span>
+                  </li>
+                  <li class="">
+                    <span data-view="high_roas" class="view_quick"></span>
+                    <span><i class="fa-solid fa-sack-dollar" style="color:#10b981;"></i> High ROAS (>2)</span>
                   </li>
                   <li class="">
                     <span data-view="reset" class="view_quick"></span>
@@ -532,40 +681,130 @@
                     </li> -->
                 </ul>
               </div>
+              <!-- ⏳ Status/Ending Filter -->
+              <div class="dom_select status_filter">
+                <div class="flex">
+                  <p class="dom_selected">Sắp kết thúc</p>
+                </div>
+                <i class="fa-solid fa-angle-down"></i>
+                <ul class="dom_select_show">
+                  <li>
+                    <span data-view="ending_1d" class="view_status"></span>
+                    <span><i class="fa-solid fa-hourglass-end status_filter_icon" style="color:#ef4444;"></i><span>Còn 1
+                        ngày</span></span>
+                  </li>
+                  <li>
+                    <span data-view="ending_3d" class="view_status"></span>
+                    <span><i class="fa-solid fa-hourglass-half status_filter_icon" style="color:#f59e0b;"></i><span>Còn
+                        3
+                        ngày</span></span>
+                  </li>
+                  <li>
+                    <span data-view="ended_ads" class="view_status"></span>
+                    <span><i class="fa-solid fa-circle-stop status_filter_icon" style="color:#64748b;"></i><span>Đã kết
+                        thúc</span></span>
+                  </li>
+                  <li class="divider">
+                    <span data-view="reset_status" class="view_status"></span>
+                    <span><i class="fa-solid fa-xmark status_filter_icon"></i><span>Reset bộ lọc</span></span>
+                  </li>
+                </ul>
+              </div>
+              <!-- ⚡ Preset switcher — custom dropdown -->
+              <div id="toolbar_preset_wrap" style="position:relative; margin-left:auto;">
+                <button id="toolbar_preset_btn" onclick="window._togglePresetPanel()" style="display:flex; align-items:center; gap:0.8rem; height:100%;
+                    padding:0.85rem 1.8rem; border:1.5px solid #e2e8f0; border-radius:3rem;
+                    background:#fff; cursor:pointer; font-size:1.25rem; font-weight:600;
+                    color:#374151; white-space:nowrap; transition:all .18s;
+                    min-width:15rem; justify-content:flex-start;
+                    box-shadow:0 1px 3px rgba(0,0,0,0.06);"
+                  onmouseover="this.style.borderColor='#f59e0b';this.style.background='#fffbeb'"
+                  onmouseout="if(!document.getElementById('preset_panel')?.classList.contains('open')){this.style.borderColor='#e2e8f0';this.style.background='#fff'}">
+                  <i class="fa-solid fa-layer-group" style="color:#f59e0b;font-size:1.3rem;"></i>
+                  <span id="toolbar_preset_label" style="flex: 1; text-align: left;">Preset</span>
+                  <i class="fa-solid fa-chevron-down" id="toolbar_preset_chevron"
+                    style="font-size:1rem;color:#94a3b8;transition:transform .2s;"></i>
+                </button>
+                <!-- Dropdown panel -->
+                <div id="preset_panel" style="display:none; position:absolute; top:calc(100% + 0.8rem); right:0;
+                    width:28rem; background:#fff; border:1.5px solid #e8ecf0;
+                    border-radius:1.4rem; box-shadow:0 12px 40px rgba(0,0,0,0.13);
+                    z-index:9999; overflow:hidden;">
+                  <!-- header -->
+                  <div style="padding:1.1rem 1.6rem; background:#f8fafc;
+                    border-bottom:1px solid #f1f5f9;
+                    display:flex; align-items:center; justify-content:space-between;">
+                    <span style="font-size:1.05rem;font-weight:800;color:#94a3b8;
+                      letter-spacing:.08em;text-transform:uppercase;">View Presets</span>
+                    <button onclick="window.saveCurrentAsPreset()" style="border:none;background:#f59e0b;color:#fff;
+                        font-size:1.1rem;font-weight:700;padding:0.4rem 1rem;
+                        border-radius:0.6rem;cursor:pointer;display:flex;
+                        align-items:center;gap:0.4rem;box-shadow:0 2px 8px rgba(245,158,11,.3);
+                        transition:all .15s;" onmouseover="this.style.background='#d97706'"
+                      onmouseout="this.style.background='#f59e0b'">
+                      <i class="fa-solid fa-plus"></i> Thêm mới
+                    </button>
+                  </div>
+                  <!-- preset list -->
+                  <div id="preset_panel_list" style="padding:0.5rem 0;
+                    max-height:30rem; overflow-y:auto;"></div>
+                </div>
+              </div>
+
               <button id="export_csv_btn" class="ai_report"
-                style="margin-left: auto; border: none; font-size: 1.3rem; padding: 1rem 2.5rem; height: auto; display: flex; align-items: center; justify-content: center; gap: 0.8rem;">
+                style="margin-left: 0.8rem; border: none; font-size: 1.3rem; padding: 1rem 2.5rem; height: auto; display: flex; align-items: center; justify-content: center; gap: 0.8rem;">
                 <i class="fa-solid fa-file-csv" style="font-size: 1.8rem;"></i> Export CSV
               </button>
+
             </div>
 
-            <div class="view_campaign_header">
-              <div class="campaign_main">
-                <div class="ads_name">
-                  <p class="ad_name">Ad Name</p>
+            <!-- 📋 Campaign Table Card Wrapper -->
+            <div class="campaign_table_card">
+              <div class="campaign_table_scroll">
+                <div class="view_campaign_header">
+                  <div class="campaign_main">
+                    <div class="ads_name">
+                      <label class="row_checkbox_wrap row_checkbox_wrap--lg" title="Select / Deselect all"
+                        onclick="event.stopPropagation()">
+                        <input type="checkbox" id="select_all_cb" />
+                        <span class="row_checkbox_box"></span>
+                      </label>
+                      <p class="ad_name">Ad Name</p>
+                    </div>
+                    <div class="ad_status">Status</div>
+                    <div class="ad_spent">Spent</div>
+                    <div class="ad_result">Result</div>
+                    <div class="ad_cpr"
+                      title="The CPR of the REACH and IMPRESSION campaigns will be Cost per 1000 results">
+                      Cost per result <i class="fa-solid fa-circle-info"></i>
+                    </div>
+                    <div class="ad_cpm" title="Cost per mile - (1000 reach)">
+                      CPM <i class="fa-solid fa-circle-info"></i>
+                    </div>
+                    <div class="ad_reach">Reach</div>
+                    <div class="ad_frequency">Frequency</div>
+                    <div class="ad_reaction">Reaction</div>
+                    <div class="campaign_view">Insignht</div>
+                  </div>
                 </div>
-                <div class="ad_status">Status</div>
-                <div class="ad_spent">Spent</div>
-                <div class="ad_result">Result</div>
-                <div class="ad_cpr" title="The CPR of the REACH and IMPRESSION campaigns will be Cost per 1000 results">
-                  Cost per result <i class="fa-solid fa-circle-info"></i>
-                </div>
-                <div class="ad_cpm" title="Cost per mile - (1000 reach)">
-                  CPM <i class="fa-solid fa-circle-info"></i>
-                </div>
-                <div class="ad_reach">Reach</div>
-                <div class="ad_frequency">Frequency</div>
-                <div class="ad_reaction">Reaction</div>
-                <div class="campaign_view">Insignht</div>
+
+                <!-- ✅ Selection Summary Bar (shown when rows are checked) -->
+                <div id="selection_summary_bar" style="display:none;"></div>
+
+
+                <div class="view_campaign_box"></div>
               </div>
-            </div>
-            <div class="view_campaign_box"></div>
-            <div class="view_campaign_empty" style="display:none">
-              <div class="empty_card">
-                <i class="fa-solid fa-filter-circle-xmark"></i>
-                <h3>Không tìm thấy kết quả</h3>
-                <p>Không có campaign nào khớp với bộ lọc đã chọn.<br />Thử đổi ngày, bộ lọc nhãn hiệu hoặc reset bộ lọc.
-                </p>
-                <button class="btn_reset_all">Reset tất cả bộ lọc</button>
+
+              <!-- Empty state remains inside the card but might need centering if scrolled -->
+              <div class="view_campaign_empty" style="display:none">
+                <div class="empty_card">
+                  <i class="fa-solid fa-filter-circle-xmark"></i>
+                  <h3>Không tìm thấy kết quả</h3>
+                  <p>Không có campaign nào khớp với bộ lọc đã chọn.<br />Thử đổi ngày, bộ lọc nhãn hiệu hoặc reset bộ
+                    lọc.
+                  </p>
+                  <button class="btn_reset_all">Reset tất cả bộ lọc</button>
+                </div>
               </div>
             </div>
           </div>
@@ -573,10 +812,9 @@
       </div>
 
       <!-- Show All Button & Extra Details -->
-      <!-- Show All Button & Extra Details -->
       <div class="dom_row flex show_all_container">
         <button id="show_all_btn">
-          Detail spent <i class="fa-solid fa-angle-down"></i>
+          Extra Details <i class="fa-solid fa-angle-down"></i>
         </button>
       </div>
 
@@ -593,7 +831,7 @@
 
         <!-- 2. Goal Chart -->
         <div class="dom_inner dom_fade_item w33 box_shadow chart">
-          <h2><i class="fa-solid fa-bullseye main_clr"></i> Goal Breakdown</h2>
+          <h2><i class="fa-solid fa-bullseye main_clr"></i> Meta Goal</h2>
           <div><canvas id="extra_goal_chart"></canvas></div>
         </div>
 
@@ -619,6 +857,37 @@
             <!-- Rendered by JS -->
           </div>
         </div>
+
+        <!-- 3 new charts: Video Funnel, Top Campaigns, Engagement Mix in 1 row -->
+        <div id="extra_charts_row" class="dom_row flex"
+          style="margin-top:1rem;flex-wrap:nowrap;gap:2rem; padding-bottom: 15rem;width:100%;">
+
+          <!-- 5. Video Funnel (CSS-only, y hệt detail modal) -->
+          <div class="dom_inner dom_fade_item box_shadow chart"
+            style="flex:1;min-width:0;background-color:white;min-height:42rem;">
+            <h2><i class="fa-solid fa-film main_clr"></i> Video Funnel</h2>
+            <div id="extra_video_funnel_content"
+              style="display:flex;flex-direction:column;gap:0;padding:0.5rem 1rem 1rem;"></div>
+          </div>
+
+          <!-- 6. Top 5 Campaigns by Spend -->
+          <div class="dom_inner dom_fade_item box_shadow chart"
+            style="flex:1;min-width:0;background-color:white;min-height:42rem;overflow-y:auto;">
+            <h2><i class="fa-solid fa-ranking-star main_clr"></i> Top Campaigns</h2>
+            <div id="extra_top_campaigns_list" style="display:flex;flex-direction:column;gap:1rem;padding:0.5rem 0;">
+            </div>
+          </div>
+
+          <!-- 7. Engagement Mix -->
+          <div class="dom_inner dom_fade_item box_shadow chart"
+            style="flex:1;min-width:0;background-color:white;min-height:42rem;overflow-y:auto;">
+            <h2><i class="fa-solid fa-heart main_clr"></i> Engagement Mix</h2>
+            <div id="extra_engagement_list" style="display:flex;flex-direction:column;gap:0.8rem;padding:0.5rem 0;">
+            </div>
+          </div>
+
+        </div>
+
       </div>
 
       <div class="dom_detail" id="dom_detail">
@@ -701,11 +970,26 @@
           </div>
 
           <!-- Quality -->
-          <div class="dom_inner dom_fade_item w30 box_shadow chart detail_quality_chart" id="detail_quality_chart">
+          <div class="dom_inner dom_fade_item w30 box_shadow chart detail_quality_chart" id="detail_quality_chart"
+            style="position:relative;">
             <h2>
-              <i class="fa-solid fa-thumbs-up main_clr"></i> Interaction
+              <span><i class="fa-solid fa-thumbs-up main_clr"></i> Interaction</span>
+              <span class="dom_title_button" id="video_funnel_toggle_btn" onclick="window.toggleVideoFunnel()"
+                title="Video Funnel">
+                <i class="fa-solid fa-repeat"></i> Video Funnel
+              </span>
             </h2>
             <div class="interaction"></div>
+            <!-- Video Funnel overlay (same pattern as dom_platform_abs) -->
+            <div class="video_funnel_panel" id="video_funnel_panel">
+              <h2>
+                <span><i class="fa-solid fa-film main_clr"></i> Video Funnel</span>
+                <span class="dom_title_button" onclick="window.toggleVideoFunnel()" title="Interaction">
+                  <i class="fa-solid fa-repeat"></i> Interaction
+                </span>
+              </h2>
+              <div id="video_funnel_content"></div>
+            </div>
           </div>
         </div>
 
@@ -745,9 +1029,15 @@
                 </div>
                 <p class="detail_text">Gender</p>
                 <div class="detail_gender_bar">
-                  <p>Nam</p>
-                  <p>Nữ</p>
-                  <p>Khác</p>
+                  <p>Male</p>
+                  <p>Female</p>
+                  <p>Other</p>
+                </div>
+                <p class="detail_text">Audience Definition</p>
+                <div id="detail_delivery_estimate">
+                  <div
+                    style="height:3rem;background:#f1f5f9;border-radius:8px;animation:skeleton-loading 1.2s ease-in-out infinite;">
+                  </div>
                 </div>
                 <p class="detail_text">Optimize</p>
                 <div class="detail_optimize detail_gender_bar">
@@ -773,12 +1063,13 @@
                 <p class="detail_text">Brand Safety Excluded</p>
                 <div class="detail_brand_safety detail_gender_bar"></div>
               </div>
+
             </div>
           </div>
         </div>
         <div class="dom_row">
           <div class="dom_detail_ad">
-            <div class="dom_inner dom_fade_item wfull box_shadow chart show">
+            <div class="dom_inner dom_fade_item wfull box_shadow chart show" style="padding-bottom:2rem;">
               <h2>
                 <i class="fa-solid fa-stopwatch main_clr"></i>
                 24-hour Spent - Result
@@ -786,6 +1077,7 @@
               <div class="chart-wrapper">
                 <canvas id="chart_by_hour"></canvas>
               </div>
+              <div id="schedule_intelligence"></div>
             </div>
             <div class="dom_inner dom_fade_item w25 box_shadow chart show">
               <h2 class="op8">
@@ -843,6 +1135,32 @@
             </h2>
             <div class="chart-wrapper circular">
               <canvas id="chart_by_device"></canvas>
+            </div>
+          </div>
+        </div>
+        <div class="dom_row flex um"
+          style="margin-top: 1rem; width: 100% !important; max-width: 100% !important; flex: 0 0 100%;">
+          <div class="dom_inner dom_fade_item wfull box_shadow show"
+            style="width: 100% !important; flex: 0 0 100%; height: auto !important;">
+            <div
+              style="display: flex; align-items: center; justify-content: space-between; padding: 2.5rem 2.5rem 0.5rem 2.5rem; margin: 0;">
+              <h2 style="margin: 0;">
+                <i class="fa-solid fa-list-check main_clr" style="margin-right: 0.8rem;"></i>
+                Full Actions Detail
+              </h2>
+              <div class="detail_search_wrap" style="position: relative;">
+                <input type="text" id="detail_full_actions_search" placeholder="Lọc chỉ số..."
+                  oninput="window.filterFullActions(this.value)"
+                  style="padding: 0.8rem 1.2rem 0.8rem 3.5rem; border-radius: 8px; border: 1.5px solid #edf2f7; background: #f8fafc; font-size: 1.2rem; width: 220px; outline: none; transition: all 0.2s;">
+                <i class="fa-solid fa-magnifying-glass"
+                  style="position: absolute; left: 1.2rem; top: 50%; transform: translateY(-50%); color: #a0aec0; font-size: 1.2rem;"></i>
+              </div>
+            </div>
+            <div class="dom_toplist_wrap" style="padding: 2.5rem;">
+              <div id="detail_full_actions_list"
+                style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 1.5rem; align-items: start;">
+                <!-- JS populate -->
+              </div>
             </div>
           </div>
         </div>
@@ -969,14 +1287,338 @@
             </div>
           </div>
         </div>
+
+        <!-- ===== GOOGLE ADS REPORT ===== -->
+        <div id="google_ads_container">
+
+          <!-- Sync info bar -->
+          <div class="g_sync_bar">
+            <span class="g_sync_info">
+              <i class="fa-solid fa-rotate main_clr"></i>
+              Dữ liệu đồng bộ lúc: <span id="g_last_sync">--</span>
+            </span>
+            <button class="g_sync_btn" id="g_sync_btn" onclick="triggerGAdsSync()">
+              <i class="fa-solid fa-rotate-right"></i> Sync
+            </button>
+          </div>
+
+          <!-- ROW 1: Summary + Daily Chart + Bar Chart (3-up) -->
+          <div class="dom_row flex">
+            <div class="dom_inner w20 box_shadow chart">
+              <div class="dom_total_report">
+                <ul>
+                  <li class="total_spent">
+                    <span><i class="fa-brands fa-google"></i> Google Ads</span>
+                    <p id="g_spent">
+                      <span>-</span>
+                      <span>-%</span>
+                    </p>
+                  </li>
+                  <li>
+                    <span><i class="fa-solid fa-eye"></i> Impression</span>
+                    <p id="g_impression">
+                      <span>-</span>
+                      <span>-%</span>
+                    </p>
+                  </li>
+                  <li>
+                    <span><i class="fa-solid fa-arrow-pointer"></i> Click</span>
+                    <p id="g_click">
+                      <span>-</span>
+                      <span>-%</span>
+                    </p>
+                  </li>
+                  <li>
+                    <span><i class="fa-solid fa-bullseye"></i> Conversions</span>
+                    <p id="g_conv">
+                      <span>-</span>
+                      <span>-%</span>
+                    </p>
+                  </li>
+                  <li>
+                    <span><i class="fa-solid fa-store"></i> Store Visit</span>
+                    <p id="g_store">
+                      <span>-</span>
+                      <span>-%</span>
+                    </p>
+                  </li>
+                </ul>
+              </div>
+              <!-- KPI mini cards – Interaction style -->
+              <div id="g_kpi_cards" class="g_kpi_cards"></div>
+            </div>
+
+            <!-- Daily Trend Chart -->
+            <div class="dom_inner w33 box_shadow chart trendline">
+              <div class="dom_table_filter" style="justify-content: space-between;">
+                <div style="display:flex; align-items:center; gap:1.2rem;">
+                  <h2 style="margin:0;"><i class="fa-solid fa-chart-line main_clr"></i> <span id="g_trend_title">Daily
+                      Spent</span></h2>
+                  <div class="g_switcher">
+                    <button id="g_daily_btn" class="active" onclick="setGoogleTrendMode('daily')">Daily</button>
+                    <button id="g_monthly_btn" onclick="setGoogleTrendMode('monthly')">Monthly</button>
+                  </div>
+                </div>
+                <div class="dom_select daily_total" id="g_trend_select">
+                  <i class="fa-solid fa-chart-area"></i>
+                  <div class="flex">
+                    <p class="dom_selected">Spent</p>
+                  </div>
+                  <i class="fa-solid fa-angle-down"></i>
+                  <ul class="dom_select_show">
+                    <li data-view="spent" class="active"><span class="radio_box active"></span><span>Spent</span></li>
+                    <li data-view="click"><span class="radio_box"></span><span>Click</span></li>
+                    <li data-view="impression"><span class="radio_box"></span><span>Impression</span></li>
+                    <li data-view="all_conversions"><span class="radio_box"></span><span>All Conversions</span></li>
+                    <li data-view="store_visits"><span class="radio_box"></span><span>Store Visit</span></li>
+                    <li data-view="directions"><span class="radio_box"></span><span>Directions</span></li>
+                    <li data-view="calls"><span class="radio_box"></span><span>Calls</span></li>
+                    <li data-view="menu"><span class="radio_box"></span><span>Menu</span></li>
+                    <li data-view="orders"><span class="radio_box"></span><span>Orders</span></li>
+                  </ul>
+                </div>
+              </div>
+              <div class="g_chart_wrap">
+                <canvas id="g_trend_chart"></canvas>
+              </div>
+            </div>
+
+            <!-- Bar Chart – Campaign Performance -->
+            <div class="dom_inner w35 box_shadow chart">
+              <div class="dom_table_filter">
+                <h2><i class="fa-solid fa-chart-bar main_clr"></i> Hiệu quả theo Campaign</h2>
+                <div class="dom_select daily_total" id="g_bar_select">
+                  <i class="fa-solid fa-chart-simple"></i>
+                  <div class="flex">
+                    <p class="dom_selected">Spent</p>
+                  </div>
+                  <i class="fa-solid fa-angle-down"></i>
+                  <ul class="dom_select_show">
+                    <li data-view="spent" class="active"><span class="radio_box active"></span><span>Spent</span></li>
+                    <li data-view="click"><span class="radio_box"></span><span>Click</span></li>
+                    <li data-view="all_conversions"><span class="radio_box"></span><span>All Conversions</span></li>
+                    <li data-view="ctr"><span class="radio_box"></span><span>CTR (%)</span></li>
+                    <li data-view="cpc"><span class="radio_box"></span><span>CPC</span></li>
+                    <li data-view="cpa"><span class="radio_box"></span><span>CPA</span></li>
+                    <li data-view="cpv"><span class="radio_box"></span><span>CPV</span></li>
+                  </ul>
+                </div>
+              </div>
+              <div class="g_chart_wrap">
+                <canvas id="g_bar_chart"></canvas>
+              </div>
+            </div>
+          </div>
+
+          <!-- ROW 2: Funnel + Donut + Scatter (equal thirds) -->
+          <div class="dom_row flex" style="align-items:stretch;">
+
+            <!-- Funnel Performance (LEFT) -->
+            <div class="dom_inner g_third box_shadow chart" style="display:flex;flex-direction:column;overflow:hidden;">
+              <h2><i class="fa-solid fa-filter main_clr"></i> Funnel Performance</h2>
+              <div id="g_funnel_wrap" class="g_funnel_wrap" style="flex:1;overflow-y:auto;min-height:0;"></div>
+              <div class="g_metric_row">
+                <div class="g_metric_item">
+                  <div class="g_metric_label"><i class="fa-solid fa-utensils"></i> Menu</div>
+                  <div id="g_stat_menu" class="g_metric_val">-</div>
+                </div>
+                <div class="g_metric_item">
+                  <div class="g_metric_label"><i class="fa-solid fa-phone"></i> Calls</div>
+                  <div id="g_stat_calls" class="g_metric_val">-</div>
+                </div>
+                <div class="g_metric_item">
+                  <div class="g_metric_label"><i class="fa-solid fa-bag-shopping"></i> Orders</div>
+                  <div id="g_stat_orders" class="g_metric_val">-</div>
+                </div>
+                <div class="g_metric_item">
+                  <div class="g_metric_label"><i class="fa-solid fa-ellipsis"></i> Other</div>
+                  <div id="g_stat_other" class="g_metric_val">-</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Donut Chart – Spent by Campaign (CENTER) -->
+            <div class="dom_inner g_third box_shadow chart g_donut_card">
+              <h2><i class="fa-solid fa-circle-half-stroke main_clr"></i> Spent by Campaign</h2>
+              <div class="g_donut_wrap">
+                <canvas id="g_donut_chart"></canvas>
+              </div>
+              <div id="g_donut_legend" class="g_donut_legend"></div>
+            </div>
+
+            <!-- CPVisit Chart – Store Visit Efficiency (RIGHT) -->
+            <div class="dom_inner g_third box_shadow chart" style="display:flex;flex-direction:column;overflow:hidden;">
+              <h2><i class="fa-solid fa-store main_clr"></i> CPVisit Efficiency</h2>
+              <div id="g_cpvisit_wrap" class="g_funnel_wrap"
+                style="flex:1;overflow-y:auto;min-height:0;padding-right:0.5rem;margin-top:1rem;">
+                <!-- JS populated bars -->
+              </div>
+            </div>
+          </div>
+
+          <!-- Campaign Insight shared header -->
+          <hr style="border:none;border-top:1px solid #e9ecef;margin:2.4rem 0 1.6rem 0;">
+          <div class="dom_row" style="margin-top:0;margin-bottom:0;padding-bottom:0;">
+            <div class="dom_table_header campaign_insigh"
+              style="display:flex;align-items:center;justify-content:space-between;width:100%;">
+              <h2 class="campaign_insigh_title"><i class="fa-solid fa-magnifying-glass-chart main_clr"></i> Campaign
+                Insight</h2>
+              <div style="display:flex;gap:0.8rem;align-items:center;">
+                <!-- Campaign filter -->
+                <div class="dom_select daily_total" id="g_insight_camp_select"
+                  style="background:#fff;border:1px solid #e2e8f0;box-shadow:0 1px 4px rgba(0,0,0,0.06);">
+                  <i class="fa-solid fa-bullhorn"></i>
+                  <div class="flex">
+                    <p class="dom_selected">All Campaigns</p>
+                  </div>
+                  <i class="fa-solid fa-angle-down"></i>
+                  <ul class="dom_select_show" id="g_hourly_camp_list">
+                    <li data-view="__all__" class="active"><span class="radio_box active"></span><span>All
+                        Campaigns</span></li>
+                  </ul>
+                </div>
+                <!-- Metric selector -->
+                <div class="dom_select daily_total" id="g_insight_metric_select"
+                  style="background:#fff;border:1px solid #e2e8f0;box-shadow:0 1px 4px rgba(0,0,0,0.06);">
+                  <i class="fa-solid fa-chart-area"></i>
+                  <div class="flex">
+                    <p class="dom_selected">Clicks</p>
+                  </div>
+                  <i class="fa-solid fa-angle-down"></i>
+                  <ul class="dom_select_show">
+                    <li data-view="click" class="active"><span class="radio_box active"></span><span>Clicks</span></li>
+                    <li data-view="imp"><span class="radio_box"></span><span>Impressions</span></li>
+                    <li data-view="spent"><span class="radio_box"></span><span>Spent</span></li>
+                    <li data-view="conv"><span class="radio_box"></span><span>All Conversions</span></li>
+                    <li data-view="visits"><span class="radio_box"></span><span>Store Visits</span></li>
+                    <li data-view="dir"><span class="radio_box"></span><span>Directions</span></li>
+                    <li data-view="calls"><span class="radio_box"></span><span>Calls</span></li>
+                    <li data-view="menu"><span class="radio_box"></span><span>Menu</span></li>
+                    <li data-view="orders"><span class="radio_box"></span><span>Orders</span></li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- ROW 3: Hourly Activity + Device Breakdown -->
+          <div class="dom_row flex" style="margin-top:0;">
+
+            <!-- Hourly Activity Chart -->
+            <div class="dom_inner w65 box_shadow chart">
+              <h2><i class="fa-solid fa-clock main_clr"></i> Hourly Activity</h2>
+              <div class="g_chart_wrap" style="margin-top:1rem;">
+                <canvas id="g_hourly_chart"></canvas>
+              </div>
+            </div>
+
+            <!-- Device Breakdown -->
+            <div class="dom_inner w35 box_shadow chart">
+              <h2><i class="fa-solid fa-mobile-screen main_clr"></i> Device Breakdown</h2>
+              <div id="g_device_card_wrap" style="margin-top:1.5rem;background:#fff;border-radius:12px;"></div>
+            </div>
+
+          </div>
+
+          <!-- ROW 4: Channel Breakdown + Location + Distance Radius -->
+          <div class="dom_row flex" style="gap:1.5rem; align-items:stretch;">
+
+
+
+            <!-- Card: Location Performance -->
+            <div class="dom_inner box_shadow chart"
+              style="flex:1.2; min-width:0; display:flex; flex-direction:column; background-color: white;">
+              <h2><i class="fa-solid fa-location-dot main_clr"></i> Location Performance</h2>
+              <p style="font-size:0.8rem;color:#94a3b8;margin:-0.3rem 0 0.6rem;">Top tỉnh/thành theo metric đã chọn</p>
+              <div id="g_location_chart_wrap" style="position:relative; flex:1; min-height:220px;">
+                <canvas id="g_location_chart"></canvas>
+              </div>
+            </div>
+
+            <!-- Card: Distance Radius -->
+            <div class="dom_inner box_shadow chart"
+              style="flex:1.4; min-width:0; display:flex; flex-direction:column; background-color: white;">
+              <h2><i class="fa-solid fa-circle-dot main_clr"></i> Distance Radius</h2>
+              <p style="font-size:0.8rem;color:#94a3b8;margin:-0.3rem 0 0.6rem;">Bán kính từ cửa hàng — metric đã chọn
+              </p>
+              <div style="position:relative; flex:1; min-height:220px;">
+                <canvas id="g_distance_chart"></canvas>
+              </div>
+            </div>
+            <!-- Card: Channel Breakdown -->
+
+            <div class="dom_inner box_shadow chart"
+              style="flex:1; min-width:0; display:flex; flex-direction:column; background-color: white;">
+              <h2><i class="fa-solid fa-chart-pie main_clr"></i> Channel Breakdown</h2>
+              <p style="font-size:0.8rem;color:#94a3b8;margin:-0.3rem 0 0.6rem;">Phân bổ chi tiêu theo kênh</p>
+              <span id="g_channel_chart" style="display:none;"></span>
+              <div class="g_channel_body" style="flex:1;"></div>
+            </div>
+
+          </div>
+
+
+          <!-- ROW 5: Detail Campaign Table -->
+
+          <div class="dom_row flex">
+            <div class="dom_inner view_campaign g_campaign_wrap" style="margin-top: 3rem;">
+              <div class="dom_table_header">
+                <h2><i class="fa-solid fa-list main_clr"></i> Detail Campaigns</h2>
+                <div class="dom_active_report" style="margin-left:auto;align-items:center;gap:1.5rem;">
+                  <div class="dom_campaign_filter">
+                    <input id="g_campaign_filter" placeholder="Search campaign..." />
+                    <i class="fa-solid fa-magnifying-glass"></i>
+                  </div>
+                  <a href="https://docs.google.com/spreadsheets/d/1sAEE2_5jVR6UF59C3VyQLqNJS8knwFn4J1A_2RFPF2c/edit?usp=sharing"
+                    target="_blank" class="g_view_raw_btn" title="View Raw Data">
+                    <img
+                      src="https://upload.wikimedia.org/wikipedia/commons/thumb/a/ae/Google_Sheets_2020_Logo.svg/250px-Google_Sheets_2020_Logo.svg.png"
+                      alt="Google Sheets">
+                    <span>View raw data</span>
+                  </a>
+                </div>
+              </div>
+              <!-- Column header -->
+              <div class="view_campaign_header">
+                <div class="g_tbl_header">
+                  <div class="ads_name">Campaign Name</div>
+                  <div class="ad_metric g_col_center">Keywords</div>
+                  <div class="ad_metric">Spent</div>
+                  <div class="ad_metric">Impression</div>
+                  <div class="ad_metric">Click</div>
+                  <div class="ad_metric">Conv</div>
+                  <div class="ad_metric">CPC</div>
+                  <div class="ad_metric">CPA</div>
+                  <div class="ad_metric">CTR</div>
+                  <div class="ad_metric">Store Visit</div>
+                </div>
+              </div>
+              <div id="g_campaign_table"></div>
+            </div>
+          </div>
+
+        </div>
       </div>
       <div class="dom_ai_report">
-        <i class="fa-solid fa-xmark dom_ai_report_close"></i>
-        <h3><i class="fa-solid fa-robot"></i> REPORT FOR -</h3>
+        <div class="ai_report_header">
+          <div class="ai_report_header_left">
+            <i class="fa-solid fa-robot ai_report_robot_icon"></i>
+            <div>
+              <p class="ai_report_header_title">DOM AI REPORT</p>
+              <p class="ai_report_header_sub" id="ai_report_subtitle">Phân tích hiệu suất quảng cáo</p>
+            </div>
+          </div>
+          <div class="ai_report_header_actions">
+            <button class="ai_report_btn_export" id="btn_export_docx" title="Xuất báo cáo Word (.docx)">
+              <i class="fa-solid fa-file-word"></i>
+              <span>Xuất DOCX</span>
+            </button>
+            <button class="ai_report_btn_close" id="ai_report_close_btn">
+              <i class="fa-solid fa-xmark"></i>
+            </button>
+          </div>
+        </div>
         <div class="dom_ai_report_content"></div>
-        <!-- <button class="btn_download_pdf">
-            <i class="fa-solid fa-circle-down"></i>
-          </button> -->
       </div>
       <div class="dom_overlay">
         <h5><i class="fa-solid fa-angles-left"></i> Click to return</h5>
@@ -1165,19 +1807,341 @@
           <i class="fa-solid fa-arrow-left"></i> Hủy
         </button>
         <button onclick="saveBrandSettings()"
-          style="background: var(--mainClr); color:#fff; border-color: var(--mainClr); font-weight:700; gap: 0.6rem; display:flex; align-items:center;">
+          style="background: var(--mainClr); color:#fff; border-color: var(--mainClr); font-weight:700; gap: 0.6rem; display:flex; align-items:center; padding:0.8rem 1.8rem; border-radius:8px; border:none; cursor:pointer; font-size:1.3rem;">
           <i class="fa-solid fa-floppy-disk"></i> Lưu cấu hình
         </button>
       </div>
     </div>
   </div>
 
+  <!-- ========== GOAL SETTINGS MODAL ========== -->
+  <div id="goal_settings_modal" class="ai_modal_overlay" style="display:none">
+    <div class="ai_modal_box" style="width: min(600px, 96vw); max-height: 90vh; display:flex; flex-direction:column;">
+      <div class="ai_modal_header">
+        <div class="ai_modal_header_left">
+          <i class="fa-solid fa-sliders" style="color: var(--mainClr);"></i>
+          <span>Optimization Goal Settings</span>
+        </div>
+        <button class="ai_close_btn" onclick="closeGoalSettings()"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+
+      <div
+        style="padding: 1.2rem 2.4rem; background: linear-gradient(135deg,#fffbeb,#fef3c7); border-bottom: 1px solid #fde68a; display:flex; align-items:center; gap:1rem; flex-shrink:0;">
+        <i class="fa-solid fa-circle-info" style="color:#f59e0b; font-size:1.6rem;"></i>
+        <div>
+          <p style="font-size:1.3rem; font-weight:700; color:#92400e; margin:0 0 0.2rem;">Cấu hình từ khóa lọc Campaign
+          </p>
+          <p style="font-size:1.2rem; color:#78350f; margin:0; opacity: .8;">Nhập các từ khóa. Tổng spend sẽ được tính
+            cho các campaign có tên chứa từ khóa này.</p>
+        </div>
+      </div>
+
+      <div class="ai_modal_body" style="flex:1; overflow-y:auto; padding: 2rem 2.4rem;">
+        <div id="goal_keywords_list" style="display:flex; flex-direction:column; gap:1.4rem;">
+          <!-- List items will be here -->
+        </div>
+      </div>
+
+      <div class="ai_modal_footer" style="flex-shrink:0; justify-content:space-between;">
+        <button class="ai_back_btn" onclick="closeGoalSettings()">
+          <i class="fa-solid fa-arrow-left"></i> Hủy
+        </button>
+        <button onclick="saveGoalSettings()"
+          style="background: var(--mainClr); color:#fff; border-color: var(--mainClr); font-weight:700; gap: 0.6rem; display:flex; align-items:center; padding: 1rem 2rem; border-radius: 8px; cursor: pointer; border: none;">
+          <i class="fa-solid fa-floppy-disk"></i> Lưu cấu hình
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 📊 Detailed Performance Modal -->
+  <div id="performance_modal" class="ai_modal_overlay" style="display:none; z-index: 2000;">
+    <div class="ai_modal_content"
+      style="width: 90vw; max-width: 1300px; height: 85vh; display:flex; flex-direction:column;">
+      <div class="ai_modal_header">
+        <div style="display:flex; align-items:center; gap:1.2rem;">
+          <i class="fa-solid fa-chart-column" style="color: var(--mainClr); font-size: 2.2rem;"></i>
+          <span style="font-size: 2rem; font-weight:800; color: #1e293b;">BÁO CÁO HIỆU SUẤT CHI TIẾT</span>
+        </div>
+        <div style="display:flex; align-items:center; gap:1.5rem;">
+          <div
+            style="cursor: pointer; color: #64748b; background: #f1f5f9; width: 3.2rem; height: 3.2rem; border-radius: 50%; display: flex; align-items: center; justify-content: center; transition: all 0.2s;"
+            onclick="openSummarySettings()"
+            onmouseover="this.style.background='var(--mainClr)'; this.style.color='#fff'"
+            onmouseout="this.style.background='#f1f5f9'; this.style.color='#64748b'" title="Cấu hình 3 chỉ số">
+            <i class="fa-solid fa-gear" style="font-size: 1.5rem;"></i>
+          </div>
+          <button class="ai_close_btn" onclick="closePerformanceDetail()"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+      </div>
+
+      <div class="performance_compare_toolbar"
+        style="padding: 1.2rem 2.4rem; background: #f8fafc; border-bottom: 1px solid #e2e8f0; display:flex; align-items:center; justify-content: space-between; gap:2rem; position: relative; z-index: 500;">
+        <div style="display:flex; align-items:center; gap:1.5rem;">
+          <div class="perf_date_selector" style="cursor: default; border-color: #cbd5e1; background: #f1f5f9;">
+            <i class="fa-solid fa-calendar-day" style="color:#94a3b8;"></i>
+            <span style="font-weight:600; color:#64748b;">Kỳ hiện tại:</span>
+            <span id="perf_current_date_range" style="font-weight:700; color:#1e293b; margin-left: 0.5rem;">-</span>
+          </div>
+          <i class="fa-solid fa-arrow-right-arrow-left" style="color:#cbd5e1;"></i>
+          <div class="perf_date_selector_wrap" style="position: relative;">
+            <div class="perf_date_selector" onclick="togglePerfDatePicker()">
+              <i class="fa-solid fa-calendar-check" style="color:var(--mainClr);"></i>
+              <span style="font-weight:600; color:#64748b;">So sánh với:</span>
+              <span id="perf_compare_label" style="font-weight:700; color:#1e293b; margin-left: 0.5rem;">Tự động (Kỳ
+                trước)</span>
+              <i class="fa-solid fa-chevron-down" style="font-size:1.1rem; color:#94a3b8; margin-left: 0.5rem;"></i>
+            </div>
+
+            <!-- Custom Date Picker Dropdown for Performance -->
+            <div id="perf_date_picker_panel" class="perf_date_picker_panel" style="display: none;">
+              <div class="time_picker_sidebar">
+                <ul>
+                  <li onclick="setPerfCompareType('auto', this)" class="active">
+                    <span class="radio_box"></span> <span>Tự động (Kỳ trước)</span>
+                  </li>
+
+                  <li onclick="setPerfCompareType('custom', this)">
+                    <span class="radio_box"></span> <span>Tùy chọn khoảng ngày</span>
+                  </li>
+                </ul>
+              </div>
+              <div class="time_picker_content">
+                <div class="calendar_container">
+                  <div class="calendar_card" id="perf_calendar">
+                    <!-- Rendered by JS -->
+                  </div>
+                </div>
+                <div class="time_picker_footer">
+                  <div class="picker_inputs" style="display:flex; align-items:center; gap:0.6rem;">
+                    <div style="display:flex; flex-direction:column; gap:0.2rem;">
+                      <span style="font-size:1rem; color:#94a3b8; font-weight:700;">Từ ngày:</span>
+                      <input type="date" id="perf_start_date_input" />
+                    </div>
+                    <span style="margin-top:1.5rem; color:#cbd5e1;">-</span>
+                    <div style="display:flex; flex-direction:column; gap:0.2rem;">
+                      <span style="font-size:1rem; color:#94a3b8; font-weight:700;">Đến ngày:</span>
+                      <input type="date" id="perf_end_date_input" />
+                    </div>
+                  </div>
+                  <div class="picker_actions">
+                    <button class="btn_cancel" onclick="togglePerfDatePicker()">Hủy</button>
+                    <button class="btn_update" onclick="applyPerfCompareDate()">Áp dụng</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="perf_brand_filter_wrapper" style="display:flex; align-items:center; gap:1.2rem;">
+          <i class="fa-solid fa-tags" style="color: #94a3b8; font-size: 1.4rem;"></i>
+          <div class="dom_select perf_brand_select" id="perf_brand_selector"
+            style="min-width: 160px; height: 3.8rem; background: #fff; border: 1px solid #e2e8f0; border-radius: 8px;">
+            <div class="flex" style="padding: 0 1rem;">
+              <img id="perf_selected_brand_img" src=""
+                style="width: 2.2rem; height: 2.2rem; border-radius: 50%; object-fit: cover; margin-right: 0.8rem; display: none;" />
+              <p id="perf_selected_brand" class="dom_selected" style="font-weight: 700; color: #1e293b;">Tất cả</p>
+            </div>
+            <i class="fa-solid fa-angle-down" style="right: 1rem; color: #94a3b8;"></i>
+            <ul id="perf_brand_list" class="dom_select_show" style="width: 100%; top: calc(100% + 5px);">
+              <!-- Rendered by JS -->
+            </ul>
+          </div>
+        </div>
+
+      </div>
+
+      <div class="ai_modal_body"
+        style="padding: 0; overflow-y: auto; flex: 1; background: #fff; position: relative; z-index: 1; border-radius: 0 0 12px 12px;">
+        <div id="performance_detail_content" style="padding: 2.4rem;">
+          <!-- Table will be rendered here -->
+        </div>
+        <div class="perf_loading" style="display:none; text-align:center; padding: 5rem;">
+          <div class="ai_loader_dots"><span></span><span></span><span></span></div>
+          <p style="margin-top:1.5rem; color:#64748b; font-weight:600;">Đang chuẩn bị dữ liệu so sánh...</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="summary_settings_modal" class="ai_modal_overlay" style="display: none;">
+    <div class="ai_modal_box" style="width: 650px;">
+      <div
+        style="padding: 1.8rem 2.4rem; border-bottom: 1px solid #f1f5f9; display: flex; align-items: center; justify-content: space-between;">
+        <h3
+          style="font-size: 1.8rem; font-weight: 800; color: #1e293b; display: flex; align-items: center; gap: 1rem; margin: 0;">
+          <i class="fa-solid fa-gear" style="color: var(--mainClr);"></i> Cài đặt chỉ số tóm tắt
+        </h3>
+        <i class="fa-solid fa-xmark" style="cursor: pointer; font-size: 2rem; color: #94a3b8;"
+          onclick="closeSummarySettings()"></i>
+      </div>
+      <div style="padding: 2rem; overflow-y: auto;">
+        <p style="font-size: 1.35rem; color: #64748b; margin-bottom: 2rem; line-height: 1.6;">Chọn đúng <b>3 chỉ số</b>
+          quan trọng nhất (ngoài Spent) để hiển thị và nhận định nhanh.</p>
+        <div id="summary_available_list" style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+          <!-- Options rendered by JS -->
+        </div>
+      </div>
+      <div
+        style="padding: 1.5rem 2.4rem; border-top: 1px solid #f1f5f9; display: flex; justify-content: flex-end; gap: 1.2rem; background: #f8fafc;">
+        <button onclick="closeSummarySettings()"
+          style="padding: 0.8rem 1.6rem; border-radius: 8px; border: 1px solid #e2e8f0; background: #fff; font-weight: 600; cursor: pointer; color: #64748b;">Hủy</button>
+        <button onclick="saveSummarySettings()"
+          style="padding: 0.8rem 2.4rem; border-radius: 8px; background: var(--mainClr); color: #fff; border: none; font-weight: 700; cursor: pointer; box-shadow: 0 4px 12px rgba(255, 169, 0, 0.3);">Lưu
+          cấu hình</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ⚠️ Custom Alert Modal -->
+  <div id="dom_alert_modal" class="ai_modal_overlay" style="display: none; z-index: 200000;">
+    <div class="ai_modal_box" style="width: 400px; padding: 2.4rem;" id="dom_alert_content">
+      <div
+        style="width: 5rem; height: 5rem; background: #fff7ed; color: #f97316; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 1.5rem; font-size: 2.4rem;">
+        <i class="fa-solid fa-circle-exclamation"></i>
+      </div>
+      <h3 style="font-size: 1.8rem; font-weight: 800; color: #1e293b; margin-bottom: 1rem;">Thông báo</h3>
+      <p id="dom_alert_message" style="font-size: 1.4rem; color: #64748b; margin-bottom: 2rem; line-height: 1.5;"></p>
+      <button onclick="closeDomAlert()"
+        style="width: 100%; padding: 1.2rem; border-radius: 10px; background: var(--mainClr); color: #fff; border: none; font-weight: 700; cursor: pointer; font-size: 1.4rem;">Đã
+        hiểu</button>
+    </div>
+  </div>
+
+  <!-- 🆚 Compare Modal -->
+  <div id="compare_modal"
+    style="display:none; position:fixed; inset:0; background:rgba(15,23,42,0.55); z-index:300000; align-items:center; justify-content:center; padding:2rem;">
+    <div id="compare_modal_box"
+      style="background:#fff; border-radius:20px; width:min(92vw,900px); max-height:88vh; display:flex; flex-direction:column; box-shadow:0 25px 80px rgba(0,0,0,0.25); overflow:hidden;">
+      <div id="compare_modal_header"
+        style="display:flex; align-items:flex-start; justify-content:space-between; padding:2rem 2.4rem; border-bottom:1.5px solid #f1f5f9; flex-shrink:0;">
+        <!-- built by JS -->
+      </div>
+      <div id="compare_col_heads"
+        style="display:grid; grid-template-columns:2.2fr 1fr 1fr 0.7fr; padding:1.2rem 2.4rem; background:#f8fafc; font-size:1.15rem; font-weight:700; color:#64748b; border-bottom:1px solid #e2e8f0; flex-shrink:0; gap:1rem;">
+      </div>
+      <div id="compare_modal_body" style="overflow-y:auto; flex:1; padding:0 1.6rem 2rem;"></div>
+    </div>
+  </div>
+
+  <style>
+    #compare_modal {
+      opacity: 0;
+      transition: opacity 0.22s ease;
+    }
+
+    #compare_modal.active {
+      opacity: 1;
+    }
+
+    #compare_modal_box {
+      transform: scale(0.9) translateY(20px);
+      transition: transform 0.28s cubic-bezier(0.34, 1.3, 0.64, 1);
+    }
+
+    #compare_modal.active #compare_modal_box {
+      transform: scale(1) translateY(0);
+    }
+  </style>
+  <!-- ========== GOOGLE ADS KEYWORD MODAL ========== -->
+  <div id="g_keyword_modal" class="ai_modal_overlay" style="z-index:2100;">
+    <div class="ai_modal_box" style="width:min(960px,96vw);max-height:90vh;display:flex;flex-direction:column;">
+      <!-- Header -->
+      <div class="ai_modal_header">
+        <div class="ai_modal_header_left" style="flex-direction:column;align-items:flex-start;gap:0.2rem;">
+          <div style="display:flex;align-items:center;gap:0.8rem;">
+            <i class="fa-solid fa-key" style="color:var(--mainClr);font-size:1.8rem;"></i>
+            <span style="font-size:1.7rem;font-weight:800;color:#1e293b;" id="g_kw_camp_name">Campaign</span>
+          </div>
+          <div style="font-size:1.1rem;color:#94a3b8;margin-left:2.6rem;" id="g_kw_date_range">--</div>
+        </div>
+        <button class="ai_close_btn" onclick="window._closeKeywordModal()"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+
+      <!-- Tabs -->
+      <div style="display:flex;gap:0;border-bottom:2px solid #e2e8f0;padding:0 2rem;flex-shrink:0;">
+        <button class="g_kw_tab active" data-tab="keywords" onclick="window._switchKwTab('keywords',this)"
+          style="padding:1rem 1.6rem;border:none;background:none;font-size:1.25rem;font-weight:700;color:#1e293b;border-bottom:3px solid var(--mainClr);margin-bottom:-2px;cursor:pointer;">
+          <i class="fa-solid fa-key" style="margin-right:0.5rem;"></i>Keywords
+        </button>
+        <button class="g_kw_tab" data-tab="terms" onclick="window._switchKwTab('terms',this)"
+          style="padding:1rem 1.6rem;border:none;background:none;font-size:1.25rem;font-weight:600;color:#94a3b8;border-bottom:3px solid transparent;margin-bottom:-2px;cursor:pointer;">
+          <i class="fa-solid fa-magnifying-glass" style="margin-right:0.5rem;"></i>Search Terms
+        </button>
+      </div>
+
+      <!-- Body -->
+      <div class="ai_modal_body" style="padding:0;overflow-y:auto;flex:1;">
+
+        <!-- Keywords Tab -->
+        <div id="g_kw_tab_keywords" style="padding:1.6rem 2rem;">
+          <table style="width:100%;border-collapse:collapse;font-size:1.2rem;">
+            <thead>
+              <tr style="background:#f8fafc;border-bottom:2px solid #e2e8f0;">
+                <th style="padding:1rem;text-align:left;font-weight:700;color:#475569;">Keyword / Ad Group</th>
+                <th style="padding:1rem;text-align:center;font-weight:700;color:#475569;">Match</th>
+                <th style="padding:1rem;text-align:right;font-weight:700;color:#475569;">Impressions</th>
+                <th style="padding:1rem;text-align:right;font-weight:700;color:#475569;">Clicks</th>
+                <th style="padding:1rem;text-align:right;font-weight:700;color:#475569;">CTR</th>
+                <th style="padding:1rem;text-align:right;font-weight:700;color:#475569;">Conv</th>
+                <th style="padding:1rem;text-align:right;font-weight:700;color:#475569;">Spent</th>
+                <th style="padding:1rem;text-align:right;font-weight:700;color:#475569;">Imp Share</th>
+              </tr>
+            </thead>
+            <tbody id="g_kw_body">
+              <tr>
+                <td colspan="8" style="text-align:center;padding:3rem;color:#94a3b8;">
+                  <i class="fa-solid fa-circle-notch fa-spin" style="font-size:2rem;"></i>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Search Terms Tab -->
+        <div id="g_kw_tab_terms" style="display:none;padding:1.6rem 2rem;">
+          <table style="width:100%;border-collapse:collapse;font-size:1.2rem;">
+            <thead>
+              <tr style="background:#f8fafc;border-bottom:2px solid #e2e8f0;">
+                <th style="padding:1rem;text-align:left;font-weight:700;color:#475569;">Search Term</th>
+                <th style="padding:1rem;text-align:center;font-weight:700;color:#475569;">Status</th>
+                <th style="padding:1rem;text-align:right;font-weight:700;color:#475569;">Impressions</th>
+                <th style="padding:1rem;text-align:right;font-weight:700;color:#475569;">Clicks</th>
+                <th style="padding:1rem;text-align:right;font-weight:700;color:#475569;">CTR</th>
+                <th style="padding:1rem;text-align:right;font-weight:700;color:#475569;">CPC</th>
+                <th style="padding:1rem;text-align:right;font-weight:700;color:#475569;">Spent</th>
+              </tr>
+            </thead>
+            <tbody id="g_st_body">
+              <tr>
+                <td colspan="7" style="text-align:center;padding:3rem;color:#94a3b8;">
+                  <i class="fa-solid fa-circle-notch fa-spin" style="font-size:2rem;"></i>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+      </div>
+
+      <!-- Footer -->
+      <div class="ai_modal_footer" style="justify-content:flex-end;">
+        <button class="ai_back_btn" onclick="window._closeKeywordModal()">
+          <i class="fa-solid fa-xmark"></i> Đóng
+        </button>
+      </div>
+    </div>
+  </div>
 </body>
 <script src="./token.js"></script>
+<script src="./settings.js"></script>
+<!-- Google Identity Services — cần cho auth.js -->
+<script src="https://accounts.google.com/gsi/client" async></script>
+<script src="./auth.js"></script>
 <script src="./setup.js"></script>
+<script src="./google_ads.js"></script>
 <script src="./main.js"></script>
 <script src="./extra_details.js"></script>
-
-
 
 </html>

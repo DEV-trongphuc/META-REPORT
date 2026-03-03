@@ -16,6 +16,1010 @@ const MONTH_LABELS = [
   "Dec",
 ];
 let startDate, endDate;
+
+/** UTILITY: Lấy giá trị từ mảng actions của Meta */
+window.safeGetActionValue = (actions, type) => {
+  if (!Array.isArray(actions) || !actions.length) return 0;
+  for (let i = 0; i < actions.length; i++) {
+    const a = actions[i];
+    if (a.action_type === type) return +a.value || 0;
+  }
+  return 0;
+};
+
+// =================== DYNAMIC COLUMN CONFIG ===================
+const METRIC_REGISTRY = {
+  spend: { id: "spend", label: "Spent", icon: "fa-solid fa-circle-dollar-to-slot", type: "field", format: "money" },
+  reach: { id: "reach", label: "Reach", icon: "fa-solid fa-street-view", type: "field", format: "number" },
+  impressions: { id: "impressions", label: "Impressions", icon: "fa-solid fa-eye", type: "field", format: "number" },
+  frequency: { id: "frequency", label: "Frequency", icon: "fa-solid fa-wave-square", type: "special", format: "decimal" },
+  cpm: { id: "cpm", label: "CPM", icon: "fa-solid fa-receipt", type: "special", format: "money" },
+  cpc: { id: "cpc", label: "CPC", icon: "fa-solid fa-mouse-pointer", type: "field", format: "money" },
+  ctr: { id: "ctr", label: "CTR", icon: "fa-solid fa-percent", type: "field", format: "percent" },
+  result: { id: "result", label: "Result", icon: "fa-solid fa-square-poll-vertical", type: "special", format: "number" },
+  cpr: { id: "cpr", label: "CPR", icon: "fa-solid fa-tags", type: "special", format: "money" },
+  reaction: { id: "reaction", label: "Reactions", icon: "fa-solid fa-thumbs-up", type: "action", action_type: "post_reaction", format: "number" },
+  comment: { id: "comment", label: "Comments", icon: "fa-solid fa-comment", type: "action", action_type: "comment", format: "number" },
+  share: { id: "share", label: "Shares", icon: "fa-solid fa-share-nodes", type: "action", action_type: "post", format: "number" },
+  link_click: { id: "link_click", label: "Link Clicks", icon: "fa-solid fa-link", type: "action", action_type: "link_click", format: "number" },
+  message_started: { id: "message_started", label: "Mess. Started", icon: "fa-brands fa-facebook-messenger", type: "action", action_type: "onsite_conversion.messaging_conversation_started_7d", format: "number" },
+  message_connection: { id: "message_connection", label: "Mess. Connection", icon: "fa-solid fa-comments", type: "action", action_type: "onsite_conversion.total_messaging_connection", format: "number" },
+  purchase: { id: "purchase", label: "Purchases", icon: "fa-solid fa-cart-shopping", type: "action", action_type: "purchase", format: "number" },
+  roas: { id: "roas", label: "ROAS (Purchase)", icon: "fa-solid fa-money-bill-trend-up", type: "action", action_type: "purchase_roas", format: "decimal" },
+  page_engagement: { id: "page_engagement", label: "Page Engaged", icon: "fa-solid fa-hand-pointer", type: "action", action_type: "page_engagement", format: "number" },
+  post_engagement: { id: "post_engagement", label: "Post Engagement", icon: "fa-solid fa-plus-square", type: "action", action_type: "post_engagement", format: "number" },
+  video_play: { id: "video_play", label: "Video Plays", icon: "fa-solid fa-play", type: "action", action_type: "video_play", field_name: "video_play_actions", format: "number" },
+  video_view: { id: "video_view", label: "Video View (3s)", icon: "fa-solid fa-video", type: "action", action_type: "video_view", format: "number" },
+  thruplay: { id: "thruplay", label: "ThruPlays", icon: "fa-solid fa-forward", type: "action", action_type: "video_thruplay_watched_actions", field_name: "video_thruplay_watched_actions", format: "number" },
+  video_p25: { id: "video_p25", label: "Video 25%", icon: "fa-solid fa-hourglass-start", type: "action", action_type: "video_p25_watched_actions", field_name: "video_p25_watched_actions", format: "number" },
+  video_p50: { id: "video_p50", label: "Video 50%", icon: "fa-solid fa-hourglass-half", type: "action", action_type: "video_p50_watched_actions", field_name: "video_p50_watched_actions", format: "number" },
+  video_p75: { id: "video_p75", label: "Video 75%", icon: "fa-solid fa-hourglass-end", type: "action", action_type: "video_p75_watched_actions", field_name: "video_p75_watched_actions", format: "number" },
+  video_p95: { id: "video_p95", label: "Video 95%", icon: "fa-solid fa-clock", type: "action", action_type: "video_p95_watched_actions", field_name: "video_p95_watched_actions", format: "number" },
+  video_p100: { id: "video_p100", label: "Video 100%", icon: "fa-solid fa-circle-check", type: "action", action_type: "video_p100_watched_actions", field_name: "video_p100_watched_actions", format: "number" },
+  photo_view: { id: "photo_view", label: "Photo View", icon: "fa-solid fa-image", type: "action", action_type: "photo_view", format: "number" },
+  lead: { id: "lead", label: "Leads", icon: "fa-solid fa-bullseye", type: "action", action_type: "onsite_conversion.lead_grouped", format: "number" },
+  follow: { id: "follow", label: "Follows", icon: "fa-solid fa-user-plus", type: "action", action_type: "page_like", format: "number" },
+  like: { id: "like", label: "Likes", icon: "fa-solid fa-heart", type: "action", action_type: "post_reaction", format: "number" },
+  save: { id: "save", label: "Saves", icon: "fa-solid fa-bookmark", type: "action", action_type: "onsite_conversion.post_save", format: "number" },
+};
+// --- Summary Metrics Logic ---
+var SUMMARY_METRICS = JSON.parse(localStorage.getItem("dom_summary_metrics")) || ["impressions", "reach", "message_started"];
+// --- Summary Metrics UI Logic ---
+window.openSummarySettings = function () {
+  const modal = document.getElementById("summary_settings_modal");
+  if (!modal) return;
+  modal.style.display = "flex";
+  setTimeout(() => modal.classList.add("active"), 10);
+
+  const list = document.getElementById("summary_available_list");
+  list.innerHTML = Object.keys(METRIC_REGISTRY)
+    .filter(id => id !== "spend")
+    .map(id => {
+      const active = SUMMARY_METRICS.includes(id);
+      return `
+        <div class="summary_option ${active ? 'active' : ''}" onclick="toggleSummaryMetric('${id}')" data-id="${id}" 
+             style="display: flex; align-items:center; gap: 1.2rem; padding: 1.2rem; border: 1.5px solid ${active ? 'var(--mainClr)' : '#e2e8f0'}; border-radius: 12px; cursor:pointer; background:${active ? '#fffbeb' : '#fff'}; transition:all 0.2s; position:relative;">
+          <div style="width: 3.2rem; height: 3.2rem; border-radius: 8px; background: ${active ? 'var(--mainClr)' : '#f1f5f9'}; display: flex; align-items: center; justify-content: center;">
+            <i class="${METRIC_REGISTRY[id].icon || 'fa-solid fa-chart-simple'}" style="color: ${active ? '#fff' : '#64748b'}; font-size: 1.4rem;"></i>
+          </div>
+          <span style="font-size:1.35rem; font-weight:600; color: ${active ? 'var(--mainClrText)' : '#1e293b'};">${METRIC_REGISTRY[id].label}</span>
+          <i class="fa-solid fa-circle-check check-icon" style="margin-left:auto; color:var(--mainClr); font-size: 1.6rem; display:${active ? 'block' : 'none'}"></i>
+        </div>
+      `;
+    }).join("");
+};
+window.domAlert = function (msg) {
+  const modal = document.getElementById("dom_alert_modal");
+  const msgEl = document.getElementById("dom_alert_message");
+  if (!modal || !msgEl) return;
+  msgEl.innerText = msg;
+  modal.style.display = "flex";
+  setTimeout(() => {
+    modal.classList.add("active");
+    document.getElementById("dom_alert_content").style.transform = "scale(1)";
+  }, 10);
+};
+
+window.closeDomAlert = function () {
+  const modal = document.getElementById("dom_alert_modal");
+  const content = document.getElementById("dom_alert_content");
+  if (content) content.style.transform = "scale(0.9)";
+  if (modal) {
+    modal.classList.remove("active");
+    setTimeout(() => {
+      modal.style.display = "none";
+    }, 200);
+  }
+};
+
+window.toggleSummaryMetric = function (id) {
+  const idx = SUMMARY_METRICS.indexOf(id);
+  if (idx > -1) {
+    SUMMARY_METRICS.splice(idx, 1);
+  } else {
+    if (SUMMARY_METRICS.length >= 3) {
+      domAlert("Bạn chỉ được chọn tối đa 3 chỉ số phụ.");
+      return;
+    }
+    SUMMARY_METRICS.push(id);
+  }
+
+  document.querySelectorAll(".summary_option").forEach(el => {
+    const eid = el.dataset.id;
+    const active = SUMMARY_METRICS.includes(eid);
+    el.style.borderColor = active ? "var(--mainClr)" : "#e2e8f0";
+    el.style.background = active ? "#fffbeb" : "#fff";
+    const iconContainer = el.querySelector("div");
+    iconContainer.style.background = active ? "var(--mainClr)" : "#f1f5f9";
+    iconContainer.querySelector("i").style.color = active ? "#fff" : "#64748b";
+    el.querySelector(".check-icon").style.display = active ? 'block' : 'none';
+  });
+};
+
+window.saveSummarySettings = function () {
+  if (SUMMARY_METRICS.length !== 3) {
+    domAlert("Vui lòng chọn đúng 3 chỉ số phụ.");
+    return;
+  }
+  localStorage.setItem("dom_summary_metrics", JSON.stringify(SUMMARY_METRICS));
+
+  // Đồng bộ với Google Sheets nếu có function
+  if (typeof window.saveSummaryMetricsSync === "function") {
+    window.saveSummaryMetricsSync(SUMMARY_METRICS).catch(e => console.warn("Sync summary settings failed:", e));
+  }
+
+  const modal = document.getElementById("summary_settings_modal");
+  if (modal) {
+    modal.classList.remove("active");
+    setTimeout(() => { modal.style.display = "none"; }, 300);
+  }
+  updateSummaryCardHTML();
+  loadDashboardData();
+};
+
+window.closeSummarySettings = function () {
+  const modal = document.getElementById("summary_settings_modal");
+  if (modal) {
+    modal.classList.remove("active");
+    setTimeout(() => {
+      modal.style.display = "none";
+    }, 300);
+  }
+  SUMMARY_METRICS = JSON.parse(localStorage.getItem("dom_summary_metrics")) || ["impressions", "reach", "message_started"];
+};
+
+function updateSummaryCardHTML() {
+  const container = document.querySelector(".dom_total_report ul");
+  if (!container) return;
+
+  let html = `
+    <li class="total_spent">
+      <span><i class="${METRIC_REGISTRY.spend.icon}"></i> ${METRIC_REGISTRY.spend.label}</span>
+      <p id="spent">
+        <span>-</span>
+        <span>-%</span>
+      </p>
+    </li>
+  `;
+
+  SUMMARY_METRICS.forEach(id => {
+    const meta = METRIC_REGISTRY[id];
+    if (!meta) return;
+    html += `
+      <li id="card_${id}">
+        <span><i class="${meta.icon || 'fa-solid fa-chart-simple'}"></i> ${meta.label}</span>
+        <p id="${id}">
+          <span>-</span>
+          <span>-%</span>
+        </p>
+      </li>
+    `;
+  });
+
+  container.innerHTML = html;
+}
+
+// Chạy update khi DOM load
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", updateSummaryCardHTML);
+} else {
+  updateSummaryCardHTML();
+}
+
+// 🦴 Show skeleton NGAY lập tức khi DOM ready — không chờ token hay main()
+(function () {
+  function _showSkeletonEarly() {
+    if (typeof toggleSkeletons === "function") {
+      toggleSkeletons(".dom_dashboard", true);
+    }
+  }
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", _showSkeletonEarly);
+  } else {
+    _showSkeletonEarly();
+  }
+})();
+
+let ACTIVE_COLUMNS = [];
+let CUSTOM_METRICS = [];
+
+function loadColumnConfig() {
+  const saved = localStorage.getItem("dom_column_config");
+  if (saved) {
+    const config = JSON.parse(saved);
+    ACTIVE_COLUMNS = (config.activeColumns || []).slice(0, 15);
+    CUSTOM_METRICS = config.customMetrics || [];
+  } else {
+    // Default configuration
+    ACTIVE_COLUMNS = ["spend", "result", "cpr", "cpm", "reach", "frequency", "reaction"];
+    CUSTOM_METRICS = [];
+  }
+}
+
+function saveColumnConfig() {
+  const config = { activeColumns: ACTIVE_COLUMNS, customMetrics: CUSTOM_METRICS };
+  localStorage.setItem("dom_column_config", JSON.stringify(config));
+  // Sync to Google Sheets (runs in background, non-blocking)
+  if (typeof saveColumnConfigSync === "function") {
+    saveColumnConfigSync(config).catch(() => { });
+  }
+}
+
+function getMetricValue(item, metricId) {
+  // If it's a custom metric
+  const custom = CUSTOM_METRICS.find(m => m.id === metricId);
+  if (custom) return evaluateFormula(item, custom.formula);
+
+  const meta = METRIC_REGISTRY[metricId];
+  if (!meta) {
+    // Check if it's a raw field on item (backward compatibility or missing registry)
+    return item[metricId] || 0;
+  }
+
+  if (meta.type === "field") {
+    const fieldKey = meta.field_name || metricId;
+    return +item[fieldKey] || 0;
+  }
+  if (meta.type === "action") {
+    // Đặc biệt cho ROAS
+    if (metricId === "roas") {
+      const roasArr = item.purchase_roas || [];
+      const roasVal = roasArr.find(a =>
+        a.action_type === "purchase" || a.action_type === "omni_purchase" ||
+        a.action_type === "omni_purchase_roas" || a.action_type === "purchase_roas"
+      );
+      return roasVal ? +roasVal.value : 0;
+    }
+
+    const actions = item.actions || [];
+    const actionType = meta.action_type;
+    const fieldName = meta.field_name;
+
+    // BƯỚC 1: Tìm trong mảng actions chuẩn
+    let act = actions.find(a => a.action_type === actionType);
+
+    // BƯỚC 2: Tìm trong các trường chuyên biệt (video_play_actions, etc.)
+    if (!act && fieldName && item[fieldName]) {
+      const specialData = item[fieldName];
+      if (Array.isArray(specialData)) {
+        act = specialData.find(a => a.action_type === actionType) || specialData[0];
+      } else if (typeof specialData === "number" || typeof specialData === "string") {
+        return +specialData;
+      }
+    }
+
+    // BƯỚC 3: Thử các tên thay thế (Alias) nếu vẫn là 0
+    if (!act) {
+      // Tên thay thế cho Video View
+      if (metricId === "video_view") {
+        act = actions.find(a => a.action_type === "video_3_sec_watched_actions" || a.action_type === "video_view");
+      }
+      // Tên thay thế cho Page Like/Follows
+      if (metricId === "follow") {
+        act = actions.find(a => a.action_type === "page_like" || a.action_type === "like" || a.action_type === "onsite_conversion.page_like");
+      }
+      // Tên thay thế cho ThruPlay
+      if (metricId === "thruplay") {
+        act = actions.find(a => a.action_type === "video_thruplay_watched_actions" || a.action_type === "thruplay" || a.action_type === "video_thruplay");
+      }
+      // Thử khớp không phân biệt hoa thường
+      if (!act) {
+        act = actions.find(a => a.action_type && a.action_type.toLowerCase() === actionType.toLowerCase());
+      }
+    }
+
+    const finalVal = act ? +act.value : (item[metricId] || 0);
+    return finalVal;
+  }
+  if (meta.type === "action_value") {
+    const actionValues = item.action_values || [];
+    const act = actionValues.find(a => a.action_type === meta.action_type);
+    return act ? +act.value : 0;
+  }
+  if (meta.type === "special") {
+    const spend = +item.spend || 0;
+    const reach = +item.reach || 0;
+    const impressions = +item.impressions || 0;
+    const result = +item.result || 0;
+
+    if (metricId === "result") return result;
+    if (metricId === "cpr") {
+      if (result === 0) return 0;
+      const isThousandMetric = (item.optimization_goal === "REACH" || item.optimization_goal === "IMPRESSIONS");
+      return isThousandMetric ? (spend / result) * 1000 : spend / result;
+    }
+    if (metricId === "cpm") {
+      if (reach === 0) return 0;
+      return (spend / reach) * 1000;
+    }
+    if (metricId === "frequency") {
+      if (reach === 0) return 0;
+      return impressions / reach;
+    }
+  }
+  return 0;
+}
+
+function evaluateFormula(item, formula) {
+  try {
+    // Replace {{metric}} with values
+    let processed = formula.replace(/\{\{([^}]+)\}\}/g, (match, id) => {
+      return getMetricValue(item, id.trim());
+    });
+    // Basic math evaluation
+    return Function(`"use strict"; return (${processed})`)();
+  } catch (e) {
+    console.warn("Formula evaluation error:", formula, e);
+    return 0;
+  }
+}
+
+function formatMetric(value, format) {
+  if (value === "-" || value === null || value === undefined) return "-";
+  if (isNaN(value) || !isFinite(value)) return "-";
+  if (value === 0) return "0";
+
+  switch (format) {
+    case "money": return formatMoney(value);
+    case "number": return formatNumber(value);
+    case "decimal": return value.toLocaleString("vi-VN", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+    case "percent": return (value * 100).toFixed(2) + "%";
+    default: return value.toLocaleString("vi-VN");
+  }
+}
+
+loadColumnConfig();
+
+function renderColumnSettingsModal(filter = "") {
+  const availList = document.getElementById("available_metrics_list");
+  const activeList = document.getElementById("active_columns_list");
+  if (!availList || !activeList) return;
+
+  const f = filter.toLowerCase();
+
+  // Render Available
+  availList.innerHTML = Object.keys(METRIC_REGISTRY)
+    .filter(id => !ACTIVE_COLUMNS.includes(id))
+    .filter(id => {
+      const m = METRIC_REGISTRY[id];
+      return m.label.toLowerCase().includes(f) || id.toLowerCase().includes(f);
+    })
+    .map(id => `
+      <div class="metric_tag" onclick="window.addColumnToActive('${id}')" style="background:#f1f5f9; color:#475569; padding:0.8rem 1.4rem; border-radius:1.2rem; font-size:1.15rem; cursor:pointer; border:1.5px solid #e2e8f0; transition:all 0.2s; display:flex; align-items:center; gap:0.8rem;">
+        <i class="fa-solid fa-plus" style="color:#94a3b8;"></i> 
+        <div style="display:flex; flex-direction:column; line-height:1.3;">
+          <span style="font-weight:600;">${METRIC_REGISTRY[id].label}</span>
+          <small style="color:#94a3b8; font-weight:400; font-size:1rem;">{{${id}}}</small>
+        </div>
+      </div>
+    `).join("");
+
+  // Render Active (with Drag & Drop)
+  activeList.innerHTML = ACTIVE_COLUMNS.map((id, idx) => {
+    const meta = METRIC_REGISTRY[id];
+    const custom = CUSTOM_METRICS.find(m => m.id === id);
+    let label = meta ? meta.label : (custom?.name || id);
+    let isCustom = !meta;
+
+    return `
+      <div draggable="true" data-col-id="${id}" data-col-idx="${idx}"
+        style="display:flex; align-items:center; justify-content:space-between; padding:1.2rem 1.5rem; background:#fff; border:1px solid #eee; border-radius:1rem; box-shadow:0 2px 4px rgba(0,0,0,0.02); cursor:grab; transition:opacity .15s, transform .15s;"
+        ondragstart="window._colDragStart(event)" ondragover="window._colDragOver(event)" ondrop="window._colDrop(event)" ondragend="window._colDragEnd(event)">
+        <div style="display:flex; align-items:center; gap:1.2rem;">
+          <i class="fa-solid fa-grip-vertical" style="color:#ccc; cursor:grab;"></i>
+          <div style="display:flex; flex-direction:column; gap:0.2rem; line-height:1.2;">
+            <span style="font-size:1.35rem; font-weight:700; color:#333; display:flex; align-items:center; gap:0.6rem;">
+              ${label} 
+              ${isCustom ? '<span style="font-size:0.9rem; color:#f59e0b; background:#fffaf0; padding:0.1rem 0.5rem; border-radius:0.4rem; border:1px solid #fef3c7;">Custom</span>' : ''}
+            </span>
+            ${!isCustom ? `<small style="color:#999; font-weight:400; font-size:1.1rem;">{{${id}}}</small>` : ''}
+          </div>
+        </div>
+        <div style="display:flex; gap:0.5rem; align-items:center;">
+           ${isCustom ? `<i class="fa-solid fa-pen-to-square" onclick="window.editCustomMetric('${id}')" style="cursor:pointer; color:#6366f1; padding:0.5rem; font-size:1.4rem;" title="Sửa công thức"></i>` : ''}
+           <i class="fa-solid fa-trash-can" onclick="window.removeColumnFromActive('${id}')" style="cursor:pointer; color:#ef4444; padding:0.5rem; margin-left:0.5rem;"></i>
+        </div>
+      </div>
+    `;
+  }).join("");
+
+  // Wire up drag-and-drop sau khi render
+  _initColDnD();
+}
+
+// ── Drag & Drop cột (HTML5 native) ─────────────────────────
+let _dragSrcIdx = null;
+
+window._colDragStart = function (e) {
+  _dragSrcIdx = +e.currentTarget.dataset.colIdx;
+  e.currentTarget.style.opacity = '0.5';
+  e.dataTransfer.effectAllowed = 'move';
+};
+
+window._colDragOver = function (e) {
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+  const target = e.currentTarget;
+  target.style.transform = 'scale(1.02)';
+  target.style.borderColor = '#f59e0b';
+};
+
+window._colDragEnd = function (e) {
+  // Reset visual trên tất cả items
+  document.querySelectorAll('#active_columns_list [draggable]').forEach(el => {
+    el.style.opacity = '';
+    el.style.transform = '';
+    el.style.borderColor = '';
+  });
+  _dragSrcIdx = null;
+};
+
+window._colDrop = function (e) {
+  e.stopPropagation();
+  const destIdx = +e.currentTarget.dataset.colIdx;
+  if (_dragSrcIdx === null || _dragSrcIdx === destIdx) return;
+  // Hoán đổi vị trí trong ACTIVE_COLUMNS
+  const moved = ACTIVE_COLUMNS.splice(_dragSrcIdx, 1)[0];
+  ACTIVE_COLUMNS.splice(destIdx, 0, moved);
+  renderColumnSettingsModal();
+};
+
+function _initColDnD() {
+  // Đưa dragover reset ra mouseout khi rời khỏi item
+  document.querySelectorAll('#active_columns_list [draggable]').forEach(el => {
+    el.addEventListener('dragleave', () => {
+      el.style.transform = '';
+      el.style.borderColor = '';
+    });
+  });
+}
+
+window.addColumnToActive = (id) => {
+  if (!ACTIVE_COLUMNS.includes(id)) {
+    if (ACTIVE_COLUMNS.length >= 15) {
+      return showToast("Tối đa chỉ được hiển thị 15 cột báo cáo!");
+    }
+    ACTIVE_COLUMNS.push(id);
+    renderColumnSettingsModal();
+  }
+};
+
+window.removeColumnFromActive = (id) => {
+  ACTIVE_COLUMNS = ACTIVE_COLUMNS.filter(c => c !== id);
+  renderColumnSettingsModal();
+};
+
+window.editCustomMetric = (id) => {
+  const custom = CUSTOM_METRICS.find(m => m.id === id);
+  if (!custom) return;
+
+  document.getElementById("custom_metric_name").value = custom.name;
+  document.getElementById("custom_metric_formula").value = custom.formula;
+  document.getElementById("custom_metric_name").dataset.editingId = id;
+  document.getElementById("add_custom_metric_btn").textContent = "Cập nhật Metric";
+};
+
+window.moveColumn = (idx, dir) => {
+  const target = idx + dir;
+  if (target < 0 || target >= ACTIVE_COLUMNS.length) return;
+  const item = ACTIVE_COLUMNS.splice(idx, 1)[0];
+  ACTIVE_COLUMNS.splice(target, 0, item);
+  renderColumnSettingsModal();
+};
+
+window.filterAvailableMetrics = (query) => {
+  renderColumnSettingsModal(query);
+};
+
+window.selectAllMetrics = () => {
+  const fInput = document.getElementById("metric_search_input");
+  const filter = fInput ? fInput.value.toLowerCase() : "";
+
+  const toAdd = Object.keys(METRIC_REGISTRY).filter(id => {
+    if (ACTIVE_COLUMNS.includes(id)) return false;
+    const m = METRIC_REGISTRY[id];
+    return m.label.toLowerCase().includes(filter) || id.toLowerCase().includes(filter);
+  });
+
+  if (toAdd.length + ACTIVE_COLUMNS.length > 25) { // Tạm nâng giới hạn khi select all nếu user muốn, nhưng Meta report thực tế tầm 20-30 cột là max.
+    showToast("Cảnh báo: Quá nhiều cột có thể làm đơ bảng báo cáo!");
+  }
+
+  // Tạm khóa ở 20 cột cho ổn định
+  const limit = 20;
+  const currentLen = ACTIVE_COLUMNS.length;
+  const space = limit - currentLen;
+
+  if (space <= 0) return showToast("Đã đạt giới hạn số cột tối đa!");
+
+  const added = toAdd.slice(0, space);
+  ACTIVE_COLUMNS = [...ACTIVE_COLUMNS, ...added];
+  renderColumnSettingsModal(filter);
+};
+
+window.deselectAllMetrics = () => {
+  ACTIVE_COLUMNS = [];
+  const fInput = document.getElementById("metric_search_input");
+  renderColumnSettingsModal(fInput ? fInput.value : "");
+};
+
+
+// ══════════════════════════════════════════════════════════════════
+//  VIEW PRESETS  —  custom dropdown, inline edit, default preset
+// ══════════════════════════════════════════════════════════════════
+
+const VIEW_PRESETS_KEY = "dom_view_presets";
+const DEFAULT_PRESET_ID = "default";
+const DEFAULT_PRESET = {
+  id: DEFAULT_PRESET_ID,
+  name: "Mặc định",
+  isDefault: true,
+  columns: ["spend", "result", "cpr", "cpm", "reach", "frequency", "reaction"],
+  customMetrics: []
+};
+
+/** Đọc presets — luôn đảm bảo có preset mặc định ở đầu */
+function loadViewPresets() {
+  let list = [];
+  try { list = JSON.parse(localStorage.getItem(VIEW_PRESETS_KEY) || "[]"); } catch { }
+  // Đảm bảo preset mặc định luôn có và ở đầu
+  if (!list.find(p => p.id === DEFAULT_PRESET_ID)) list.unshift(DEFAULT_PRESET);
+  return list;
+}
+
+/** Ghi presets — sync lên Sheet ngầm (chỉ dom_view_presets, không cần dom_column_config) */
+function _saveViewPresets(presets) {
+  try { localStorage.setItem(VIEW_PRESETS_KEY, JSON.stringify(presets)); } catch { }
+  // Sync to Google Sheets (runs in background, non-blocking)
+  if (typeof saveViewPresetsSync === "function") {
+    saveViewPresetsSync(presets).catch(() => { });
+  }
+}
+
+/** Áp dụng preset → update cột + lưu + re-render bảng */
+function _applyPreset(id) {
+  const presets = loadViewPresets();
+  const p = presets.find(x => String(x.id) === String(id));
+  if (!p) return;
+  ACTIVE_COLUMNS = [...p.columns];
+  CUSTOM_METRICS = [...(p.customMetrics || [])];
+  saveColumnConfig();
+  if (window._ALL_CAMPAIGNS)
+    renderCampaignView(window._FILTERED_CAMPAIGNS || window._ALL_CAMPAIGNS);
+  if (typeof renderColumnSettingsModal === "function") renderColumnSettingsModal();
+  // Update button label
+  const lbl = document.getElementById("toolbar_preset_label");
+  if (lbl) lbl.textContent = p.name;
+  _closePresetPanel();
+  showToast(`📋 "${p.name}"`);
+}
+window.applyViewPreset = _applyPreset; // for modal select compat
+
+// ── Panel open / close ──────────────────────────────────────────
+
+window._togglePresetPanel = function () {
+  const panel = document.getElementById("preset_panel");
+  if (!panel) return;
+  const isOpen = panel.classList.contains("open");
+  isOpen ? _closePresetPanel() : _openPresetPanel();
+};
+
+function _openPresetPanel() {
+  const panel = document.getElementById("preset_panel");
+  if (!panel) return;
+  panel.style.display = "block";
+  panel.classList.add("open");
+  document.getElementById("toolbar_preset_chevron").style.transform = "rotate(180deg)";
+  const btn = document.getElementById("toolbar_preset_btn");
+  if (btn) { btn.style.borderColor = "#f59e0b"; btn.style.background = "#fffbeb"; }
+  _renderPresetPanel();
+  // Close on outside click
+  setTimeout(() => document.addEventListener("click", _outsidePresetClick), 10);
+}
+
+function _closePresetPanel() {
+  const panel = document.getElementById("preset_panel");
+  if (!panel) return;
+  panel.style.display = "none";
+  panel.classList.remove("open");
+  const chevron = document.getElementById("toolbar_preset_chevron");
+  if (chevron) chevron.style.transform = "rotate(0deg)";
+  const btn = document.getElementById("toolbar_preset_btn");
+  if (btn) { btn.style.borderColor = "#e2e8f0"; btn.style.background = "#fff"; }
+  document.removeEventListener("click", _outsidePresetClick);
+}
+
+function _outsidePresetClick(e) {
+  const wrap = document.getElementById("toolbar_preset_wrap");
+  if (wrap && !wrap.contains(e.target)) _closePresetPanel();
+}
+
+// ── Render panel list ───────────────────────────────────────────
+
+function _renderPresetPanel() {
+  const list = document.getElementById("preset_panel_list");
+  if (!list) return;
+  const presets = loadViewPresets();
+  const activeId = _currentPresetId();
+
+  list.innerHTML = presets.map(p => {
+    const isActive = String(p.id) === String(activeId);
+    return `
+    <div class="_preset_row" data-pid="${p.id}"
+      style="display:flex; align-items:center; gap:0; padding:0.5rem 1rem;
+        transition:background .12s; border-radius:0 0 0 0;
+        ${isActive ? "background:#fffbeb;" : ""}">
+      <!-- Apply zone -->
+      <div onclick="window._applyPreset('${p.id}')"
+        style="flex:1; display:flex; align-items:center; gap:0.9rem;
+          cursor:pointer; padding:0.6rem 0.4rem; min-width:0;">
+        <i class="fa-solid ${isActive ? 'fa-circle-check' : 'fa-layer-group'}"
+          style="color:${isActive ? '#f59e0b' : '#cbd5e1'}; font-size:1.3rem; flex-shrink:0;"></i>
+        <div style="min-width:0;">
+          <div class="_preset_name_display" style="font-size:1.3rem; font-weight:${isActive ? '700' : '600'};
+            color:${isActive ? '#92400e' : '#374151'}; white-space:nowrap;
+            overflow:hidden; text-overflow:ellipsis;">${p.name}</div>
+          <div style="font-size:1rem; color:#94a3b8; margin-top:0.5rem;">${p.columns.length} cột</div>
+        </div>
+      </div>
+      <!-- Actions -->
+      <div style="display:flex; gap:0.2rem; flex-shrink:0;">
+        ${!p.isDefault ? `
+        <button onclick="window._promptRenamePreset('${p.id}')" title="Đổi tên"
+          style="border:none;background:transparent;cursor:pointer;padding:0.5rem;
+            color:#94a3b8;font-size:1.2rem;border-radius:0.5rem;transition:all .15s;"
+          onmouseover="this.style.color='#6366f1';this.style.background='#eff0ff'"
+          onmouseout="this.style.color='#94a3b8';this.style.background='transparent'">
+          <i class="fa-solid fa-pen-to-square"></i></button>
+        <button onclick="window._deleteViewPreset('${p.id}')" title="Xóa"
+          style="border:none;background:transparent;cursor:pointer;padding:0.5rem;
+            color:#94a3b8;font-size:1.2rem;border-radius:0.5rem;transition:all .15s;"
+          onmouseover="this.style.color='#ef4444';this.style.background='#fef2f2'"
+          onmouseout="this.style.color='#94a3b8';this.style.background='transparent'">
+          <i class="fa-solid fa-trash"></i></button>
+        ` : `
+        <span style="font-size:1rem;color:#d1d5db;padding:0.5rem 0.6rem;">
+          <i class="fa-solid fa-lock"></i></span>
+        `}
+      </div>
+    </div>`;
+  }).join('<div style="height:1px;background:#f1f5f9;margin:0 1rem;"></div>');
+}
+
+/** Lấy preset ID đang active (match vs ACTIVE_COLUMNS) */
+function _currentPresetId() {
+  const presets = loadViewPresets();
+  const cur = JSON.stringify([...ACTIVE_COLUMNS].sort());
+  for (const p of presets) {
+    if (JSON.stringify([...p.columns].sort()) === cur) return p.id;
+  }
+  return null;
+}
+
+// ── Edit preset — opens Column Settings Modal ───────────────────
+
+let _editingPresetId = null; // track which preset is being edited
+
+/** Opens the column settings modal pre-loaded with a preset's config */
+window._promptRenamePreset = function (id) {
+  const presets = loadViewPresets();
+  const p = presets.find(x => String(x.id) === String(id));
+  if (!p) return;
+
+  // Load preset columns into temp state
+  ACTIVE_COLUMNS = [...p.columns];
+  CUSTOM_METRICS = [...(p.customMetrics || [])];
+
+  _editingPresetId = id;
+  _closePresetPanel();
+
+  // Render modal with this preset's columns
+  renderColumnSettingsModal();
+  renderPresetDropdown();
+  _enterPresetEditMode(p.name);
+
+  // Open the modal
+  const modal = document.getElementById("column_settings_modal");
+  if (modal) {
+    modal.style.display = "flex";
+    setTimeout(() => modal.classList.add("active"), 10);
+  }
+};
+
+/** Show edit-mode UI in the column settings modal */
+function _enterPresetEditMode(name) {
+  // Ẩn h2 title, hiện banner name input tại chỗ
+  const h2title = document.getElementById("col_modal_title");
+  if (h2title) h2title.style.display = "none";
+  const banner = document.getElementById("preset_edit_banner");
+  if (banner) { banner.style.display = "flex"; }
+  const nameInput = document.getElementById("preset_edit_name_input");
+  if (nameInput) { nameInput.value = name; }
+
+  // Hide preset controls, show cancel btn
+  const controls = document.getElementById("col_modal_preset_controls");
+  if (controls) controls.style.display = "none";
+  const cancelBtn = document.getElementById("cancel_edit_preset_btn");
+  if (cancelBtn) cancelBtn.style.display = "flex";
+
+  // Update save button label
+  const lbl = document.getElementById("save_btn_label");
+  if (lbl) lbl.textContent = "Cập nhật Preset";
+}
+
+/** Restore normal modal state after editing */
+function _exitPresetEditMode() {
+  _editingPresetId = null;
+
+  const h2title = document.getElementById("col_modal_title");
+  if (h2title) h2title.style.display = "";
+  const banner = document.getElementById("preset_edit_banner");
+  if (banner) banner.style.display = "none";
+
+  const controls = document.getElementById("col_modal_preset_controls");
+  if (controls) controls.style.display = "flex";
+  const cancelBtn = document.getElementById("cancel_edit_preset_btn");
+  if (cancelBtn) cancelBtn.style.display = "none";
+
+  const lbl = document.getElementById("save_btn_label");
+  if (lbl) lbl.textContent = "Lưu thay đổi";
+}
+
+/** Cancel editing a preset — restore original columns from preset */
+window._cancelEditPreset = function () {
+  if (_editingPresetId) {
+    // Restore original columns from preset
+    const p = loadViewPresets().find(x => String(x.id) === String(_editingPresetId));
+    if (p) {
+      ACTIVE_COLUMNS = [...p.columns];
+      CUSTOM_METRICS = [...(p.customMetrics || [])];
+    }
+  }
+  _exitPresetEditMode();
+  renderColumnSettingsModal();
+};
+
+
+// ── Save new preset — opens Column Settings Modal in "new" mode ──
+
+window.saveCurrentAsPreset = function () {
+  _editingPresetId = null; // new mode, not editing existing
+  _closePresetPanel();
+
+  renderColumnSettingsModal();
+  renderPresetDropdown();
+
+  // Hiện banner nhập tên tại chỗ (góc trái), ẩn tiêu đề chính
+  const h2title = document.getElementById("col_modal_title");
+  if (h2title) h2title.style.display = "none";
+  const banner = document.getElementById("preset_edit_banner");
+  if (banner) banner.style.display = "flex";
+  const nameInput = document.getElementById("preset_edit_name_input");
+  if (nameInput) { nameInput.value = ""; setTimeout(() => nameInput.focus(), 120); }
+
+  const controls = document.getElementById("col_modal_preset_controls");
+  if (controls) controls.style.display = "none";
+  const cancelBtn = document.getElementById("cancel_edit_preset_btn");
+  if (cancelBtn) cancelBtn.style.display = "flex";
+
+  const lbl = document.getElementById("save_btn_label");
+  if (lbl) lbl.textContent = "Lưu Preset mới";
+
+  const modal = document.getElementById("column_settings_modal");
+  if (modal) {
+    modal.style.display = "flex";
+    setTimeout(() => modal.classList.add("active"), 10);
+  }
+};
+
+// ── Core save handler (edit existing OR save new) ───────────────
+
+function _savePresetEditIfActive() {
+  const banner = document.getElementById("preset_edit_banner");
+  const bannerVisible = banner && banner.style.display !== "none";
+
+  if (_editingPresetId) {
+    // Update existing preset
+    const presets = loadViewPresets();
+    const idx = presets.findIndex(p => String(p.id) === String(_editingPresetId));
+    if (idx < 0) { _exitPresetEditMode(); return; }
+    const nameInput = document.getElementById("preset_edit_name_input");
+    const name = nameInput?.value?.trim() || presets[idx].name;
+    presets[idx] = { ...presets[idx], name, columns: [...ACTIVE_COLUMNS], customMetrics: [...CUSTOM_METRICS] };
+    _saveViewPresets(presets);
+    saveColumnConfig(); // ☁️ Đồng bộ cả config cột hiện tại
+    renderPresetDropdown();
+    _renderPresetPanel();
+    _exitPresetEditMode();
+    showToast(`✅ Đã cập nhật preset "${name}"`);
+  } else if (bannerVisible) {
+    // Save new preset
+    const nameInput = document.getElementById("preset_edit_name_input");
+    const trimmed = nameInput?.value?.trim();
+    if (!trimmed) { nameInput?.focus(); showToast("⚠️ Vui lòng nhập tên preset"); return; }
+
+    const presets = loadViewPresets();
+    const dupIdx = presets.findIndex(p => p.name.toLowerCase() === trimmed.toLowerCase());
+    const np = {
+      id: dupIdx >= 0 ? presets[dupIdx].id : Date.now(), name: trimmed,
+      columns: [...ACTIVE_COLUMNS], customMetrics: [...CUSTOM_METRICS]
+    };
+    if (dupIdx >= 0) presets[dupIdx] = np;
+    else presets.push(np);
+    _saveViewPresets(presets);
+    saveColumnConfig(); // ☁️ Đồng bộ cả config cột hiện tại
+    renderPresetDropdown();
+    _exitPresetEditMode();
+    showToast(`✅ Đã lưu preset "${trimmed}"`);
+  }
+}
+
+window._confirmRenamePreset = _savePresetEditIfActive; // legacy compat
+
+// ── Delete preset ───────────────────────────────────────────────
+
+window._deleteViewPreset = function (id) {
+  if (id === DEFAULT_PRESET_ID) return; // bảo vệ default
+  const presets = loadViewPresets().filter(p => String(p.id) !== String(id));
+  _saveViewPresets(presets);
+  renderPresetDropdown();
+  _renderPresetPanel();
+  showToast("🗑️ Đã xóa preset");
+};
+
+// ── Preset dropdown (toolbar label + modal select) ──────────────
+
+function renderPresetDropdown() {
+  const presets = loadViewPresets();
+  // Modal select
+  const modalSel = document.getElementById("preset_select");
+  if (modalSel) {
+    modalSel.innerHTML = `<option value="">-- Chọn preset --</option>` +
+      presets.map(p => `<option value="${p.id}">${p.name} (${p.columns.length} cột)</option>`).join("");
+  }
+  // Toolbar label
+  const lbl = document.getElementById("toolbar_preset_label");
+  if (lbl) {
+    const aid = _currentPresetId();
+    const ap = presets.find(p => String(p.id) === String(aid));
+    lbl.textContent = ap ? ap.name : "Preset";
+  }
+}
+
+window._applyToolbarPreset = _applyPreset; // legacy compat
+
+// ── DOMContentLoaded: wire up modal buttons ─────────────────────
+
+document.addEventListener("DOMContentLoaded", () => {
+  const modal = document.getElementById("column_settings_modal");
+  const close = document.getElementById("close_column_settings");
+  if (close && modal) {
+    close.onclick = () => {
+      _exitPresetEditMode();
+      modal.classList.remove("active");
+      setTimeout(() => {
+        modal.style.display = "none";
+      }, 300);
+    };
+  }
+
+  // Khởi tạo toolbar preset dropdown ngay khi trang load
+  renderPresetDropdown();
+
+  const addCustomBtn = document.getElementById("add_custom_metric_btn");
+  if (addCustomBtn) {
+    addCustomBtn.onclick = () => {
+      const nameInput = document.getElementById("custom_metric_name");
+      const formulaInput = document.getElementById("custom_metric_formula");
+      const name = nameInput.value.trim();
+      const formula = formulaInput.value.trim();
+      const editingId = nameInput.dataset.editingId;
+
+      if (!name || !formula) return showToast("Vui lòng nhập tên và công thức");
+
+      if (editingId) {
+        const idx = CUSTOM_METRICS.findIndex(m => m.id === editingId);
+        if (idx > -1) {
+          CUSTOM_METRICS[idx].name = name;
+          CUSTOM_METRICS[idx].formula = formula;
+        }
+        delete nameInput.dataset.editingId;
+        addCustomBtn.textContent = "Tạo Metric";
+      } else {
+        if (ACTIVE_COLUMNS.length >= 15) {
+          return showToast("Tối đa 15 cột! Vui lòng gỡ bớt cột trước khi tạo metric mới.");
+        }
+        const id = "custom_" + Date.now();
+        CUSTOM_METRICS.push({ id, name, formula, format: "number" });
+        ACTIVE_COLUMNS.push(id);
+      }
+
+      nameInput.value = "";
+      formulaInput.value = "";
+      renderColumnSettingsModal();
+      showToast(editingId ? "Đã cập nhật metric" : "Đã thêm custom metric");
+    };
+  }
+
+  const saveBtn = document.getElementById("save_column_config_btn");
+  if (saveBtn) {
+    saveBtn.onclick = () => {
+      const banner = document.getElementById("preset_edit_banner");
+      const bannerVisible = banner && banner.style.display !== "none";
+
+      if (_editingPresetId || bannerVisible) {
+        // Preset mode (edit or new)
+        _savePresetEditIfActive();
+        renderColumnSettingsModal();
+        if (modal) {
+          modal.classList.remove("active");
+          setTimeout(() => { modal.style.display = "none"; }, 300);
+        }
+        if (window._ALL_CAMPAIGNS)
+          renderCampaignView(window._FILTERED_CAMPAIGNS || window._ALL_CAMPAIGNS);
+      } else {
+        // Normal column config mode
+        saveColumnConfig();
+        if (modal) {
+          modal.classList.remove("active");
+          setTimeout(() => { modal.style.display = "none"; }, 300);
+        }
+        if (window._ALL_CAMPAIGNS) renderCampaignView(window._ALL_CAMPAIGNS);
+        showToast("Đã đồng bộ cấu hình thiết lập");
+      }
+    };
+  }
+
+  const resetBtn = document.getElementById("reset_column_config");
+  if (resetBtn) {
+    resetBtn.onclick = () => {
+      ACTIVE_COLUMNS = ["spend", "result", "cpr", "cpm", "reach", "frequency", "reaction"];
+      CUSTOM_METRICS = [];
+      saveColumnConfig();
+      renderColumnSettingsModal();
+    };
+  }
+
+  // ── Premium Tooltip Manager ──────────────────────────────────
+  const tooltip = document.createElement("div");
+  tooltip.className = "dom_premium_tooltip";
+  document.body.appendChild(tooltip);
+
+  document.addEventListener("mouseover", (e) => {
+    const target = e.target.closest("[data-tooltip]");
+    if (!target) return;
+    const text = target.getAttribute("data-tooltip");
+    if (!text) return;
+    tooltip.textContent = text;
+    tooltip.classList.add("show");
+    // Chỉ gọi getBoundingClientRect 1 lần trong RAF — tránh force layout
+    requestAnimationFrame(() => {
+      const rect = target.getBoundingClientRect();
+      const tooltipRect = tooltip.getBoundingClientRect();
+      let top = rect.top - tooltipRect.height - 12;
+      let left = rect.left + rect.width / 2;
+      if (left - tooltipRect.width / 2 < 10) left = tooltipRect.width / 2 + 10;
+      if (left + tooltipRect.width / 2 > window.innerWidth - 10) {
+        left = window.innerWidth - tooltipRect.width / 2 - 10;
+      }
+      if (top < 10) {
+        top = rect.bottom + 12;
+        tooltip.classList.add('is-bottom');
+      } else {
+        tooltip.classList.remove('is-bottom');
+      }
+      tooltip.style.top = top + "px";
+      tooltip.style.left = left + "px";
+      tooltip.style.transform = "translate(-50%, 0)";
+    });
+  });
+
+  document.addEventListener("mouseout", (e) => {
+    if (e.target.closest("[data-tooltip]")) {
+      tooltip.classList.remove("show");
+    }
+  });
+});
 // =================== DATE PICKER STATE ===================
 let calendarCurrentMonth = new Date().getMonth();
 let calendarCurrentYear = new Date().getFullYear();
@@ -23,10 +1027,32 @@ let tempStartDate = null;
 let tempEndDate = null;
 let VIEW_GOAL; // Dùng cho chart breakdown
 const CACHE = new Map();
+const CACHE_TTL = new Map(); // { url_key → timestamp }
+const CACHE_TTL_MS = 5 * 60 * 1000; // 5 phút
+/** Xóa cache khi đổi date range — gọi từ main() */
+function clearFetchCache() { CACHE.clear(); CACHE_TTL.clear(); }
 let DAILY_DATA = [];
 let CURRENT_CAMPAIGN_FILTER = ""; // 👈 Lưu bộ lọc hiện tại (dùng cho Brand filter)
-const BATCH_SIZE = 10;
-const CONCURRENCY_LIMIT = 40;
+let GOAL_CHART_MODE = "keyword"; // "keyword" or "brand"
+let GOAL_KEYWORDS = ["Reach", "Engagement", "View", "Message", "Traffic", "Lead"];
+try {
+  const saved = localStorage.getItem("goal_keywords");
+  if (saved) GOAL_KEYWORDS = JSON.parse(saved);
+
+  const savedMode = localStorage.getItem("goal_chart_mode");
+  if (savedMode) GOAL_CHART_MODE = savedMode;
+} catch (e) {
+  console.warn("Lỗi load settings:", e);
+}
+// Sync quick-toggle button to reflect saved mode after DOM ready
+document.addEventListener("DOMContentLoaded", () => {
+  const modeLabel = document.getElementById("goal_mode_label");
+  const toggleBtn = document.getElementById("goal_chart_mode_toggle");
+  if (modeLabel) modeLabel.textContent = GOAL_CHART_MODE === 'brand' ? 'Keyword' : 'Brand';
+
+});
+const BATCH_SIZE = 20; // Meta max is 50
+const CONCURRENCY_LIMIT = 10; // 10 parallel batches * 50 = 500 requests at once
 const API_VERSION = "v24.0";
 const BASE_URL = `https://graph.facebook.com/${API_VERSION}`;
 const goalMapping = {
@@ -47,14 +1073,14 @@ const resultMapping = {
   REACH: "reach",
   LEAD_GENERATION: "onsite_conversion.lead_grouped",
   QUALITY_LEAD: "onsite_conversion.lead_grouped",
-  THRUPLAY: "video_view",
+  THRUPLAY: "video_thruplay_watched_actions",
   POST_ENGAGEMENT: "post_engagement",
   PROFILE_VISIT: "link_click",
   LINK_CLICKS: "link_click",
   LANDING_PAGE_VIEWS: "link_click",
-  REPLIES: "onsite_conversion.total_messaging_connection",
+  REPLIES: "onsite_conversion.messaging_conversation_started_7d",
   IMPRESSIONS: "impressions",
-  PAGE_LIKES: "follows",
+  PAGE_LIKES: "page_like",
   DEFAULT: "reach", // Fallback
 };
 
@@ -92,25 +1118,29 @@ function getCampaignIcon(optimizationGoal) {
 }
 /**
  * 🦴 Skeleton Loader Helper
- * Tự động tạo và điều khiển skeletons dựa trên cấu trúc card
+ * Toggle display (không remove/recreate — tránh layout thrash)
  */
 function toggleSkeletons(scopeSelector, isLoading) {
   const scope = document.querySelector(scopeSelector);
   if (!scope) return;
 
+  let cards = scope.querySelectorAll(".dom_inner");
+  if (scopeSelector === ".dom_dashboard" || scopeSelector === ".dom_container") {
+    cards = Array.from(cards).filter(c => !c.closest("#google_ads_container"));
+  }
+
   if (isLoading) {
     scope.classList.add("is-loading");
-    // Tìm các thẻ card/chart chính
-    const cards = scope.querySelectorAll(".dom_inner");
     cards.forEach((card) => {
-      card.classList.add("is-loading"); // Thêm cho từng card để bắt CSS absolute
+      card.classList.add("is-loading");
+
+      // Tạo skeleton 1 lần, sau đó chỉ toggle display
       let skeleton = card.querySelector(".skeleton-container");
       if (!skeleton) {
         skeleton = document.createElement("div");
         skeleton.className = "skeleton-container";
         const isChart = card.querySelector("canvas");
         const isList = card.querySelector("ul.dom_toplist");
-
         if (isChart) {
           skeleton.innerHTML = `
             <div class="skeleton skeleton-title" style="margin-bottom:2rem"></div>
@@ -132,8 +1162,8 @@ function toggleSkeletons(scopeSelector, isLoading) {
         }
         card.prepend(skeleton);
       }
+      skeleton.style.display = ""; // hiện
 
-      // Ẩn các con trực tiếp trừ skeleton
       Array.from(card.children).forEach((child) => {
         if (!child.classList.contains("skeleton-container")) {
           child.classList.add("hide-on-load");
@@ -142,11 +1172,10 @@ function toggleSkeletons(scopeSelector, isLoading) {
     });
   } else {
     scope.classList.remove("is-loading");
-    const cards = scope.querySelectorAll(".dom_inner");
     cards.forEach((card) => {
       card.classList.remove("is-loading");
-      const skeletons = card.querySelectorAll(".skeleton-container");
-      skeletons.forEach((s) => s.remove()); // Xóa hẳn khỏi DOM
+      const skeleton = card.querySelector(".skeleton-container");
+      if (skeleton) skeleton.style.display = "none"; // ẩn thay vì remove
       card.querySelectorAll(".hide-on-load").forEach((el) => el.classList.remove("hide-on-load"));
     });
   }
@@ -224,6 +1253,14 @@ function getResults(item, goal) {
   if (!resultType) resultType = resultMapping.DEFAULT;
 
   if (Array.isArray(actions)) {
+    // Ưu tiên tìm trong các trường đặc biệt nếu khớp (VD: video_thruplay_watched_actions)
+    if (insights[resultType]) {
+      const sp = insights[resultType];
+      if (Array.isArray(sp)) return sp.reduce((s, a) => s + (+a.value || 0), 0);
+      if (typeof sp === 'number' || typeof sp === 'string') return +sp;
+      if (sp.value) return +sp.value;
+    }
+
     for (let i = 0; i < actions.length; i++) {
       if (actions[i].action_type === resultType) return +actions[i].value || 0;
     }
@@ -232,6 +1269,13 @@ function getResults(item, goal) {
       for (const g of goalMapping[goalKey]) {
         const altType = resultMapping[g];
         if (!altType) continue;
+
+        // Thử tìm trong trường đặc biệt cho altType
+        if (insights[altType]) {
+          const asp = insights[altType];
+          if (Array.isArray(asp)) return asp.reduce((s, a) => s + (+a.value || 0), 0);
+        }
+
         for (let i = 0; i < actions.length; i++) {
           if (actions[i].action_type === altType) return +actions[i].value || 0;
         }
@@ -255,7 +1299,10 @@ function getResults(item, goal) {
 // ===================== UTILS =====================
 async function fetchJSON(url, options = {}) {
   const key = url + JSON.stringify(options);
-  if (CACHE.has(key)) return CACHE.get(key); // Trả về cache nếu có
+  // Kiểm tra cache còn TTL không
+  if (CACHE.has(key) && Date.now() - (CACHE_TTL.get(key) || 0) < CACHE_TTL_MS) {
+    return CACHE.get(key);
+  }
 
   try {
     const res = await fetch(url, options);
@@ -277,7 +1324,8 @@ async function fetchJSON(url, options = {}) {
       throw new Error(msg);
     }
     const data = JSON.parse(text);
-    CACHE.set(key, data); // Lưu vào cache sau khi lấy dữ liệu
+    CACHE.set(key, data);
+    CACHE_TTL.set(key, Date.now()); // Lưu timestamp
     return data;
   } catch (err) {
     console.error(`❌ Fetch failed: ${url}`, err);
@@ -386,20 +1434,31 @@ async function fetchSingleAccountInfo(accId) {
 
 async function fetchAdsets() {
   let allData = []; // Mảng chứa tất cả dữ liệu
-  let nextPageUrl = `${BASE_URL}/act_${ACCOUNT_ID}/insights?level=adset&fields=adset_id,adset_name,campaign_id,campaign_name,optimization_goal&filtering=[{"field":"spend","operator":"GREATER_THAN","value":0}]&time_range={"since":"${startDate}","until":"${endDate}"}&access_token=${META_TOKEN}&limit=10000`;
+  let nextPageUrl = `${BASE_URL}/act_${ACCOUNT_ID}/insights?level=adset&fields=adset_id,adset_name,campaign_id,campaign_name,optimization_goal,spend,reach,impressions,actions,action_values,frequency,cpm,cpc,ctr,clicks,inline_link_clicks,purchase_roas,account_id,account_name,account_currency,buying_type,objective,video_play_actions,video_thruplay_watched_actions,video_p25_watched_actions,video_p50_watched_actions,video_p75_watched_actions,video_p95_watched_actions,video_p100_watched_actions&filtering=[{"field":"spend","operator":"GREATER_THAN","value":0}]&time_range={"since":"${startDate}","until":"${endDate}"}&access_token=${META_TOKEN}&limit=10000`;
 
   // Tiến hành lặp lại việc gọi API cho đến khi không còn cursor tiếp theo
   while (nextPageUrl) {
     const data = await fetchJSON(nextPageUrl);
-    console.log(data);
-
     if (data.data) {
       allData = allData.concat(data.data); // Thêm dữ liệu vào mảng allData
     }
-
     nextPageUrl = data.paging && data.paging.next ? data.paging.next : null;
   }
 
+  return allData;
+}
+
+async function fetchCampaignInsights() {
+  let allData = [];
+  let nextPageUrl = `${BASE_URL}/act_${ACCOUNT_ID}/insights?level=campaign&fields=campaign_id,campaign_name,spend,reach,impressions,actions,action_values,frequency,cpm,cpc,ctr,clicks,inline_link_clicks,purchase_roas,account_id,account_name,account_currency,buying_type,objective,video_play_actions,video_thruplay_watched_actions,video_p25_watched_actions,video_p50_watched_actions,video_p75_watched_actions,video_p95_watched_actions,video_p100_watched_actions&filtering=[{"field":"spend","operator":"GREATER_THAN","value":0}]&time_range={"since":"${startDate}","until":"${endDate}"}&access_token=${META_TOKEN}&limit=10000`;
+
+  while (nextPageUrl) {
+    const data = await fetchJSON(nextPageUrl);
+    if (data.data) {
+      allData = allData.concat(data.data);
+    }
+    nextPageUrl = data.paging && data.paging.next ? data.paging.next : null;
+  }
   return allData;
 }
 
@@ -431,7 +1490,7 @@ async function fetchAdsAndInsights(adsetIds, onBatchProcessedCallback) {
           `${adsetId}/ads?fields=id,name,effective_status,adset_id,` +
           `adset{end_time,start_time,daily_budget,lifetime_budget},` +
           `creative{thumbnail_url,instagram_permalink_url,effective_object_story_id},` +
-          `insights.time_range({since:'${startDate}',until:'${endDate}'}){spend,impressions,reach,actions,optimization_goal}`,
+          `insights.time_range({since:'${startDate}',until:'${endDate}'}){spend,impressions,reach,actions,action_values,optimization_goal,clicks,inline_link_clicks,purchase_roas,account_id,account_name,account_currency,buying_type,objective,video_play_actions,video_thruplay_watched_actions,video_p25_watched_actions,video_p50_watched_actions,video_p75_watched_actions,video_p95_watched_actions,video_p100_watched_actions}`,
       }));
 
       // Gọi API
@@ -440,7 +1499,11 @@ async function fetchAdsAndInsights(adsetIds, onBatchProcessedCallback) {
         adsResp = await fetchJSON(BASE_URL, {
           method: "POST",
           headers,
-          body: JSON.stringify({ access_token: META_TOKEN, batch: fbBatch }),
+          body: JSON.stringify({
+            access_token: META_TOKEN,
+            batch: fbBatch,
+            include_headers: false // 🚀 Optimize: Reduce response size by omitting headers for each sub-request
+          }),
         });
       } catch (error) {
         console.error("Error fetching data:", error);
@@ -497,7 +1560,24 @@ async function fetchAdsAndInsights(adsetIds, onBatchProcessedCallback) {
               spend: !isNaN(+insights.spend) ? +insights.spend : 0,
               impressions: +insights.impressions || 0,
               reach: +insights.reach || 0,
+              clicks: +insights.clicks || 0,
+              inline_link_clicks: +insights.inline_link_clicks || 0,
+              purchase_roas: Array.isArray(insights.purchase_roas) ? insights.purchase_roas : [],
+              account_id: insights.account_id || "",
+              account_name: insights.account_name || "",
+              account_currency: insights.account_currency || "",
+              buying_type: insights.buying_type || "",
+              objective: insights.objective || "",
               actions: Array.isArray(insights.actions) ? insights.actions : [],
+              action_values: Array.isArray(insights.action_values) ? insights.action_values : [],
+              // ⭐ Store dynamic video fields
+              video_play_actions: insights.video_play_actions || [],
+              video_thruplay_watched_actions: insights.video_thruplay_watched_actions || [],
+              video_p25_watched_actions: insights.video_p25_watched_actions || [],
+              video_p50_watched_actions: insights.video_p50_watched_actions || [],
+              video_p75_watched_actions: insights.video_p75_watched_actions || [],
+              video_p95_watched_actions: insights.video_p95_watched_actions || [],
+              video_p100_watched_actions: insights.video_p100_watched_actions || [],
               optimization_goal: insights.optimization_goal || "",
             },
           });
@@ -506,15 +1586,19 @@ async function fetchAdsAndInsights(adsetIds, onBatchProcessedCallback) {
 
       // Stream kết quả sớm để tránh nghẽn bộ nhớ
       if (processed.length) {
+        // 🧪 DEBUG: Log raw insights sample for first batch
+        if (batchCount === 0) {
+          console.log("🧪 Raw Meta Insights Sample:", adsResp[0]?.body ? JSON.parse(adsResp[0].body).data?.[0]?.insights?.data?.[0] : "N/A");
+          console.log("✅ Processed Data Item Sample:", processed[0]);
+        }
         onBatchProcessedCallback?.(processed);
         results.push(...processed);
       }
 
       // Perf log
       batchCount++;
-      const elapsed = (performance.now() - startTime).toFixed(0);
     }),
-    CONCURRENCY_LIMIT // Giới hạn số lượng batch song song
+    CONCURRENCY_LIMIT
   );
 
   console.timeEnd("⏱️ Total fetchAdsAndInsights");
@@ -536,74 +1620,100 @@ async function loadDailyChart() {
     console.error("❌ Error in Flow 1 (Daily Chart):", err);
   }
 }
-function groupByCampaign(adsets) {
+function groupByCampaign(adsets, campaignsData = []) {
   if (!Array.isArray(adsets) || adsets.length === 0) return [];
 
-  const campaigns = Object.create(null); // ⚙️ Dùng map cache hành động -> tránh gọi find nhiều lần
+  const campaigns = Object.create(null);
+  const campMetricsMap = new Map((campaignsData || []).map(c => [c.campaign_id, c]));
 
-  const safeGetActionValue = (actions, type) => {
-    if (!Array.isArray(actions) || !actions.length) return 0;
-    for (let i = 0; i < actions.length; i++) {
-      const a = actions[i];
-      if (a.action_type === type) return +a.value || 0;
-    }
-    return 0;
-  }; // ⚡ Duyệt qua tất cả adsets (1 vòng chính)
+  // (safeGetActionValue is now global)
 
   for (let i = 0; i < adsets.length; i++) {
     const as = adsets[i];
-    if (!as?.ads?.length) continue;
+    if (!as) continue;
 
     const campId = as.campaign_id || as.campaignId || "unknown_campaign";
     const campName = as.campaign_name || as.campaignName || "Unknown";
     const goal = as.optimization_goal || as.optimizationGoal || "UNKNOWN";
-    const asId = as.id || as.adset_id || as.adsetId || `adset_${i}`; // 🧱 Tạo campaign nếu chưa có
+    const asId = as.id || as.adset_id || as.adsetId || `adset_${i}`;
 
     let campaign = campaigns[campId];
     if (!campaign) {
+      const cMetrics = campMetricsMap.get(campId) || {};
+      const cActions = cMetrics.actions || [];
+
       campaign = campaigns[campId] = {
         id: campId,
         name: campName,
-        spend: 0,
-        result: 0,
-        reach: 0,
-        impressions: 0,
-        reactions: 0,
-        lead: 0,
-        message: 0,
-        link_clicks: 0,
+        spend: +cMetrics.spend || 0,
+        result: getResults(cMetrics) || 0,
+        reach: +cMetrics.reach || 0,
+        impressions: +cMetrics.impressions || 0,
+        reactions: getReaction(cMetrics) || 0,
+        clicks: +cMetrics.clicks || 0,
+        inline_link_clicks: +cMetrics.inline_link_clicks || 0,
+        purchase_roas: cMetrics.purchase_roas || [],
+        account_id: cMetrics.account_id || "",
+        account_name: cMetrics.account_name || "",
+        account_currency: cMetrics.account_currency || "",
+        buying_type: cMetrics.buying_type || "",
+        objective: cMetrics.objective || "",
+        actions: cMetrics.actions || [],
+        action_values: cMetrics.action_values || [], // ⭐ KEEP ALL ACTION VALUES
+        video_play_actions: cMetrics.video_play_actions || [],
+        video_thruplay_watched_actions: cMetrics.video_thruplay_watched_actions || [],
+        video_p25_watched_actions: cMetrics.video_p25_watched_actions || [],
+        video_p50_watched_actions: cMetrics.video_p50_watched_actions || [],
+        video_p75_watched_actions: cMetrics.video_p75_watched_actions || [],
+        video_p95_watched_actions: cMetrics.video_p95_watched_actions || [],
+        video_p100_watched_actions: cMetrics.video_p100_watched_actions || [],
         adsets: [],
         _adsetMap: Object.create(null),
-        // Thêm status cho campaign (lấy từ ad đầu tiên, giả định chúng giống nhau)
-        // Mặc dù vậy, `ad.effective_status` vẫn đáng tin cậy hơn
+        _goals: new Set(), // Track unique goals
+        _cMetrics: cMetrics, // Store campaign metrics for result calculation
       };
-    } // 🔹 Cache adset trong campaign
+    }
+
+    campaign._goals.add(goal);
 
     let adset = campaign._adsetMap[asId];
     if (!adset) {
+      const asActions = as.actions || [];
       adset = {
         id: asId,
         name: as.name || as.adset_name || as.adsetName || "Unnamed Adset",
         optimization_goal: goal,
-        spend: 0,
-        result: 0,
-        reach: 0,
-        impressions: 0,
-        reactions: 0,
-        lead: 0,
-        message: 0,
-        link_clicks: 0,
+        spend: +as.spend || 0,
+        result: getResults(as) || 0,
+        reach: +as.reach || 0,
+        impressions: +as.impressions || 0,
+        reactions: getReaction(as) || 0,
+        clicks: +as.clicks || 0,
+        inline_link_clicks: +as.inline_link_clicks || 0,
+        link_clicks: window.safeGetActionValue(as.actions, "link_click") || +as.inline_link_clicks || 0,
+        follow: window.safeGetActionValue(as.actions, "page_like") + window.safeGetActionValue(as.actions, "page_follow") + window.safeGetActionValue(as.actions, "instagram_profile_follow") + window.safeGetActionValue(as.actions, "onsite_conversion.page_like"),
+        purchase_roas: as.purchase_roas || [],
+        account_id: as.account_id || "",
+        account_name: as.account_name || "",
+        actions: as.actions || [], // ⭐ KEEP ALL ACTIONS
+        video_play_actions: as.video_play_actions || [],
+        video_thruplay_watched_actions: as.video_thruplay_watched_actions || [],
+        video_p25_watched_actions: as.video_p25_watched_actions || [],
+        video_p50_watched_actions: as.video_p50_watched_actions || [],
+        video_p75_watched_actions: as.video_p75_watched_actions || [],
+        video_p95_watched_actions: as.video_p95_watched_actions || [],
+        video_p100_watched_actions: as.video_p100_watched_actions || [],
         ads: [],
-        end_time: as.ads?.[0]?.adset?.end_time || null,
-        start_time: as.ads?.[0]?.adset?.start_time || null,
-        daily_budget: as.ads?.[0]?.adset?.daily_budget || 0,
-        lifetime_budget: as.ads?.[0]?.adset?.lifetime_budget || 0,
+        end_time: (as.ads?.[0]?.adset?.end_time || as.end_time) || null,
+        start_time: (as.ads?.[0]?.adset?.start_time || as.start_time) || null,
+        daily_budget: as.ads?.[0]?.adset?.daily_budget || as.daily_budget || 0,
+        lifetime_budget: as.ads?.[0]?.adset?.lifetime_budget || as.lifetime_budget || 0,
       };
       campaign._adsetMap[asId] = adset;
       campaign.adsets.push(adset);
-    } // 🔁 Lặp nhanh qua ads
+    }
 
-    const ads = as.ads;
+    const ads = as.ads || [];
     for (let j = 0; j < ads.length; j++) {
       const ad = ads[j];
       if (!ad) continue;
@@ -617,37 +1727,27 @@ function groupByCampaign(adsets) {
       const spend = +ins.spend || 0;
       const reach = +ins.reach || 0;
       const impressions = +ins.impressions || 0;
-      const result = getResults(ins) || 0; // (Cần hàm này)
-      const reactions = getReaction(ins) || 0; // (Cần hàm này)
+      const result = getResults(ins) || 0;
+      const reactions = getReaction(ins) || 0;
+      const clicks = +ins.clicks || 0;
+      const inline_link_clicks = +ins.inline_link_clicks || 0;
+      const purchase_roas = ins.purchase_roas || [];
+      const account_id = ins.account_id || "";
+      const account_name = ins.account_name || "";
 
       const actions = ins.actions;
       const messageCount = safeGetActionValue(
         actions,
-        "onsite_conversion.total_messaging_connection"
+        "onsite_conversion.messaging_conversation_started_7d"
       );
       const leadCount =
         safeGetActionValue(actions, "lead") +
-        safeGetActionValue(actions, "onsite_conversion.lead_grouped"); // ✅ Cộng dồn adset-level
+        safeGetActionValue(actions, "onsite_conversion.lead_grouped");
 
-      const linkClicks = safeGetActionValue(actions, "link_click"); // Extract link_click
+      const linkClicks = safeGetActionValue(actions, "link_click");
 
-      adset.spend += spend;
-      adset.result += result;
-      adset.reach += reach;
-      adset.impressions += impressions;
-      adset.reactions += reactions;
-      adset.lead += leadCount;
-      adset.message += messageCount; // ✅ Cộng dồn campaign-level
-      adset.link_clicks += linkClicks;
-
-      campaign.spend += spend;
-      campaign.result += result;
-      campaign.reach += reach;
-      campaign.impressions += impressions;
-      campaign.reactions += reactions;
-      campaign.lead += leadCount;
-      campaign.message += messageCount; // 🖼️ Add ad summary
-      campaign.link_clicks += linkClicks;
+      // adset.spend += spend; // REMOVED aggregation
+      // campaign.spend += spend; // REMOVED aggregation
 
       adset.ads.push({
         id: ad.ad_id || ad.id || null,
@@ -659,9 +1759,23 @@ function groupByCampaign(adsets) {
         reach,
         impressions,
         reactions,
-        lead: leadCount,
-        message: messageCount,
-        cpr: result ? spend / result : 0,
+        clicks,
+        inline_link_clicks,
+        purchase_roas,
+        account_id,
+        account_name,
+        account_currency: ins.account_currency || "",
+        buying_type: ins.buying_type || "",
+        objective: ins.objective || "",
+        actions: actions || [],
+        action_values: ins.action_values || [],
+        video_play_actions: ins.video_play_actions || [],
+        video_thruplay_watched_actions: ins.video_thruplay_watched_actions || [],
+        video_p25_watched_actions: ins.video_p25_watched_actions || [],
+        video_p50_watched_actions: ins.video_p50_watched_actions || [],
+        video_p75_watched_actions: ins.video_p75_watched_actions || [],
+        video_p95_watched_actions: ins.video_p95_watched_actions || [],
+        video_p100_watched_actions: ins.video_p100_watched_actions || [],
         thumbnail:
           ad.creative?.thumbnail_url ||
           ad.creative?.full_picture ||
@@ -675,28 +1789,48 @@ function groupByCampaign(adsets) {
   } // 🧹 Xoá map nội bộ, convert sang array
 
   return Object.values(campaigns).map((c) => {
+    if (c._goals.size === 1) {
+      const uniqueGoal = Array.from(c._goals)[0];
+      c.result = getResults(c._cMetrics, uniqueGoal);
+      c.optimization_goal = uniqueGoal;
+    } else {
+      c.result = 0;
+      c.isMixedGoal = true;
+    }
+
     // Gán status cho campaign dựa trên adset đầu tiên
-    // (Lưu ý: Logic này có thể cần xem lại nếu campaign có nhiều adset với status khác nhau)
     if (c.adsets.length > 0) {
       c.status = c.adsets[0].status;
     }
 
     delete c._adsetMap;
+    delete c._goals;
+    delete c._cMetrics;
     return c;
   });
 }
 
 function renderCampaignView(data) {
+  console.log("📊 DEBUG: Final Data to Render:", data);
   const wrap = document.querySelector(".view_campaign_box");
   if (!wrap || !Array.isArray(data)) return;
+
+  // ✅ Auto-clear selections khi render lại (do filter/search thay đổi)
+  const selBar = document.getElementById("selection_summary_bar");
+  if (selBar) selBar.style.display = "none";
+  const headerCb = document.getElementById("select_all_cb");
+  if (headerCb) headerCb.checked = false;
 
   const now = Date.now();
   const activeLower = "active";
 
-  let totalCampaignCount = data.length;
+  let totalCampaignCount = window._ALL_CAMPAIGNS?.length || data.length;
+  let filteredCampaignCount = data.length;
   let activeCampaignCount = 0;
   let totalAdsetCount = 0;
   let activeAdsetCount = 0;
+  let totalAdsCount = 0;
+  let activeAdsCount = 0;
 
   // ==== ⭐ TỐI ƯU 1: Vòng lặp tiền xử lý (Pre-processing) ====
   // Tính toán cờ `isActive` và số lượng active MỘT LẦN.
@@ -730,9 +1864,11 @@ function renderCampaignView(data) {
 
       // Duyệt qua các ads và tính toán trạng thái active của adset
       for (let k = 0; k < ads.length; k++) {
+        totalAdsCount++;
         if (ads[k].status?.toLowerCase() === activeLower) {
           as._activeAdsCount++;
           as._isActive = true;
+          activeAdsCount++;
         }
       }
 
@@ -764,20 +1900,28 @@ function renderCampaignView(data) {
   // === Cập nhật UI tổng active (dùng cờ đã tính) ===
   const activeCpEls = document.querySelectorAll(".dom_active_cp");
   if (activeCpEls.length >= 2) {
-    // Cập nhật trạng thái campaign
+    // Campaign
     const campEl = activeCpEls[0].querySelector("span:nth-child(2)");
     if (campEl) {
       const hasActiveCampaign = activeCampaignCount > 0;
       campEl.classList.toggle("inactive", !hasActiveCampaign);
-      campEl.innerHTML = `<span class="live-dot"></span>${activeCampaignCount}/${totalCampaignCount}`;
+      campEl.innerHTML = `<span class="live-dot"></span>${activeCampaignCount}/${filteredCampaignCount}`;
     }
-
-    // Cập nhật trạng thái adset
+    // Adset
     const adsetEl = activeCpEls[1].querySelector("span:nth-child(2)");
     if (adsetEl) {
       const hasActiveAdset = activeAdsetCount > 0;
       adsetEl.classList.toggle("inactive", !hasActiveAdset);
       adsetEl.innerHTML = `<span class="live-dot"></span>${activeAdsetCount}/${totalAdsetCount}`;
+    }
+    // Ads
+    if (activeCpEls[2]) {
+      const adsEl = activeCpEls[2].querySelector("span:nth-child(2)");
+      if (adsEl) {
+        const hasActiveAds = activeAdsCount > 0;
+        adsEl.classList.toggle("inactive", !hasActiveAds);
+        adsEl.innerHTML = `<span class="live-dot"></span>${activeAdsCount}/${totalAdsCount}`;
+      }
     }
   }
 
@@ -791,9 +1935,28 @@ function renderCampaignView(data) {
   // === ⭐ TỐI ƯU 3: Render (dùng cờ đã tính) ===
   const htmlBuffer = [];
 
+  // ⭐ TỐI ƯU: Tính activeMetas MỘT LẦN ngoài vòng lặp thay vì mỗi campaign
+  const activeMetas = ACTIVE_COLUMNS.map(id => {
+    const meta = METRIC_REGISTRY[id];
+    if (meta) return meta;
+    const custom = CUSTOM_METRICS.find(m => m.id === id);
+    if (custom) return { ...custom, type: "custom" };
+    return null;
+  }).filter(Boolean);
+
   for (let i = 0; i < data.length; i++) {
     const c = data[i];
     const adsets = c.adsets; // adsets lúc này đã được sắp xếp
+
+    // ── Smart Badges: tính CPR trung bình campaign ──
+    const _badgesOn = window._smartBadgesEnabled !== false;
+    let _campAvgCpr = null;
+    if (_badgesOn && adsets && adsets.length > 1) {
+      const _validCpr = adsets
+        .map(as => (as.result > 0 ? as.spend / as.result : null))
+        .filter(v => v !== null);
+      _campAvgCpr = _validCpr.length ? _validCpr.reduce((s, v) => s + v, 0) / _validCpr.length : null;
+    }
 
     // Dùng cờ `_isActive` và `_activeAdsetCount` đã tính
     const hasActiveAdset = c._isActive;
@@ -822,33 +1985,31 @@ function renderCampaignView(data) {
       ? `<div class="cmp_fan_wrap" data-count="${thumbUrls.length}">${thumbUrls.map((url, idx) => `<img class="cmp_fan_img" style="--fi:${idx}" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-src="${url}" />`).join('')}</div>`
       : `<div class="campaign_icon_wrap ${hasActiveAdset ? '' : 'inactive'}"><i class="${iconClass}"></i></div>`;
 
-    const campaignCpr =
-      c.result > 0
-        ? firstGoal === "REACH"
-          ? (c.spend / c.result) * 1000
-          : c.spend / c.result
-        : 0;
+    const isMixed = c.isMixedGoal;
+
+    const renderCells = (item, isMixed = false) => {
+      return activeMetas.map(meta => {
+        if (isMixed && (meta.id === "result" || meta.id === "cpr")) return `<div class="ad_metric ad_${meta.id}">-</div>`;
+        const val = getMetricValue(item, meta.id);
+        const tooltipAttr = meta.type === "custom" ? `data-tooltip="Công thức: ${meta.formula}"` : "";
+        return `<div class="ad_metric ad_${meta.id}" ${tooltipAttr}>${formatMetric(val, meta.format)}</div>`;
+      }).join("");
+    };
 
     const campaignHtml = [];
     campaignHtml.push(`
       <div class="campaign_item ${campaignStatusClass}">
         <div class="campaign_main">
           <div class="ads_name">
+            <label class="row_checkbox_wrap" onclick="event.stopPropagation()">
+              <input type="checkbox" class="row_checkbox" data-level="campaign" data-id="${c.id}" data-name="${c.name.replace(/"/g, '&quot;')}" />
+              <span class="row_checkbox_box"></span>
+            </label>
             ${fanHtml}
             <p class="ad_name">${c.name}</p>
           </div>
           <div class="ad_status ${campaignStatusClass}">${campaignStatusText}</div>
-          <div class="ad_spent">${formatMoney(c.spend)}</div>
-          <div class="ad_result">${formatNumber(c.result)}</div>
-          <div class="ad_cpr">${campaignCpr > 0 ? formatMoney(campaignCpr) : "-"
-      }</div>
-          <div class="ad_cpm">${formatMoney(calcCpm(c.spend, c.reach))}</div>
-          <div class="ad_reach">${formatNumber(c.reach)}</div>
-          <div class="ad_frequency">${calcFrequency(
-        c.impressions,
-        c.reach
-      )}</div>
-          <div class="ad_reaction">${formatNumber(c.reactions)}</div>
+          ${renderCells(c, isMixed)}
           <div class="campaign_view"><i class="fa-solid fa-angle-down"></i></div>
         </div>`);
 
@@ -882,12 +2043,19 @@ function renderCampaignView(data) {
       let value = "";
       let timeText = "";
       if (isEnded) {
-        adsetStatusClass = "complete budget";
-        // adsetStatusText = `<span class="status-label">COMPLETE</span>`;
-        // adsetStatusClass = "active budget";
-        label = `<span class="status-label"></span>`;
+        if (startDate && endDate) {
+          timeText = `<i class="fa-regular fa-clock" style="opacity: 0.5"></i> ${startDate} to ${endDate}`;
+        } else if (startDate) {
+          timeText = `<i class="fa-regular fa-clock" style="opacity: 0.5"></i> Start: ${startDate}`;
+        } else if (endDate) {
+          timeText = `<i class="fa-regular fa-clock" style="opacity: 0.5"></i> End: ${endDate}`;
+        } else {
+          timeText = "";
+        }
+
+        adsetStatusClass = timeText ? "complete budget" : "complete";
+        label = ``;
         value = `<span class="status-value">COMPLETE</span>`;
-        timeText = `<i class="fa-regular fa-clock" style="opacity: 0.5"></i> ${startDate} to ${endDate}`;
 
         adsetStatusText = `
           ${label}
@@ -896,7 +2064,6 @@ function renderCampaignView(data) {
         `;
       } else if (hasActiveAd && (dailyBudget > 0 || lifetimeBudget > 0)) {
         adsetStatusClass = "active budget";
-
 
         if (dailyBudget > 0) {
           label = `<span class="status-label">Daily Budget</span>`;
@@ -923,11 +2090,21 @@ function renderCampaignView(data) {
         adsetStatusClass = "active";
         adsetStatusText = `<span>ACTIVE</span>`;
       } else {
-        adsetStatusClass = "inactive budget";
+        // Improved logic: Only show time if dates actually exist
+        if (startDate && endDate) {
+          timeText = `<i class="fa-regular fa-clock" style="opacity: 0.5"></i> ${startDate} to ${endDate}`;
+        } else if (startDate) {
+          timeText = `<i class="fa-regular fa-clock" style="opacity: 0.5"></i> Start: ${startDate}`;
+        } else if (endDate) {
+          timeText = `<i class="fa-regular fa-clock" style="opacity: 0.5"></i> End: ${endDate}`;
+        } else {
+          timeText = "";
+        }
 
-        label = `<span class="status-label"></span>`;
+        adsetStatusClass = timeText ? "inactive budget" : "inactive";
+        label = ``;
         value = `<span class="status-value">INACTIVE</span>`;
-        timeText = `<i class="fa-regular fa-clock" style="opacity: 0.5"></i> ${startDate} to ${endDate}`;
+
         adsetStatusText = `
           ${label}
           ${value}
@@ -935,46 +2112,76 @@ function renderCampaignView(data) {
         `;
       }
 
-      const adsetCpr =
-        as.result > 0
-          ? as.optimization_goal === "REACH"
-            ? (as.spend / as.result) * 1000
-            : as.spend / as.result
-          : 0;
-
       const adsHtml = new Array(ads.length);
+      // Tính CPR trung bình ads trong adset này (cho badge cấp ad)
+      const _adValidCprs = ads.map(ad => ad.result > 0 ? ad.spend / ad.result : null).filter(v => v !== null);
+      const _adAvgCpr = _adValidCprs.length > 1 ? _adValidCprs.reduce((s, v) => s + v, 0) / _adValidCprs.length : null;
       for (let k = 0; k < ads.length; k++) {
         const ad = ads[k];
         const isActive = ad.status?.toLowerCase() === activeLower;
-        const adCpr =
-          ad.result > 0
-            ? as.optimization_goal === "REACH"
-              ? (ad.spend / ad.result) * 1000
-              : ad.spend / ad.result
-            : "-";
 
         adsHtml[k] = `
-          <div class="ad_item ${isActive ? "active" : "inactive"}">
+          <div class="ad_item ${isActive ? "active" : "inactive"}" data-campaign-id="${c.id}" data-adset-id="${as.id}">
             <div class="ads_name">
+              <label class="row_checkbox_wrap" onclick="event.stopPropagation()">
+                <input type="checkbox" class="row_checkbox" data-level="ad" data-id="${ad.id}" data-parent-adset="${as.id}" data-parent-campaign="${c.id}" data-name="ID: ${ad.id}" />
+                <span class="row_checkbox_box"></span>
+              </label>
               <a>
                 <img src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" data-src="${ad.thumbnail}" data-ad-id-img="${ad.id}" />
-                <p class="ad_name">ID: ${ad.id}</p>
+                <p class="ad_name" style="display:flex;flex-direction:column;gap:0.25rem;min-width:0;">
+                  <span class="ad_name_text">ID: ${ad.id}</span>
+                  <span class="ad_name_meta">
+                    ${(() => {
+            const adCpr = ad.result > 0 ? ad.spend / ad.result : null;
+            const adFreq = +ad.frequency || 0;
+            const adResult = +ad.result || 0;
+            const adSpend = +ad.spend || 0;
+            const adStatus = (ad.status || '').toLowerCase();
+            const b = [];
+            if (adCpr !== null && _adAvgCpr !== null && adCpr < _adAvgCpr * 0.70 && adStatus === 'active')
+              b.push(`<span class="dom_smart_badge badge_scale" title="CPR vượt trội"><i class="fa-solid fa-bolt"></i> Scale</span>`);
+            else if (adCpr !== null && _adAvgCpr !== null && adCpr < _adAvgCpr * 0.80)
+              b.push(`<span class="dom_smart_badge badge_best" title="Best Performance"><i class="fa-solid fa-star"></i> Best Performance</span>`);
+            if (adCpr !== null && _adAvgCpr !== null && adCpr > _adAvgCpr * 1.30)
+              b.push(`<span class="dom_smart_badge badge_review" title="CPR cao"><i class="fa-solid fa-circle-exclamation"></i> Review</span>`);
+            if (adResult > 0 && adResult < 30 && adStatus === 'active')
+              b.push(`<span class="dom_smart_badge badge_learning" title="Learning phase"><i class="fa-solid fa-graduation-cap"></i> Learning</span>`);
+            if (adFreq > 4)
+              b.push(`<span class="dom_smart_badge badge_fatigue" title="Fatigue freq ${adFreq.toFixed(1)}"><i class="fa-solid fa-battery-quarter"></i> Fatigue</span>`);
+            if (adSpend === 0 && adStatus === 'active')
+              b.push(`<span class="dom_smart_badge badge_stale" title="No spend"><i class="fa-solid fa-ban"></i> No spend</span>`);
+            return b.join('');
+          })()}
+                  <i class="fa-regular fa-copy ad_copy_id" 
+                     data-id="${ad.id}"
+                     title="Copy ID"
+                     onclick="event.stopPropagation();navigator.clipboard.writeText('${ad.id}').then(()=>{this.className='fa-solid fa-circle-check ad_copy_id copied';setTimeout(()=>this.className='fa-regular fa-copy ad_copy_id',1500)});"
+                     style="cursor:pointer;font-size:1.1rem;opacity:0.4;transition:all 0.2s;flex-shrink:0;"></i>
+                  <span class="ad_inline_insight_btn"
+                    data-ad-id="${ad.id}"
+                    data-name="${as.name}"
+                    data-goal="${as.optimization_goal}"
+                    data-spend="${ad.spend}"
+                    data-reach="${ad.reach}"
+                    data-impressions="${ad.impressions}"
+                    data-result="${ad.result}"
+                    data-cpr="${getMetricValue(ad, 'cpr')}"
+                    data-thumb="${ad.thumbnail || ""}"
+                    data-post="${ad.post_url || ""}"
+                    title="Xem insight"
+                    onclick="event.stopPropagation();const v=this.closest('.ad_item').querySelector('.ad_view');if(v)v.click();"
+                    style="display:inline-flex;align-items:center;justify-content:center;width:2.4rem;height:2.4rem;border-radius:8px;background:#f1f5f9;color:#64748b;cursor:pointer;flex-shrink:0;opacity:0.6;transition:opacity 0.15s;font-size:1.1rem;"
+                    onmouseenter="this.style.opacity='1';this.style.background='#fffbeb';this.style.color='#f59e0b';"
+                    onmouseleave="this.style.opacity='0.6';this.style.background='#f1f5f9';this.style.color='#64748b';">
+                    <i class="fa-solid fa-magnifying-glass-chart"></i>
+                  </span>
+                </p>
               </a>
             </div>
             <div class="ad_status ${isActive ? "active" : "inactive"}">${ad.status
           }</div>
-            <div class="ad_spent">${formatMoney(ad.spend)}</div>
-            <div class="ad_result">${formatNumber(ad.result)}</div>
-            <div class="ad_cpr">${adCpr > 0 ? formatMoney(adCpr) : "-"}</div>
-            <div class="ad_cpm">${formatMoney(
-            calcCpm(ad.spend, ad.reach)
-          )}</div>
-            <div class="ad_reach">${formatNumber(ad.reach)}</div>
-            <div class="ad_frequency">${calcFrequency(
-            ad.impressions,
-            ad.reach
-          )}</div>
-            <div class="ad_reaction">${formatNumber(ad.reactions)}</div>
+            ${renderCells(ad)}
             <div class="ad_view"
               data-ad-id="${ad.id}"
               data-name="${as.name}"
@@ -983,7 +2190,7 @@ function renderCampaignView(data) {
               data-reach="${ad.reach}"
               data-impressions="${ad.impressions}"
               data-result="${ad.result}"
-              data-cpr="${adCpr}"
+              data-cpr="${getMetricValue(ad, 'cpr')}"
               data-thumb="${ad.thumbnail || ""}"
               data-post="${ad.post_url || ""}">
               <i class="fa-solid fa-magnifying-glass-chart"></i>
@@ -992,31 +2199,63 @@ function renderCampaignView(data) {
       }
 
       campaignHtml.push(`
-        <div class="adset_item ${adsetStatusClass}">
-          <div class="ads_name">
+        <div class="adset_item ${adsetStatusClass}" data-campaign-id="${c.id}">
+          <div class="ads_name" style="cursor: pointer;" onclick="const b = this.closest('.adset_item').querySelector('.adset_insight_btn'); if(b) handleAdsetInsightClick(b);">
+            <label class="row_checkbox_wrap" onclick="event.stopPropagation()">
+              <input type="checkbox" class="row_checkbox" data-level="adset" data-id="${as.id}" data-parent-campaign="${c.id}" data-name="${as.name.replace(/"/g, '&quot;')}" />
+              <span class="row_checkbox_box"></span>
+            </label>
             <a>
               <div class="adset_goal_thumb ${hasActiveAd ? '' : 'inactive'}">
                 <i class="${getCampaignIcon(as.optimization_goal)}"></i>
               </div>
-              <p class="ad_name">${as.name}</p>
+              <p class="ad_name" style="display:flex;flex-direction:column;gap:0.25rem;min-width:0;">
+                <span class="ad_name_text">${as.name}</span>
+                <span class="ad_name_meta">
+                  ${(() => {
+          const asCpr = as.result > 0 ? as.spend / as.result : null;
+          const asFreq = +as.frequency || 0;
+          const asStatus = (as.status || '').toLowerCase();
+          const asResult = +as.result || 0;
+          const asSpend = +as.spend || 0;
+          const badges = [];
+          if (asCpr !== null && _campAvgCpr !== null && asCpr < _campAvgCpr * 0.70 && asStatus === 'active')
+            badges.push(`<span class="dom_smart_badge badge_scale" title="CPR v\u01b0\u1ee3t tr\u1ed9i \u226530% \u2014 n\u00ean scale"><i class="fa-solid fa-bolt"></i> Scale</span>`);
+          else if (asCpr !== null && _campAvgCpr !== null && asCpr < _campAvgCpr * 0.80)
+            badges.push(`<span class="dom_smart_badge badge_best" title="Best Performance \u2014 CPR th\u1ea5p h\u01a1n TB \u226520%"><i class="fa-solid fa-star"></i> Best Performance</span>`);
+          if (asCpr !== null && _campAvgCpr !== null && asCpr > _campAvgCpr * 1.30)
+            badges.push(`<span class="dom_smart_badge badge_review" title="CPR cao h\u01a1n TB \u226530% \u2014 c\u1ea7n xem x\u00e9t"><i class="fa-solid fa-circle-exclamation"></i> Review</span>`);
+          if (asResult > 0 && asResult < 50 && asStatus === 'active')
+            badges.push(`<span class="dom_smart_badge badge_learning" title="<50 results \u2014 giai \u0111o\u1ea1n h\u1ecdc"><i class="fa-solid fa-graduation-cap"></i> Learning</span>`);
+          if (asFreq > 3.5)
+            badges.push(`<span class="dom_smart_badge badge_fatigue" title="Frequency ${asFreq.toFixed(1)} \u2014 creative c\u00f3 th\u1ec3 m\u1ec7t"><i class="fa-solid fa-battery-quarter"></i> Fatigue</span>`);
+          if (asSpend === 0 && asStatus === 'active')
+            badges.push(`<span class="dom_smart_badge badge_stale" title="Active nh\u01b0ng kh\u00f4ng c\u00f3 spend"><i class="fa-solid fa-ban"></i> No spend</span>`);
+          return badges.join('');
+        })()}
+                  <span class="adset_inline_insight_btn"
+                    data-adset-id="${as.id}"
+                    data-name="${as.name}"
+                    data-goal="${as.optimization_goal}"
+                    data-spend="${as.spend}"
+                    data-reach="${as.reach}"
+                    data-impressions="${as.impressions}"
+                    data-result="${as.result}"
+                    data-cpr="${getMetricValue(as, 'cpr')}"
+                    data-thumbs="${encodeURIComponent(JSON.stringify((as.ads || []).slice(0, 3).map(a => a.thumbnail || '').filter(Boolean)))}"
+                    title="Xem insight adset"
+                    onclick="event.stopPropagation();const b=this.closest('.adset_item').querySelector('.adset_insight_btn');if(b)handleAdsetInsightClick(b);"
+                    style="display:inline-flex;align-items:center;justify-content:center;width:2.4rem;height:2.4rem;border-radius:8px;background:#f1f5f9;color:#64748b;cursor:pointer;flex-shrink:0;opacity:0;transition:opacity 0.15s;font-size:1.1rem;"
+                    onmouseenter="this.style.opacity='1';this.style.background='#fffbeb';this.style.color='#f59e0b';"
+                    onmouseleave="this.style.opacity='0';this.style.background='#f1f5f9';this.style.color='#64748b';">
+                    <i class="fa-solid fa-magnifying-glass-chart"></i>
+                  </span>
+                </span>
+              </p>
             </a>
           </div>
           <div class="ad_status ${adsetStatusClass}">${adsetStatusText}</div>
-          <div class="ad_spent">${formatMoney(as.spend)}</div>
-          <div class="ad_result">${formatNumber(as.result)}</div>
-          <div class="ad_cpr">
-            <i class="${getCampaignIcon(
-        as.optimization_goal
-      )} adset_goal_icon"></i>
-            <span>${as.optimization_goal}</span>
-          </div>
-          <div class="ad_cpm">${formatMoney(calcCpm(as.spend, as.reach))}</div>
-          <div class="ad_reach">${formatNumber(as.reach)}</div>
-          <div class="ad_frequency">${calcFrequency(
-        as.impressions,
-        as.reach
-      )}</div>
-          <div class="ad_reaction">${formatNumber(as.reactions)}</div>
+          ${renderCells(as)}
           <div class="adset_view">
             <div class="adset_insight_btn"
               data-adset-id="${as.id}"
@@ -1026,7 +2265,7 @@ function renderCampaignView(data) {
               data-reach="${as.reach}"
               data-impressions="${as.impressions}"
               data-result="${as.result}"
-              data-cpr="${adsetCpr}"
+              data-cpr="${getMetricValue(as, 'cpr')}"
               data-thumbs="${encodeURIComponent(JSON.stringify((as.ads || []).slice(0, 3).map(a => a.thumbnail || '').filter(Boolean)))}"
               title="Xem insight adset">
               <i class="fa-solid fa-magnifying-glass-chart"></i>
@@ -1038,6 +2277,29 @@ function renderCampaignView(data) {
 
     campaignHtml.push(`</div>`);
     htmlBuffer.push(campaignHtml.join(""));
+  }
+
+  // Update dynamic header
+  const headerWrap = document.querySelector(".view_campaign_header .campaign_main");
+  if (headerWrap) {
+    const headerMetas = ACTIVE_COLUMNS.map(id => {
+      const meta = METRIC_REGISTRY[id];
+      if (meta) return meta;
+      const custom = CUSTOM_METRICS.find(m => m.id === id);
+      if (custom) return { ...custom, label: custom.name, isCustom: true };
+      return null;
+    }).filter(Boolean);
+
+    headerWrap.innerHTML = `
+      <div class="ads_name"><p class="ad_name">Ad Name</p></div>
+      <div class="ad_status">Status</div>
+      ${headerMetas.map(m => {
+      const icon = m.isCustom ? `<i class="fa-solid fa-flask" style="font-size: 1rem; color: #f59e0b; margin-right: 0.5rem;"></i> ` : '';
+      const tooltip = m.isCustom ? `data-tooltip="Công thức: ${m.formula}"` : '';
+      return `<div class="ad_metric ad_${m.id}" ${tooltip}>${icon}${m.label}</div>`;
+    }).join("")}
+      <div class="campaign_view">Insight</div>
+    `;
   }
 
   wrap.innerHTML = htmlBuffer.join("");
@@ -1080,23 +2342,56 @@ function renderGoalChart(data) {
     window.goal_chart_instance = null;
   }
 
-  // 🔹 Gom tổng spend theo optimization_goal
+  const mode = GOAL_CHART_MODE || "keyword";
   const goalSpend = {};
-  data.forEach((ad) => {
-    const goal = ad.optimization_goal?.trim();
-    const spend = parseFloat(ad.insights?.spend || 0);
-    if (!goal || goal.toUpperCase() === "UNKNOWN" || goal === "-") return;
-    goalSpend[goal] = (goalSpend[goal] || 0) + spend;
-  });
 
-  const goals = Object.keys(goalSpend);
+  if (mode === "brand") {
+    // 🔹 Gom tổng spend theo Brand (Campaign Name Filter) defined in Brand Settings
+    const brands = loadBrandSettings();
+    brands.forEach(b => goalSpend[b.name] = 0);
+
+    data.forEach((item) => {
+      const campaignName = (item.campaign_name || "").toLowerCase();
+      const spend = parseFloat(item.insights?.spend || 0);
+
+      for (const b of brands) {
+        if (b.filter && campaignName.includes(b.filter.toLowerCase())) {
+          goalSpend[b.name] += spend;
+          break;
+        }
+      }
+    });
+  } else {
+    // 🔹 Gom tổng spend theo Keyword trong tên Campaign (Original Mode)
+    GOAL_KEYWORDS.forEach(kw => goalSpend[kw] = 0);
+
+    data.forEach((item) => {
+      const campaignName = (item.campaign_name || "").toLowerCase();
+      const spend = parseFloat(item.insights?.spend || 0);
+
+      // Tìm keyword khớp đầu tiên
+      for (const kw of GOAL_KEYWORDS) {
+        if (campaignName.includes(kw.toLowerCase())) {
+          goalSpend[kw] += spend;
+          break;
+        }
+      }
+    });
+  }
+
+  const goals = Object.keys(goalSpend).filter(g => goalSpend[g] > 0 || GOAL_KEYWORDS.includes(g));
   const values = goals.map((g) => Math.round(goalSpend[g]));
   if (!goals.length) return;
 
   // 🔸 Goal cao nhất
-  const [maxGoal] = Object.entries(goalSpend).reduce((a, b) =>
-    a[1] > b[1] ? a : b
-  );
+  let maxGoal = "";
+  let maxVal = -1;
+  Object.entries(goalSpend).forEach(([g, v]) => {
+    if (v > maxVal) {
+      maxVal = v;
+      maxGoal = g;
+    }
+  });
 
   // 🎨 Gradient vàng & xám
   const gradientGold = c2d.createLinearGradient(0, 0, 0, 300);
@@ -1108,7 +2403,7 @@ function renderGoalChart(data) {
   gradientGray.addColorStop(1, "rgba(160,160,160,0.4)");
 
   const bgColors = goals.map((g) =>
-    g === maxGoal ? gradientGold : gradientGray
+    g === maxGoal && maxVal > 0 ? gradientGold : gradientGray
   );
 
   const isFew = goals.length < 3;
@@ -1137,7 +2432,7 @@ function renderGoalChart(data) {
       responsive: true,
       maintainAspectRatio: false,
       layout: {
-        padding: { left: 10, right: 10 },
+        padding: { left: 10, right: 10, bottom: 20 }, // 👈 Thêm padding dưới cho label xoay
       },
       animation: { duration: 600, easing: "easeOutQuart" },
       plugins: {
@@ -1165,8 +2460,9 @@ function renderGoalChart(data) {
           },
           ticks: {
             color: "#666",
-            font: { weight: "600", size: 9 },
-            maxRotation: 0,
+            font: { weight: "600", size: 8.5 },
+            autoSkip: false, // 👈 Không ẩn bớt label
+            maxRotation: 45, // 👈 Cho phép xoay nghiêng nếu quá dài
             minRotation: 0,
           },
         },
@@ -1178,7 +2474,7 @@ function renderGoalChart(data) {
             borderColor: "rgba(0,0,0,0.05)",
           },
           ticks: { display: false }, // ❌ ẩn toàn bộ số ở trục Y
-          suggestedMax: Math.max(...values) * 1.1,
+          suggestedMax: Math.max(...values) * 1.2,
         },
       },
     },
@@ -1188,7 +2484,11 @@ function renderGoalChart(data) {
 
 async function loadCampaignList() {
   try {
-    const adsets = await fetchAdsets();
+    // 🚀 Parallelize campaign and adset fetching
+    const [campaignsInsights, adsets] = await Promise.all([
+      fetchCampaignInsights(),
+      fetchAdsets()
+    ]);
     if (!adsets || !adsets.length) throw new Error("No adsets found.");
 
     const adsetIds = adsets.map((as) => as.adset_id).filter(Boolean);
@@ -1205,7 +2505,7 @@ async function loadCampaignList() {
       if (parentAdset) parentAdset.ads.push(ad);
     });
 
-    const campaigns = groupByCampaign(adsets);
+    const campaigns = groupByCampaign(adsets, campaignsInsights);
 
     // 🔹 Render UI
     window._ALL_CAMPAIGNS = campaigns;
@@ -1213,6 +2513,7 @@ async function loadCampaignList() {
     const allAds = campaigns.flatMap((c) =>
       c.adsets.flatMap((as) =>
         (as.ads || []).map((ad) => ({
+          campaign_name: c.name,
           optimization_goal: as.optimization_goal,
           insights: { spend: ad.spend || 0 },
         }))
@@ -1221,7 +2522,27 @@ async function loadCampaignList() {
     renderGoalChart(allAds);
     // ✅ Load extra details (Device, Platform position, overall stats)
     if (typeof loadExtraCharts === "function") loadExtraCharts();
-    // updateSummaryUI(campaigns);
+
+    // ⚡ Background preload Google Ads (silent — không show skeleton/UI)
+    // Delay nhẹ để không tranh bandwidth với Meta render
+    setTimeout(() => {
+      if (
+        typeof window.fetchGoogleAdsData === 'function' &&
+        window.GOOGLE_ADS_SETUP !== false
+      ) {
+        const currentRange = `${startDate}_${endDate}`;
+        const alreadyLoaded =
+          Array.isArray(window.googleAdsRawData) &&
+          window.googleAdsRawData.length > 0 &&
+          window._lastGAdsRange === currentRange;
+
+        if (!alreadyLoaded) {
+          console.log("⚡ [Preload] Fetching Google Ads in background...");
+          window.fetchGoogleAdsData(false);
+        }
+      }
+    }, 2000);
+
   } catch (err) {
     console.error("❌ Error in Flow 2 (Campaign List):", err);
   }
@@ -1247,7 +2568,6 @@ function initDashboard() {
   endDate = end;
 }
 
-// 🧠 Hàm chỉ để load lại data (gọi khi đổi account/filter)
 async function loadDashboardData() {
   const domDate = document.querySelector(".dom_date");
   if (domDate) {
@@ -1260,15 +2580,20 @@ async function loadDashboardData() {
   const loading = document.querySelector(".loading");
   if (loading) loading.classList.add("active");
 
-  // 🦴 Skeleton start
+  // Đảm bảo bật skeleton nếu gọi từ nơi khác (ví đổi ngày)
   toggleSkeletons(".dom_dashboard", true);
-
-  loadAllDashboardCharts();
-  initializeYearData();
 
   resetYearDropdownToCurrentYear();
   resetFilterDropdownTo("spend");
-  loadCampaignList().finally(() => {
+
+  // 🚀 TỐI ƯU: Khởi chạy song song các phần của Meta (Charts + Monthly + List)
+  const metaTasks = [
+    loadAllDashboardCharts(),
+    initializeYearData(),
+    loadCampaignList()
+  ];
+
+  await Promise.all(metaTasks).finally(() => {
     if (loading) loading.classList.remove("active");
     // 🦴 Skeleton end
     toggleSkeletons(".dom_dashboard", false);
@@ -1277,14 +2602,53 @@ async function loadDashboardData() {
 
 // 🚀 Hàm chính gọi khi load trang lần đầu
 async function main() {
+  // 🚩 Xử lý ẩn Google Ads nếu SETUP là false
+  if (window.GOOGLE_ADS_SETUP === false) {
+    const gadsTitle = document.getElementById("gads_menu_title");
+    const gadsItem = document.getElementById("gads_menu_item");
+    if (gadsTitle) gadsTitle.style.display = "none";
+    if (gadsItem) gadsItem.style.display = "none";
+  }
+
+  // 🚩 Xử lý ẩn Brand Filter nếu BRAND_FILTER_SETUP là false
+  if (window.BRAND_FILTER_SETUP === false) {
+    const brandFilter = document.querySelector(".dom_filter");
+    const brandSettingsBtn = document.getElementById("open_filter_settings");
+    const brandDivider = document.querySelector(".toolbar_divider");
+    if (brandFilter) brandFilter.style.display = "none";
+    if (brandSettingsBtn) brandSettingsBtn.style.display = "none";
+    if (brandDivider) brandDivider.style.display = "none";
+  }
+
+  // 🦴 Skeleton start - Hiện khung xương ngay lập tức khi load app
+  toggleSkeletons(".dom_dashboard", true);
+
   renderYears();
   initDashboard();
-  await initAccountSelector(); // 👈 Khởi tạo chọn tài khoản động
+  // 🚀 TỐI ƯU CỰC ĐẠI: Khởi chạy TẤT CẢ các tác vụ fetch dữ liệu song song (Meta, Google, Settings, History)
+  // Không đợi settings xong mới gọi API mà gọi cùng lúc để tận dụng băng thông
+  window._SETTINGS_PROMISE = (async () => {
+    if (typeof initSettingsSync === "function") {
+      await initSettingsSync();
+      if (typeof updateSummaryCardHTML === "function") updateSummaryCardHTML();
+    }
+  })();
 
-  // 🏷️ Khởi tạo bộ lọc thương hiệu
-  updateBrandDropdownUI();
+  const googleAdsTask = (async () => {
+    if (typeof fetchGoogleAdsData === 'function') {
+      await fetchGoogleAdsData(false);
+    }
+  })();
 
-  await loadDashboardData();
+  await Promise.all([
+    window._SETTINGS_PROMISE,
+    googleAdsTask,
+    initAccountSelector(),
+    loadDashboardData(),
+    syncAiHistoryFromSheet()
+  ]);
+
+
 
   // 🖱️ Lắng nghe sự kiện Reset All Filters từ Empty Card
   document.addEventListener("click", (e) => {
@@ -1330,10 +2694,25 @@ async function main() {
 }
 
 function openAiSummaryModal() {
+  if (startDate && endDate) {
+    const s = new Date(startDate);
+    const e = new Date(endDate);
+    const diffTime = Math.abs(e - s);
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
+
+    if (diffDays > 31) {
+      return showToast(`⚠️ AI chỉ hỗ trợ phân tích tối đa 31 ngày (Hiện tại: ${diffDays} ngày). Vui lòng chọn khoảng thời gian ngắn hơn.`);
+    }
+  }
+
   const modal = document.getElementById("ai_summary_modal");
-  if (modal) modal.style.display = "flex";
+  if (modal) {
+    modal.style.display = "flex";
+    setTimeout(() => modal.classList.add("active"), 10);
+  }
   updateAiHistoryBadge();
   switchAiTab("home");
+  syncAiHistoryFromSheet(); // Đồng bộ ngầm khi mở modal
 }
 
 function switchAiTab(tab) {
@@ -1796,8 +3175,39 @@ function exportAiToWord() {
 
 
 
+// ── AI sheet sync helper ─────────────────────────
+function _aiSheetPost(body) {
+  const url = typeof window.SETTINGS_SHEET_URL === "string" && window.SETTINGS_SHEET_URL
+    ? window.SETTINGS_SHEET_URL : null;
+  if (!url) return;
+  fetch(url, { method: "POST", body: JSON.stringify(body) }).catch(() => { });
+}
+
+async function syncAiHistoryFromSheet() {
+  const url = typeof window.SETTINGS_SHEET_URL === "string" && window.SETTINGS_SHEET_URL
+    ? window.SETTINGS_SHEET_URL : null;
+  if (!url) return;
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      body: JSON.stringify({ sheet: "ai_reports", action: "list" })
+    });
+    if (!res.ok) return;
+    const json = await res.json();
+    if (json.ok && Array.isArray(json.data)) {
+      localStorage.setItem(AI_HISTORY_KEY, JSON.stringify(json.data));
+      updateAiHistoryBadge();
+      // Nếu đang mở tab lịch sử thì render lại ngay
+      const panel = document.getElementById("ai_panel_history");
+      if (panel && panel.style.display !== "none") renderAiHistory();
+    }
+  } catch (err) {
+    console.warn("AI History Sync failed:", err);
+  }
+}
+
 const AI_HISTORY_KEY = "dom_ai_summary_history";
-const AI_HISTORY_MAX = 10;
+const AI_HISTORY_MAX = 20;  // tăng lên 20 vì có Sheet backup
 
 function loadAiHistory() {
   try { return JSON.parse(localStorage.getItem(AI_HISTORY_KEY) || "[]"); }
@@ -1814,16 +3224,33 @@ function saveAiHistory(html, label) {
     id: Date.now(),
     timestamp: new Date().toLocaleString("vi-VN"),
     label: label || "Tóm tắt chiến dịch",
-    brand: brand,
+    brand,
     dateRange: (dateFrom && dateTo) ? `${dateFrom} — ${dateTo}` : "",
     html,
     preview: document.getElementById("ai_summary_content")?.innerText?.slice(0, 120) || ""
   };
+
   history.unshift(entry);
   if (history.length > AI_HISTORY_MAX) history.splice(AI_HISTORY_MAX);
   try { localStorage.setItem(AI_HISTORY_KEY, JSON.stringify(history)); } catch { }
   updateAiHistoryBadge();
+
+  // Sync to Google Sheets ngầm (non-blocking)
+  _aiSheetPost({
+    sheet: "ai_reports",
+    action: "save",
+    report: {
+      id: entry.id,
+      timestamp: entry.timestamp,
+      label: entry.label,
+      brand: entry.brand,
+      dateRange: entry.dateRange,
+      preview: entry.preview,
+      html: entry.html,
+    }
+  });
 }
+
 
 function confirmDeleteAiHistory(id) {
   const overlay = document.createElement("div");
@@ -1861,11 +3288,16 @@ function confirmDeleteAiHistory(id) {
 }
 
 function _doDeleteAiHistory(id) {
+  // 1. Xóa trong localStorage ngay
   const history = loadAiHistory().filter(e => e.id !== id);
   try { localStorage.setItem(AI_HISTORY_KEY, JSON.stringify(history)); } catch { }
   updateAiHistoryBadge();
   renderAiHistory();
+
+  // 2. Xóa trên Sheet ngầm
+  _aiSheetPost({ sheet: "ai_reports", action: "delete", id });
 }
+
 
 function loadAiHistoryItem(id) {
   const entry = loadAiHistory().find(e => e.id === id);
@@ -1946,7 +3378,12 @@ function closeAiSummaryModal() {
     _aiController = null;
   }
   const modal = document.getElementById("ai_summary_modal");
-  if (modal) modal.style.display = "none";
+  if (modal) {
+    modal.classList.remove("active");
+    setTimeout(() => {
+      modal.style.display = "none";
+    }, 300);
+  }
 }
 
 async function runAiSummary() {
@@ -1997,7 +3434,11 @@ async function runAiSummary() {
     // ====== Xây dựng dữ liệu chi tiết từng campaign + adset ======
     const fmt = (n) => Math.round(n || 0).toLocaleString("vi-VN");
     const fmtMoney = (n) => fmt(n) + "đ";
-    const fmtCpr = (spend, result) => result > 0 ? fmtMoney(spend / result) : "N/A";
+    const fmtCpr = (spend, result, goal) => {
+      if (result <= 0) return "N/A";
+      const factor = (goal === "REACH" || goal === "IMPRESSIONS") ? 1000 : 1;
+      return fmtMoney((spend / result) * factor);
+    };
 
     // ====== Xây dựng danh sách Campaign riêng ======
     const campaignLines = campaigns.map((c) => {
@@ -2015,7 +3456,7 @@ async function runAiSummary() {
       const budget = as.daily_budget > 0
         ? `daily ${fmtMoney(as.daily_budget)}`
         : as.lifetime_budget > 0 ? `lifetime ${fmtMoney(as.lifetime_budget)}` : "N/A";
-      return `• Adset: "${as.name}" (thuộc Campaign: "${c.name}") | Goal: ${as.optimization_goal} | Spent: ${fmtMoney(as.spend)} | Reach: ${fmt(as.reach)} | Results: ${as.result} | CPR: ${cpr} | Budget: ${budget}`;
+      return `• Adset: "${as.name}" (thuộc Campaign: "${c.name}") | Goal: ${as.optimization_goal} | Spent: ${fmtMoney(as.spend)} | Reach: ${fmt(as.reach)} | Results: ${as.result} | CPR: ${fmtCpr(as.spend, as.result, as.optimization_goal)} | Budget: ${budget}`;
     })).join("\n");
 
     const dateRange = document.querySelector(".dom_date")?.textContent?.trim() || "N/A";
@@ -2142,10 +3583,16 @@ YÊU CẦU PHÂN TÍCH (đầy đủ, chi tiết, có số liệu cụ thể)
  * Chuyển markdown sang HTML — với table support
  */
 function simpleMarkdown(text) {
+  // Pre-convert <br> variants to a safe placeholder BEFORE HTML escaping
+  // so they survive the escape step and are rendered as real line breaks
+  text = text.replace(/<br\s*\/?>/gi, "__BR__");
+
   let html = text
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
+    // Restore <br> placeholders as actual HTML line breaks
+    .replace(/__BR__/g, "<br>")
     .replace(/^#### (.+)$/gm, "<h4>$1</h4>")
     .replace(/^### (.+)$/gm, "<h3>$1</h3>")
     .replace(/^## (.+)$/gm, "<h2>$1</h2>")
@@ -2248,7 +3695,37 @@ function resetAllFilters() {
   document.querySelector(".dom_container")?.classList.remove("is-empty");
 }
 
-main();
+// ── Smart Badges Toggle ──────────────────────────────────────────
+window._smartBadgesEnabled = true; // mặc định ON
+
+window.toggleSmartBadges = function (btn) {
+  window._smartBadgesEnabled = !window._smartBadgesEnabled;
+  const on = window._smartBadgesEnabled;
+  btn.style.borderColor = on ? '#f59e0b' : '#e2e8f0';
+  btn.style.color = on ? '#f59e0b' : '#64748b';
+  btn.style.background = on ? '#fffbeb' : '#fff';
+  btn.title = on ? 'Ẩn Smart Badges' : 'Hiển thị Smart Badges';
+  // Re-render table
+  if (window.lastRenderData) renderCampaignTable(window.lastRenderData);
+};
+
+// ── Token + Auth aware startup ────────────────────────────────────
+// Đợi CẢ HAI: token Meta đã resolve VÀ user đã đăng nhập Google
+const _startPromises = [
+  window._tokenReady instanceof Promise ? window._tokenReady : Promise.resolve(),
+  window._authReady instanceof Promise ? window._authReady : Promise.resolve(),
+];
+Promise.all(_startPromises).then(() => main());
+
+
+// Callback khi user nhập token mới từ modal → reload toàn bộ dữ liệu
+window._afterTokenResolved = function () {
+  // Clear cache để fetch lại tươi
+  if (typeof CACHE !== "undefined" && CACHE && typeof CACHE.clear === "function") {
+    CACHE.clear();
+  }
+  main();
+};
 const formatMoney = (v) =>
   v && !isNaN(v) ? Math.round(v).toLocaleString("vi-VN") + "đ" : "0đ";
 const formatNumber = (v) =>
@@ -2261,7 +3738,10 @@ const getReaction = (insights) => getAction(insights?.actions, "post_reaction");
 const calcCpr = (insights) => {
   const spend = +insights?.spend || 0;
   const result = getResults(insights); // Dùng hàm getResults thống nhất
-  return result ? spend / result : 0;
+  if (!result) return 0;
+  const goal = insights.optimization_goal || VIEW_GOAL || "";
+  const factor = (goal === "REACH" || goal === "IMPRESSIONS") ? 1000 : 1;
+  return (spend / result) * factor;
 };
 
 /**
@@ -2297,6 +3777,8 @@ function addListeners() {
     // 1a. Xử lý click vào Campaign (mở Adset)
     const campaignMain = e.target.closest(".campaign_main");
     if (campaignMain) {
+      // Don't toggle if clicking on checkbox
+      if (e.target.closest(".row_checkbox_wrap")) return;
       e.stopPropagation();
       const campaignItem = campaignMain.closest(".campaign_item");
       if (!campaignItem) return;
@@ -2319,6 +3801,7 @@ function addListeners() {
     // 1b. Xử lý click vào Adset (mở/đóng danh sách Ad)
     const adsetItem = e.target.closest(".adset_item");
     if (adsetItem) {
+      if (e.target.closest(".row_checkbox_wrap")) return;
       e.stopPropagation();
       adsetItem.classList.toggle("show");
       if (adsetItem.classList.contains("show")) {
@@ -2339,6 +3822,38 @@ function addListeners() {
     }
   }); // ⎯⎯ end campaign list listener
 
+  // 1d. Checkbox change listener (event delegation)
+  wrap.addEventListener("change", (e) => {
+    const cb = e.target.closest(".row_checkbox");
+    if (!cb) return;
+    // When campaign checkbox toggled, propagate to its children
+    if (cb.dataset.level === "campaign") {
+      const campaignItem = cb.closest(".campaign_item");
+      if (campaignItem) {
+        campaignItem.querySelectorAll(".row_checkbox").forEach(child => {
+          child.checked = cb.checked;
+          child.closest(".campaign_item, .adset_item, .ad_item")?.classList.toggle("sel-checked", cb.checked);
+        });
+        campaignItem.classList.toggle("sel-checked", cb.checked);
+      }
+    } else if (cb.dataset.level === "adset") {
+      const adsetItem = cb.closest(".adset_item");
+      if (adsetItem) {
+        const adItemBox = adsetItem.nextElementSibling;
+        if (adItemBox && adItemBox.classList.contains("ad_item_box")) {
+          adItemBox.querySelectorAll(".row_checkbox").forEach(child => {
+            child.checked = cb.checked;
+            child.closest(".ad_item")?.classList.toggle("sel-checked", cb.checked);
+          });
+        }
+        adsetItem.classList.toggle("sel-checked", cb.checked);
+      }
+    } else {
+      cb.closest(".ad_item")?.classList.toggle("sel-checked", cb.checked);
+    }
+    updateSelectionSummary();
+  });
+
   // 2. Listener cho việc đóng popup chi tiết
   document.addEventListener("click", (e) => {
     const overlay = e.target.closest(".dom_overlay");
@@ -2354,9 +3869,438 @@ function addListeners() {
       if (typeof exportAdsToCSV === "function") exportAdsToCSV();
     });
   }
+
+  // 4. Select-all / deselect-all header checkbox (delegation so it always works)
+  document.addEventListener("change", (e) => {
+    if (e.target.id !== "select_all_cb") return;
+    const allRowCbs = document.querySelectorAll(".view_campaign_box .row_checkbox");
+    allRowCbs.forEach(cb => {
+      cb.checked = e.target.checked;
+      const row = cb.closest(".campaign_item, .adset_item, .ad_item");
+      if (row) row.classList.toggle("sel-checked", e.target.checked);
+    });
+    updateSelectionSummary();
+  });
 }
 
 // ================================================================
+// ============== SELECTION SUMMARY BAR ===========================
+// ================================================================
+function updateSelectionSummary() {
+  const bar = document.getElementById("selection_summary_bar");
+  if (!bar) return;
+
+  const allChecked = document.querySelectorAll(".view_campaign_box .row_checkbox:checked");
+  if (allChecked.length === 0) {
+    bar.style.display = "none";
+    return;
+  }
+
+  // --- Build a set of checked IDs per level ---
+  const checkedCampaignIds = new Set();
+  const checkedAdsetIds = new Set();
+  const checkedAdIds = new Set();
+  // Also track parent links
+  const adParentAdset = {}; // adId -> adsetId
+  const adParentCampaign = {}; // adId -> campaignId
+  const adsetParentCampaign = {}; // adsetId -> campaignId
+
+  allChecked.forEach(cb => {
+    const lvl = cb.dataset.level;
+    const id = cb.dataset.id;
+    if (lvl === "campaign") checkedCampaignIds.add(id);
+    else if (lvl === "adset") {
+      checkedAdsetIds.add(id);
+      adsetParentCampaign[id] = cb.dataset.parentCampaign;
+    } else {
+      checkedAdIds.add(id);
+      adParentAdset[id] = cb.dataset.parentAdset;
+      adParentCampaign[id] = cb.dataset.parentCampaign;
+    }
+  });
+
+  // --- Resolve items using PARENT-WINS hierarchy ---
+  // If campaign checked → use campaign-level metrics (its own API data).
+  // Else if adset checked → use adset-level metrics.
+  // Else use individual ad metrics.
+  const itemsToSum = [];
+
+  const campaigns = window._ALL_CAMPAIGNS || [];
+
+  for (const camp of campaigns) {
+    if (checkedCampaignIds.has(camp.id)) {
+      // Campaign is checked → use its own metrics, ignore children
+      itemsToSum.push(camp);
+    } else {
+      for (const as of (camp.adsets || [])) {
+        if (checkedAdsetIds.has(as.id)) {
+          // Adset is checked (campaign is NOT) → use adset metrics
+          itemsToSum.push(as);
+        } else {
+          // No parent selected → include any individually-checked ads
+          for (const ad of (as.ads || [])) {
+            if (checkedAdIds.has(ad.id)) {
+              itemsToSum.push(ad);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  if (itemsToSum.length === 0) {
+    bar.style.display = "none";
+    return;
+  }
+
+  // --- Count active ads ---
+  let totalActiveAds = 0;
+  for (const item of itemsToSum) {
+    if (item.adsets) {
+      for (const as of (item.adsets || [])) for (const ad of (as.ads || [])) { if (ad.status?.toLowerCase() === "active") totalActiveAds++; }
+    } else if (item.ads) {
+      for (const ad of (item.ads || [])) { if (ad.status?.toLowerCase() === "active") totalActiveAds++; }
+    } else {
+      if (item.status?.toLowerCase() === "active") totalActiveAds++;
+    }
+  }
+
+  // --- Build active column metas ---
+  const activeMetas = ACTIVE_COLUMNS.map(id => {
+    const meta = METRIC_REGISTRY[id];
+    if (meta) return meta;
+    const custom = CUSTOM_METRICS.find(m => m.id === id);
+    return custom ? { ...custom, type: "custom" } : null;
+  }).filter(Boolean);
+
+  // --- Sum each metric by calling getMetricValue directly (same as table rows) ---
+  // Rate/derived metrics are skipped here and re-derived below from raw totals.
+  const DERIVED = new Set(["frequency", "cpm", "cpr", "ctr"]);
+  const sums = {};
+
+  for (const meta of activeMetas) {
+    if (DERIVED.has(meta.id)) { sums[meta.id] = 0; continue; }
+    sums[meta.id] = 0;
+    for (const item of itemsToSum) {
+      const v = meta.type === "custom"
+        ? (evaluateFormula(item, meta.formula) || 0)
+        : (getMetricValue(item, meta.id) || 0);
+      sums[meta.id] += v;
+    }
+  }
+
+  // --- Always sum raw fields needed for derived metrics (even if not in ACTIVE_COLUMNS) ---
+  for (const id of ["spend", "reach", "impressions", "result", "link_click"]) {
+    if (sums[id] !== undefined) continue; // already summed above
+    const rawMeta = METRIC_REGISTRY[id];
+    if (!rawMeta) continue;
+    sums[id] = 0;
+    for (const item of itemsToSum) sums[id] += getMetricValue(item, id) || 0;
+  }
+
+  // --- Re-derive rate metrics from totals ---
+  const totalSpend = sums["spend"] || 0;
+  const totalReach = sums["reach"] || 0;
+  const totalImpressions = sums["impressions"] || 0;
+  const totalResult = sums["result"] || 0;
+  const totalLinkClicks = sums["link_click"] || 0;
+  const firstGoal = itemsToSum[0]?.optimization_goal || "";
+  const isThousandMetric = firstGoal === "REACH" || firstGoal === "IMPRESSIONS";
+
+  sums["frequency"] = itemsToSum.length > 0
+    ? itemsToSum.reduce((s, item) => s + (getMetricValue(item, "frequency") || 0), 0) / itemsToSum.length
+    : 0;
+
+  sums["cpm"] = totalReach > 0 ? (totalSpend / totalReach) * 1000 : 0;
+  sums["cpr"] = totalResult > 0 ? (isThousandMetric ? (totalSpend / totalResult) * 1000 : totalSpend / totalResult) : 0;
+  sums["ctr"] = totalImpressions > 0 ? totalLinkClicks / totalImpressions : 0;
+
+  // --- Build metric cells ---
+  const metricCells = activeMetas.map(meta =>
+    `<div class="sel_metric_cell ad_metric ad_${meta.id}">${formatMetric(sums[meta.id] || 0, meta.format)}</div>`
+  ).join("");
+
+  // Determine if all visible campaign checkboxes are checked
+  const allCampCbs = [...document.querySelectorAll(".view_campaign_box .row_checkbox[data-level='campaign']")];
+  const allCheckedState = allCampCbs.length > 0 && allCampCbs.every(cb => cb.checked);
+
+  bar.innerHTML = `
+    <div class="sel_name_cell" style="display:flex;align-items:center;gap:1rem;">
+      <label class="row_checkbox_wrap row_checkbox_wrap--lg sel_toggle_all" title="Select / Deselect all" onclick="event.stopPropagation()">
+        <input type="checkbox" id="sel_toggle_all_cb" ${allCheckedState ? "checked" : ""} />
+        <span class="row_checkbox_box"></span>
+      </label>
+      <span><b>${itemsToSum.length}</b> selected</span>
+      <button id="sel_compare_btn" title="So sánh" style="height:2.8rem;padding:0 1.2rem;border-radius:20px;border:1.5px solid #f59e0b;background:#fffbeb;color:#92400e;font-size:1.1rem;font-weight:700;cursor:pointer;white-space:nowrap;display:flex;align-items:center;gap:0.5rem;"><i class='fa-solid fa-code-compare'></i>So sánh</button>
+    </div>
+    <div class="sel_status_cell ad_status">
+      ${totalActiveAds > 0
+      ? `<span class="live-dot"></span><b>${totalActiveAds}</b>&nbsp;AD ACTIVE`
+      : `<span style="opacity:.5;font-size:1.1rem;">0 AD ACTIVE</span>`
+    }
+    </div>
+    ${metricCells}
+    <div class="campaign_view sel_clear_col" style="display:flex;align-items:center;padding-right:1rem;flex-shrink:0;">
+      <button id="sel_clear_btn" title="Clear selection" style="width:3rem;height:3rem;border-radius:50%;border:none;background:rgba(0,0,0,0.08);cursor:pointer;display:flex;align-items:center;justify-content:center;">
+        <i class="fa-solid fa-xmark" style="font-size:1.4rem;color:#92400e;"></i>
+      </button>
+    </div>
+  `;
+
+  // Re-attach toggle-all listener
+  const toggleAllCb = bar.querySelector("#sel_toggle_all_cb");
+  if (toggleAllCb) {
+    toggleAllCb.addEventListener("change", (e) => {
+      e.stopPropagation();
+      const checked = e.target.checked;
+      document.querySelectorAll(".view_campaign_box .row_checkbox").forEach(cb => {
+        cb.checked = checked;
+        const row = cb.closest(".campaign_item, .adset_item, .ad_item");
+        if (row) row.classList.toggle("sel-checked", checked);
+      });
+      // Sync the header select-all checkbox too
+      const headerCb = document.getElementById("select_all_cb");
+      if (headerCb) headerCb.checked = checked;
+      updateSelectionSummary();
+    });
+  }
+
+  // Re-attach compare button listener
+  const compareBtn = bar.querySelector("#sel_compare_btn");
+  if (compareBtn) {
+    compareBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+
+      // Determine item level: campaign (has .adsets), adset (has .ads), ad (neither)
+      const getLevel = (item) => item.adsets ? "campaign" : item.ads ? "adset" : "ad";
+      const levelName = { campaign: "Campaign", adset: "Adset", ad: "Ad" };
+
+      if (itemsToSum.length !== 2) {
+        const levels = [...new Set(itemsToSum.map(getLevel))];
+        const hint = levels.length === 1
+          ? `Vui lòng chọn đúng 2 ${levelName[levels[0]] || "mục"} để so sánh. (Hiện có ${itemsToSum.length})`
+          : `Vui lòng chọn đúng 2 mục cùng cấp (cà 2 Campaign, Adset, hoặc Ad) để so sánh.`;
+        domAlert(hint);
+        return;
+      }
+
+      const levA = getLevel(itemsToSum[0]);
+      const levB = getLevel(itemsToSum[1]);
+      if (levA !== levB) {
+        domAlert(`Hai mục phải cùng cấp. Bạn đang chọn 1 ${levelName[levA]} và 1 ${levelName[levB]}.`);
+        return;
+      }
+
+      openCompareModal(itemsToSum[0], itemsToSum[1]);
+    });
+  }
+
+  // Re-attach clear button listener
+  const newClear = bar.querySelector("#sel_clear_btn");
+  if (newClear) {
+    newClear.addEventListener("click", (e) => {
+      e.stopPropagation();
+      document.querySelectorAll(".row_checkbox").forEach(cb => cb.checked = false);
+      document.querySelectorAll(".sel-checked").forEach(el => el.classList.remove("sel-checked"));
+      const headerCb = document.getElementById("select_all_cb");
+      if (headerCb) headerCb.checked = false;
+      bar.style.display = "none";
+    });
+  }
+
+  bar.style.display = "flex";
+}
+
+// ================================================================
+// ==================== COMPARE MODAL ============================
+// ================================================================
+const COMPARE_GROUPS = [
+  {
+    label: "TỔNG QUAN TÀI CHÍNH",
+    ids: ["spend", "cpm", "cpr", "ctr"],
+  },
+  {
+    label: "HIỂN THỊ & TIẾP CẬN",
+    ids: ["impressions", "reach", "frequency", "result", "link_click"],
+  },
+  {
+    label: "TƯƠNG TÁC",
+    ids: ["reaction", "comment", "share", "page_engagement", "post_engagement", "photo_view", "save", "lead", "follow", "like", "message_started", "message_connection", "purchase", "roas"],
+  },
+  {
+    label: "VIDEO",
+    ids: ["video_play", "video_view", "thruplay", "video_p25", "video_p50", "video_p75", "video_p95", "video_p100"],
+  },
+];
+
+function getItemLabel(item) {
+  return item.name || item.ad_name || item.id || "(unknown)";
+}
+
+window.openCompareModal = function (itemA, itemB) {
+  const modal = document.getElementById("compare_modal");
+  const colHeads = document.getElementById("compare_col_heads");
+  const body = document.getElementById("compare_modal_body");
+  const header = document.getElementById("compare_modal_header");
+  if (!modal) return;
+
+  const labelA = getItemLabel(itemA);
+  const labelB = getItemLabel(itemB);
+
+  // Track which column is the comparison BASE ("A" or "B")
+  let compareBase = "A";
+
+  // Format current date range
+  const dateStr = (startDate && endDate)
+    ? `📅 ${startDate} → ${endDate}`
+    : "";
+
+  // Redesigned header: two name cards with VS badge between them
+  header.innerHTML = `
+    <div style="flex:1;">
+      <div style="display:flex;align-items:center;gap:1.4rem;flex-wrap:wrap;">
+        <div style="flex:1;min-width:160px;background:#f8fafc;border:1.5px solid #e2e8f0;border-radius:14px;padding:1.2rem 1.6rem;">
+          <div style="font-size:1rem;font-weight:600;color:#94a3b8;margin-bottom:0.3rem;text-transform:uppercase;letter-spacing:0.05em;">Mục A</div>
+          <div style="font-size:1.4rem;font-weight:800;color:#1e293b;word-break:break-word;line-height:1.3;">${labelA}</div>
+        </div>
+        <div style="flex-shrink:0;width:4.4rem;height:4.4rem;border-radius:50%;background:linear-gradient(135deg,#fbbf24 0%,#f59e0b 60%,#d97706 100%);display:flex;align-items:center;justify-content:center;font-size:1.4rem;font-weight:900;color:#fff;box-shadow:0 6px 20px rgba(245,158,11,0.45),0 0 0 4px rgba(245,158,11,0.15);">VS</div>
+        <div style="flex:1;min-width:160px;background:#f8fafc;border:1.5px solid #e2e8f0;border-radius:14px;padding:1.2rem 1.6rem;">
+          <div style="font-size:1rem;font-weight:600;color:#94a3b8;margin-bottom:0.3rem;text-transform:uppercase;letter-spacing:0.05em;">Mục B</div>
+          <div style="font-size:1.4rem;font-weight:800;color:#1e293b;word-break:break-word;line-height:1.3;">${labelB}</div>
+        </div>
+      </div>
+      ${dateStr ? `
+        <div style="margin-top:1.2rem;">
+          <span style="display:inline-flex;align-items:center;gap:0.6rem;padding:0.5rem 1.2rem;background:#fffbeb;border:1.5px solid #fde68a;border-radius:20px;font-size:1.15rem;font-weight:600;color:#92400e;">
+            <i class="fa-regular fa-calendar" style="color:#f59e0b;"></i>
+            ${startDate} &nbsp;→&nbsp; ${endDate}
+          </span>
+          <span style="font-size:1rem;color:#94a3b8;font-style:italic;margin-left:0.7rem;">So sánh 2 mục khác nhau chỉ số chỉ mang tính tham khảo</span>
+        </div>` : ""}
+    </div>
+    <button onclick="closeCompareModal()" style="align-self:flex-start;width:3.6rem;height:3.6rem;border-radius:50%;border:none;background:#f1f5f9;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-left:1.2rem;">
+      <i class="fa-solid fa-xmark" style="font-size:1.6rem;color:#64748b;"></i>
+    </button>
+  `;
+
+  // Short column labels
+  const short = (s) => s.length > 20 ? s.slice(0, 18) + "…" : s;
+
+  // Clear col-heads div (we use sticky thead inside table instead)
+  colHeads.style.display = "none";
+
+  // Helper to build a compare row <tr>
+  // baseVal = the reference column, compareVal = the other column
+  function makeRow(icon, label, rawA, rawB, fmtA, fmtB, id) {
+    // selectedVal = cột đang chọn làm cơ sở, refVal = cột tham chiếu (còn lại)
+    const selectedVal = compareBase === "A" ? rawA : rawB;
+    const refVal = compareBase === "A" ? rawB : rawA;
+    let badgeHtml = `<span class="perf_change_badge equal">—</span>`;
+    if (refVal > 0) {
+      const pct = ((selectedVal - refVal) / refVal) * 100;
+      const isGoodUp = !["cpm", "cpr", "frequency"].includes(id);
+      const isIncrease = pct >= 0;
+      const isPositive = isIncrease ? isGoodUp : !isGoodUp;
+      const cls = Math.abs(pct) < 0.05 ? "equal" : (isPositive ? "increase" : "decrease");
+      const sign = isIncrease ? "▲" : "▼";
+      badgeHtml = `<span class="perf_change_badge ${cls}">${sign} ${Math.abs(pct).toFixed(1)}%</span>`;
+    }
+    return `<tr>
+      <td>
+        <span class="perf_metric_label">
+          <i class="${icon}"></i>
+          ${label}
+        </span>
+      </td>
+      <td class="perf_val_current">${fmtA}</td>
+      <td class="perf_val_compare">${fmtB}</td>
+      <td>${badgeHtml}</td>
+    </tr>`;
+  }
+
+  // Collect row data for re-render without re-fetching values
+  const rowData = [];
+  const allCustom = CUSTOM_METRICS || [];
+
+  for (const group of COMPARE_GROUPS) {
+    const groupRows = [];
+    for (const id of group.ids) {
+      const meta = METRIC_REGISTRY[id];
+      if (!meta) continue;
+      const rawA = getMetricValue(itemA, id) || 0;
+      const rawB = getMetricValue(itemB, id) || 0;
+      if (rawA === 0 && rawB === 0) continue;
+      groupRows.push({ icon: meta.icon, label: meta.label, rawA, rawB, fmtA: formatMetric(rawA, meta.format), fmtB: formatMetric(rawB, meta.format), id });
+    }
+    if (group === COMPARE_GROUPS[COMPARE_GROUPS.length - 1] && allCustom.length > 0) {
+      for (const cm of allCustom) {
+        const rawA = evaluateFormula(itemA, cm.formula) || 0;
+        const rawB = evaluateFormula(itemB, cm.formula) || 0;
+        if (rawA === 0 && rawB === 0) continue;
+        groupRows.push({ icon: "fa-solid fa-flask", label: cm.label || cm.id, rawA, rawB, fmtA: formatMetric(rawA, cm.format || "number"), fmtB: formatMetric(rawB, cm.format || "number"), id: cm.id });
+      }
+    }
+    if (groupRows.length > 0) rowData.push({ group, rows: groupRows });
+  }
+
+  // Build & inject table HTML
+  function renderTable() {
+    const shortA = short(labelA);
+    const shortB = short(labelB);
+    const baseStyleA = compareBase === "A"
+      ? `font-weight:800;color:#1e293b;cursor:pointer;border-bottom:2.5px solid #f59e0b;padding-bottom:2px;`
+      : `font-weight:600;color:#94a3b8;cursor:pointer;`;
+    const baseStyleB = compareBase === "B"
+      ? `font-weight:800;color:#1e293b;cursor:pointer;border-bottom:2.5px solid #f59e0b;padding-bottom:2px;`
+      : `font-weight:600;color:#94a3b8;cursor:pointer;`;
+    const hintA = compareBase === "A" ? ` <i class="fa-solid fa-star" style="font-size:0.8em;color:#f59e0b;" title="Đang dùng làm cơ sở"></i>` : ``;
+    const hintB = compareBase === "B" ? ` <i class="fa-solid fa-star" style="font-size:0.8em;color:#f59e0b;" title="Đang dùng làm cơ sở"></i>` : ``;
+
+    let html = `<table class="perf_table"><thead><tr>
+      <th style="font-size:1rem;">CHỈ SỐ (METRICS)</th>
+      <th title="${labelA} — Nhấn để dùng làm cơ sở" style="${baseStyleA}" onclick="window._compareSetBase('A')">${shortA}${hintA}</th>
+      <th title="${labelB} — Nhấn để dùng làm cơ sở" style="${baseStyleB}" onclick="window._compareSetBase('B')">${shortB}${hintB}</th>
+      <th style="font-size:1rem;">THAY ĐỔI (%)</th>
+    </tr><tr>
+      <td colspan="4" style="padding:0 0 0.6rem;font-size:0.95rem;color:#94a3b8;font-style:italic;">★ Nhấn vào tên cột để chọn làm cơ sở so sánh</td>
+    </tr></thead><tbody>`;
+
+    for (const { group, rows } of rowData) {
+      html += `<tr><td colspan="4" class="perf_section_title" style="padding-top:1.6rem;">${group.label}</td></tr>`;
+      for (const r of rows) {
+        html += makeRow(r.icon, r.label, r.rawA, r.rawB, r.fmtA, r.fmtB, r.id);
+      }
+    }
+
+    html += `</tbody></table>`;
+    body.innerHTML = html;
+  }
+
+  // Expose setter so onclick can update base and re-render
+  window._compareSetBase = function (col) {
+    compareBase = col;
+    renderTable();
+  };
+
+  renderTable();
+
+  modal.style.display = "flex";
+  setTimeout(() => modal.classList.add("active"), 10);
+};
+
+window.closeCompareModal = function () {
+  const modal = document.getElementById("compare_modal");
+  if (!modal) return;
+  modal.classList.remove("active");
+  setTimeout(() => { modal.style.display = "none"; }, 200);
+};
+
+// Close on backdrop click
+document.addEventListener("click", (e) => {
+  const modal = document.getElementById("compare_modal");
+  if (modal && e.target === modal) closeCompareModal();
+});
+
 // ===================== ADSET INSIGHT HANDLER ====================
 // ================================================================
 async function handleAdsetInsightClick(btn) {
@@ -2365,11 +4309,35 @@ async function handleAdsetInsightClick(btn) {
 
   const name = btn.dataset.name || "Adset";
   const goal = btn.dataset.goal || "";
-  const spend = parseFloat(btn.dataset.spend || 0);
-  const reach = parseFloat(btn.dataset.reach || 0);
-  const impressions = parseFloat(btn.dataset.impressions || 0);
-  const result = parseFloat(btn.dataset.result || 0);
-  const cpr = parseFloat(btn.dataset.cpr || 0);
+
+  // ⭐ Lấy data từ bộ nhớ để hiển thị tức thì
+  let adsetObj = null;
+  if (window._ALL_CAMPAIGNS) {
+    for (const c of window._ALL_CAMPAIGNS) {
+      adsetObj = (c.adsets || []).find(a => a.id === adsetId);
+      if (adsetObj) break;
+    }
+  }
+
+  const spend = adsetObj ? adsetObj.spend : parseFloat(btn.dataset.spend || 0);
+  const reach = adsetObj ? adsetObj.reach : parseFloat(btn.dataset.reach || 0);
+  const impressions = adsetObj ? adsetObj.impressions : parseFloat(btn.dataset.impressions || 0);
+  const result = adsetObj ? adsetObj.result : parseFloat(btn.dataset.result || 0);
+  const cpr = adsetObj ? getMetricValue(adsetObj, "cpr") : parseFloat(btn.dataset.cpr || 0);
+
+  // Hiển thị ngay Actions Detail từ bộ nhớ (trước khi gọi API breakdown)
+  if (adsetObj) {
+    renderFullActionsDetail(adsetObj);
+    // ✅ Reset flag + ẩn button + đóng panel khi mở adset mới
+    window._videoFunnelLoaded = false;
+    window._videoFunnelHasData = false;
+    const fBtn = document.getElementById("video_funnel_toggle_btn");
+    if (fBtn) fBtn.style.display = "none";
+    const fPanel = document.getElementById("video_funnel_panel");
+    if (fPanel) fPanel.classList.remove("active");
+    window.__lastAdsetObj = adsetObj;
+    renderVideoFunnel(adsetObj);
+  }
 
   // Cập nhật quick stats
   const goalEl = document.querySelector("#detail_goal span");
@@ -2379,7 +4347,24 @@ async function handleAdsetInsightClick(btn) {
   if (goalEl) goalEl.textContent = goal;
   if (spendEl) spendEl.textContent = formatMoney(spend);
   if (resultEl) resultEl.textContent = formatNumber(result);
-  if (cprEl) cprEl.textContent = result ? formatMoney(cpr) : "-";
+
+  // CẬP NHẬT NHÃN CPR LINH HOẠT (Phải bao gồm icon để không bị mất)
+  const cprLi = document.querySelector("#detail_cpr").closest("li");
+  const cprLabelWrapper = cprLi ? cprLi.querySelector("span") : null;
+
+  if (cprLabelWrapper) {
+    let rawLabel = "Cost per Result";
+    if (goal === "REACH") rawLabel = "Cosper 1,000 Reach";
+    else if (goal === "IMPRESSIONS") rawLabel = "Cosper 1,000 Impress";
+    cprLabelWrapper.innerHTML = `<i class="fa-solid fa-bullseye"></i> ${rawLabel}`;
+  }
+
+  // Tính CPR nếu dataset trả về 0 nhưng có result
+  let finalCpr = cpr;
+  if (result > 0 && (finalCpr === 0 || isNaN(finalCpr))) {
+    finalCpr = (goal === "REACH" || goal === "IMPRESSIONS") ? (spend / result) * 1000 : spend / result;
+  }
+  if (cprEl) cprEl.textContent = result > 0 ? formatMoney(finalCpr) : "-";
 
   VIEW_GOAL = goal;
 
@@ -2415,7 +4400,8 @@ async function handleAdsetInsightClick(btn) {
       try { thumbs = JSON.parse(decodeURIComponent(btn.dataset.thumbs || "[]")) || []; } catch (e) { thumbs = []; }
       if (thumbs.length > 1) {
         // Render fan cards
-        headerThumbWrap.querySelector("img") && (headerThumbWrap.querySelector("img").style.display = "none");
+        const mainImg = headerThumbWrap.querySelector("img:not(.cmp_fan_img)");
+        if (mainImg) mainImg.style.display = "none";
         let fanEl = headerThumbWrap.querySelector(".detail_fan_wrap");
         if (!fanEl) {
           fanEl = document.createElement("div");
@@ -2431,7 +4417,7 @@ async function handleAdsetInsightClick(btn) {
         // Single image or none
         const existFan = headerThumbWrap.querySelector(".detail_fan_wrap");
         if (existFan) existFan.style.display = "none";
-        const imgEl = headerThumbWrap.querySelector("img");
+        const imgEl = headerThumbWrap.querySelector("img:not(.cmp_fan_img)");
         if (imgEl) {
           imgEl.style.display = "";
           imgEl.src = thumbs[0] || "https://dev-trongphuc.github.io/DOM_MISA_IDEAS_CRM/logotarget.png";
@@ -2478,17 +4464,19 @@ async function showAdsetDetail(adset_id) {
   try {
     // ✅ Fix: bỏ khoảng trắng thừa — trước đây "&  time_range[since]= " gây lỗi API
     const timeRangeParam = `&time_range[since]=${startDate}&time_range[until]=${endDate}`;
+    const videoFieldsParam = "video_play_actions,video_thruplay_watched_actions,video_p25_watched_actions,video_p50_watched_actions,video_p75_watched_actions,video_p95_watched_actions,video_p100_watched_actions";
+
     const batchRequests = [
-      // ✅ Fix: bỏ khoảng trắng trong "fields = targeting"
       { method: "GET", name: "targeting", relative_url: `${adset_id}?fields=targeting` },
       {
-        method: "GET", name: "byHour", relative_url: `${adset_id}/insights?fields=spend,impressions,reach,actions&breakdowns=hourly_stats_aggregated_by_advertiser_time_zone${timeRangeParam}`
+        method: "GET", name: "byHour", relative_url: `${adset_id}/insights?fields=spend,impressions,reach,actions,${videoFieldsParam}&breakdowns=hourly_stats_aggregated_by_advertiser_time_zone${timeRangeParam}`
       },
-      { method: "GET", name: "byAgeGender", relative_url: `${adset_id}/insights?fields=spend,impressions,reach,actions&breakdowns=age,gender${timeRangeParam}` },
-      { method: "GET", name: "byRegion", relative_url: `${adset_id}/insights?fields=spend,impressions,reach,actions&breakdowns=region${timeRangeParam}` },
-      { method: "GET", name: "byPlatform", relative_url: `${adset_id}/insights?fields=spend,impressions,reach,actions&breakdowns=publisher_platform,platform_position${timeRangeParam}` },
-      { method: "GET", name: "byDevice", relative_url: `${adset_id}/insights?fields=spend,impressions,reach,actions&breakdowns=impression_device${timeRangeParam}` },
-      { method: "GET", name: "byDate", relative_url: `${adset_id}/insights?fields=spend,impressions,reach,actions&time_increment=1${timeRangeParam}` },
+      { method: "GET", name: "byAgeGender", relative_url: `${adset_id}/insights?fields=spend,impressions,reach,actions,${videoFieldsParam}&breakdowns=age,gender${timeRangeParam}` },
+      { method: "GET", name: "byRegion", relative_url: `${adset_id}/insights?fields=spend,impressions,reach,actions,${videoFieldsParam}&breakdowns=region${timeRangeParam}` },
+      { method: "GET", name: "byPlatform", relative_url: `${adset_id}/insights?fields=spend,impressions,reach,actions,${videoFieldsParam}&breakdowns=publisher_platform,platform_position${timeRangeParam}` },
+      { method: "GET", name: "byDevice", relative_url: `${adset_id}/insights?fields=spend,impressions,reach,actions,${videoFieldsParam}&breakdowns=impression_device${timeRangeParam}` },
+      { method: "GET", name: "byDate", relative_url: `${adset_id}/insights?fields=spend,impressions,reach,actions,${videoFieldsParam}&time_increment=1${timeRangeParam}` },
+      { method: "GET", name: "deliveryEstimate", relative_url: `${adset_id}/delivery_estimate?fields=estimate_mau_lower_bound,estimate_mau_upper_bound,estimate_dau_lower_bound,estimate_dau_upper_bound` },
     ];
 
     const batchResponse = await fetchJSON(BASE_URL, {
@@ -2526,6 +4514,10 @@ async function showAdsetDetail(adset_id) {
     const targeting = results.targeting || {};
     renderTargetingToDOM(targeting);
 
+    // Render delivery estimate (audience size bar)
+    const deliveryData = (results.deliveryEstimate || [])[0] || {};
+    renderDeliveryEstimate(deliveryData);
+
     const processBreakdown = (arr, k1, k2 = null) => {
       const out = {};
       (arr || []).forEach((item) => {
@@ -2535,6 +4527,21 @@ async function showAdsetDetail(adset_id) {
         out[key].spend += parseFloat(item.spend || 0);
         out[key].impressions += parseInt(item.impressions || 0);
         out[key].reach += parseInt(item.reach || 0);
+
+        // Core Video metrics check
+        const videoFields = [
+          "video_thruplay_watched_actions", "video_play_actions",
+          "video_p25_watched_actions", "video_p50_watched_actions",
+          "video_p75_watched_actions", "video_p95_watched_actions",
+          "video_p100_watched_actions"
+        ];
+        videoFields.forEach(vf => {
+          if (item[vf]) {
+            const val = Array.isArray(item[vf]) ? (item[vf][0]?.value || 0) : (item[vf]?.value || item[vf]);
+            out[key].actions[vf] = (out[key].actions[vf] || 0) + parseInt(val || 0);
+          }
+        });
+
         (item.actions || []).forEach((a) => {
           out[key].actions[a.action_type] = (out[key].actions[a.action_type] || 0) + parseInt(a.value || 0);
         });
@@ -2551,6 +4558,14 @@ async function showAdsetDetail(adset_id) {
           reach: parseInt(item.reach || 0),
           actions: item.actions ? Object.fromEntries(item.actions.map((a) => [a.action_type, parseInt(a.value || 0)])) : {},
         };
+        // Also capture video metrics for daily chart compatibility
+        const videoFields = ["video_thruplay_watched_actions", "video_play_actions", "video_p25_watched_actions", "video_p50_watched_actions", "video_p75_watched_actions", "video_p95_watched_actions", "video_p100_watched_actions"];
+        videoFields.forEach(vf => {
+          if (item[vf]) {
+            const val = Array.isArray(item[vf]) ? (item[vf][0]?.value || 0) : (item[vf]?.value || item[vf]);
+            processedByDate[item.date_start].actions[vf] = parseInt(val || 0);
+          }
+        });
       }
     });
 
@@ -2586,6 +4601,10 @@ async function showAdsetDetail(adset_id) {
 
     renderInteraction(processedByDate);
     window.dataByDate = processedByDate;
+
+    // ✅ Dùng cùng nguồn với Full Actions Detail (lastFullActionsData)
+    window._videoFunnelLoaded = true;
+    renderVideoFunnel(lastFullActionsData);
 
     renderCharts({
       byHour: processedByHour,
@@ -2644,21 +4663,48 @@ async function handleViewClick(e, type = "ad") {
   }
 
   // Lấy ID từ dataset của .ad_view
-  const id =
-    type === "adset" ? adViewEl.dataset.adsetId : adViewEl.dataset.adId;
+  const id = type === "adset" ? adViewEl.dataset.adsetId : adViewEl.dataset.adId;
   if (!id) return;
 
-  // --- Lấy dữ liệu từ dataset của .ad_view ---
-  const spend = parseFloat(adViewEl.dataset.spend || 0);
-  const reach = parseFloat(adViewEl.dataset.reach || 0);
-  const impressions = parseFloat(adViewEl.dataset.impressions || 0);
-  const goal = adViewEl.dataset.goal || "";
-  const name = adViewEl.dataset.name || "";
-  const result = parseFloat(adViewEl.dataset.result || 0);
-  const cpr = parseFloat(adViewEl.dataset.cpr || 0);
-  const thumb =
-    adViewEl.dataset.thumb ||
-    "https://upload.wikimedia.org/wikipedia/commons/a/ac/No_image_available.svg";
+  // ⭐ Lấy data từ bộ nhớ để hiển thị tức thì
+  let itemObj = null;
+  if (window._ALL_CAMPAIGNS) {
+    for (const c of window._ALL_CAMPAIGNS) {
+      if (type === "adset") {
+        itemObj = (c.adsets || []).find(as => as.id === id);
+      } else {
+        for (const as of (c.adsets || [])) {
+          itemObj = (as.ads || []).find(ad => ad.id === id);
+          if (itemObj) break;
+        }
+      }
+      if (itemObj) break;
+    }
+  }
+
+  const spend = itemObj ? itemObj.spend : parseFloat(adViewEl.dataset.spend || 0);
+  const reach = itemObj ? itemObj.reach : parseFloat(adViewEl.dataset.reach || 0);
+  const impressions = itemObj ? itemObj.impressions : parseFloat(adViewEl.dataset.impressions || 0);
+  const goal = itemObj ? itemObj.optimization_goal : (adViewEl.dataset.goal || "");
+  const name = itemObj ? (itemObj.name || itemObj.ad_name) : (adViewEl.dataset.name || "");
+  const result = itemObj ? itemObj.result : parseFloat(adViewEl.dataset.result || 0);
+  const cpr = itemObj ? getMetricValue(itemObj, "cpr") : parseFloat(adViewEl.dataset.cpr || 0);
+
+  // ✅ Luôn reset funnel khi mở ad mới (kể cả khi không có cache)
+  window._videoFunnelLoaded = false;
+  window._videoFunnelHasData = false;
+  const _fBtn = document.getElementById("video_funnel_toggle_btn");
+  if (_fBtn) _fBtn.style.display = "none";
+  const _fPanel = document.getElementById("video_funnel_panel");
+  if (_fPanel) _fPanel.classList.remove("active");
+
+  // Hiển thị ngay Actions Detail từ bộ nhớ + init Video Funnel
+  if (itemObj) {
+    renderFullActionsDetail(itemObj);
+    renderVideoFunnel(lastFullActionsData);
+  }
+
+  const thumb = adViewEl.dataset.thumb || "https://upload.wikimedia.org/wikipedia/commons/a/ac/No_image_available.svg";
   const postUrl = adViewEl.dataset.post || "#";
 
   // --- Cập nhật quick stats ---
@@ -2670,7 +4716,24 @@ async function handleViewClick(e, type = "ad") {
   if (goalEl) goalEl.textContent = goal;
   if (spendEl) spendEl.textContent = formatMoney(spend);
   if (resultEl) resultEl.textContent = formatNumber(result);
-  if (cprEl) cprEl.textContent = result ? formatMoney(cpr) : "-";
+
+  // CẬP NHẬT NHÃN CPR LINH HOẠT (Phải bao gồm icon để không bị mất)
+  const cprLi = document.querySelector("#detail_cpr").closest("li");
+  const cprLabelWrapper = cprLi ? cprLi.querySelector("span") : null;
+
+  if (cprLabelWrapper) {
+    let rawLabel = "Cost per Result";
+    if (goal === "REACH") rawLabel = "Cosper 1,000 Reach";
+    else if (goal === "IMPRESSIONS") rawLabel = "Cosper 1,000 Impress";
+    cprLabelWrapper.innerHTML = `<i class="fa-solid fa-bullseye"></i> ${rawLabel}`;
+  }
+
+  // Tính CPR nếu dataset trả về 0 nhưng có result
+  let finalCpr = cpr;
+  if (result > 0 && (finalCpr === 0 || isNaN(finalCpr))) {
+    finalCpr = (goal === "REACH" || goal === "IMPRESSIONS") ? (spend / result) * 1000 : spend / result;
+  }
+  if (cprEl) cprEl.textContent = result > 0 ? formatMoney(finalCpr) : "-";
 
   // --- Gán VIEW_GOAL toàn cục ---
   VIEW_GOAL = goal;
@@ -2699,9 +4762,22 @@ async function handleViewClick(e, type = "ad") {
     if (previewBox) previewBox.style.display = "";
     if (previewBtn) previewBtn.style.display = "";
 
-    const img = domDetail.querySelector(".dom_detail_header img");
     const idEl = domDetail.querySelector(".dom_detail_id");
-    if (img) img.src = thumb;
+    const headerThumbWrap = domDetail.querySelector(".dom_detail_header_first > div");
+
+    // Đảm bảo không hiện fan cards của Adset cũ
+    if (headerThumbWrap) {
+      const existFan = headerThumbWrap.querySelector(".detail_fan_wrap");
+      if (existFan) {
+        existFan.innerHTML = "";
+        existFan.style.display = "none";
+      }
+      const imgEl = headerThumbWrap.querySelector("img:not(.cmp_fan_img)");
+      if (imgEl) {
+        imgEl.style.display = "";
+        imgEl.src = thumb;
+      }
+    }
     if (idEl) idEl.innerHTML = `<span>${name}</span> <span> ID: ${id}</span>`;
   }
 
@@ -2967,7 +5043,7 @@ async function showAdDetail(ad_id) {
   try {
     // ⭐ THAY ĐỔI CHÍNH: Gọi hàm batch MỘT LẦN ở đây
     const results = await fetchAdDetailBatch(ad_id);
-    console.log(results);
+
 
     // Bóc tách kết quả từ object 'results'
     const {
@@ -3027,8 +5103,6 @@ async function showAdDetail(ad_id) {
 
     // Chuyển đổi các breakdown khác về dạng object {key: {spend, actions...}}
     const processBreakdown = (dataArray, keyField1, keyField2 = null) => {
-      console.log();
-
       const result = {};
       (dataArray || []).forEach((item) => {
         let key = item[keyField1] || "unknown";
@@ -3041,6 +5115,21 @@ async function showAdDetail(ad_id) {
         result[key].spend += parseFloat(item.spend || 0);
         result[key].impressions += parseInt(item.impressions || 0);
         result[key].reach += parseInt(item.reach || 0);
+
+        // Core Video metrics check
+        const videoFields = [
+          "video_thruplay_watched_actions",
+          "video_play_actions", "video_p25_watched_actions",
+          "video_p50_watched_actions", "video_p75_watched_actions",
+          "video_p95_watched_actions", "video_p100_watched_actions"
+        ];
+        videoFields.forEach(vf => {
+          if (item[vf]) {
+            const val = Array.isArray(item[vf]) ? (item[vf][0]?.value || 0) : (item[vf]?.value || item[vf]);
+            result[key].actions[vf] = (result[key].actions[vf] || 0) + parseInt(val || 0);
+          }
+        });
+
         if (item.actions) {
           item.actions.forEach((a) => {
             result[key].actions[a.action_type] =
@@ -3070,6 +5159,10 @@ async function showAdDetail(ad_id) {
 
     renderInteraction(processedByDate); // Truyền dữ liệu đã xử lý
     window.dataByDate = processedByDate; // Lưu data đã xử lý
+
+    // ✅ Refresh Video Funnel với data của ad (sau API)
+    window._videoFunnelLoaded = true;
+    renderVideoFunnel(lastFullActionsData);
 
     // ================== Render Chart ==================
     // Truyền dữ liệu đã xử lý vào hàm render
@@ -3103,7 +5196,7 @@ async function showAdDetail(ad_id) {
         (t, d) =>
           t +
           (d.actions?.["onsite_conversion.lead_grouped"] ||
-            d.actions?.["onsite_conversion.total_messaging_connection"] ||
+            d.actions?.["onsite_conversion.messaging_conversation_started_7d"] ||
             0),
         0
       ),
@@ -3206,7 +5299,6 @@ async function fetchAdDetailBatch(ad_id) {
 
     batchResponse.forEach((item, index) => {
       const name = batchRequests[index].name; // Lấy tên đã định danh
-      console.log(name);
 
       // Mặc định giá trị rỗng
       const defaultEmpty =
@@ -3315,24 +5407,36 @@ if (filterButton) {
 }
 
 async function applyCampaignFilter(keyword) {
-  if (!window._ALL_CAMPAIGNS || !Array.isArray(window._ALL_CAMPAIGNS)) return;
-
   CURRENT_CAMPAIGN_FILTER = keyword || ""; // 👈 Luôn lưu lại bộ lọc cuối cùng
+
+  // 🔹 Sync all brand dropdown UIs
+  if (typeof updateBrandDropdownUI === 'function') updateBrandDropdownUI();
+  if (typeof updatePerfBrandDropdownUI === 'function') updatePerfBrandDropdownUI();
+
+  // 🔹 Refresh Google Ads INSTANTLY (local calculation, no fetch needed)
+  if (typeof refreshGoogleAds === 'function') refreshGoogleAds();
+
+  // 🚩 Nếu đang ở tab Google Ads thì không cần xử lý dữ liệu Meta
+  const domContainer = document.querySelector(".dom_container");
+  const isGoogleAdsView = domContainer && domContainer.classList.contains("google_ads");
+
+  if (!window._ALL_CAMPAIGNS || !Array.isArray(window._ALL_CAMPAIGNS)) return;
 
   // 🚩 Nếu filter = "RESET" thì load full data
   if (keyword && keyword.toUpperCase() === "RESET") {
-    window._FILTERED_CAMPAIGNS = window._ALL_CAMPAIGNS; // 👈 lưu lại
-    renderCampaignView(window._ALL_CAMPAIGNS); // FULL_CAMPAIGN
+    window._FILTERED_CAMPAIGNS = window._ALL_CAMPAIGNS;
+    renderCampaignView(window._ALL_CAMPAIGNS);
     const allAds = window._ALL_CAMPAIGNS.flatMap((c) =>
       c.adsets.flatMap((as) =>
         (as.ads || []).map((ad) => ({
+          campaign_name: c.name,
           optimization_goal: as.optimization_goal,
           insights: { spend: ad.spend || 0 },
         }))
       )
     );
     renderGoalChart(allAds);
-    resetUIFilter(); // 👈 Reset cả giao diện dropdown Brand
+    resetUIFilter();
     await loadAllDashboardCharts();
     return;
   }
@@ -3341,48 +5445,46 @@ async function applyCampaignFilter(keyword) {
   const filtered = keyword
     ? window._ALL_CAMPAIGNS.filter((c) => {
       const lowerKw = keyword.toLowerCase();
-      // 1. Tên hoặc ID Campaign
       if ((c.name || "").toLowerCase().includes(lowerKw)) return true;
       if (c.id === keyword) return true;
-
-      // 2. Tên hoặc ID Adset trong campaign
       const hasAdset = (c.adsets || []).some(as =>
         (as.name || "").toLowerCase().includes(lowerKw) || as.id === keyword
       );
       if (hasAdset) return true;
-
-      // 3. Tên hoặc ID Ad trong campaign
       const hasAd = (c.adsets || []).some(as =>
         (as.ads || []).some(ad => (ad.name || "").toLowerCase().includes(lowerKw) || ad.id === keyword)
       );
       if (hasAd) return true;
-
       return false;
     })
     : window._ALL_CAMPAIGNS;
 
   // 🔹 Render lại danh sách campaign
-  window._FILTERED_CAMPAIGNS = filtered; // 👈 lưu lại cho AI Summary
+  window._FILTERED_CAMPAIGNS = filtered;
   renderCampaignView(filtered);
 
-  // 🚩 Nếu không có campaign nào khớp → show empty state dashboard ngay
+  // 🚩 Nếu không có Meta campaign nào khớp
   if (filtered.length === 0) {
     window._FILTERED_CAMPAIGNS = [];
-    document.querySelector(".dom_container")?.classList.add("is-empty");
+    // Chỉ add is-empty nếu KHÔNG đang ở tab Google Ads
+    if (!isGoogleAdsView) {
+      domContainer?.classList.add("is-empty");
+    }
     return;
   }
 
-  // Remove empty state nếu có data
-  document.querySelector(".dom_container")?.classList.remove("is-empty");
+  // Remove empty state
+  domContainer?.classList.remove("is-empty");
 
-  // 🔹 Lấy ID campaign hợp lệ để gọi API
+  // 🔹 Lấy ID campaign để gọi API Meta (chạy ngầm)
   const ids = filtered.map((c) => c.id).filter(Boolean);
   await loadAllDashboardCharts(ids);
 
-  // 🔹 Render lại goal chart (dựa theo ad-level)
+  // 🔹 Render lại goal chart
   const allAds = filtered.flatMap((c) =>
     c.adsets.flatMap((as) =>
       (as.ads || []).map((ad) => ({
+        campaign_name: c.name,
         optimization_goal: as.optimization_goal,
         insights: { spend: ad.spend || 0 },
       }))
@@ -3726,7 +5828,90 @@ function renderTargetingToDOM(targeting) {
   }
 }
 
-// ================== Render Interaction ==================
+// ================== Render Delivery Estimate (Audience Size Bar) ==================
+function renderDeliveryEstimate(data) {
+  const wrap = document.getElementById("detail_delivery_estimate");
+  if (!wrap) return;
+
+  const lower = data?.estimate_mau_lower_bound;
+  const upper = data?.estimate_mau_upper_bound;
+
+  // --- Xác định vị trí "breadth" trên thanh Narrow → Broad ---
+  // Dùng log10 scale: <100K=Narrow, 100K-1M=So So, >1M=Broad
+  let breadthPercent = 50; // default giữa
+  let label = "Medium";
+  let labelColor = "#f59e0b";
+
+  if (lower != null && upper != null) {
+    const mid = (lower + upper) / 2;
+    if (mid < 50000) {
+      breadthPercent = 10;
+      label = "Very Narrow";
+      labelColor = "#ef4444";
+    } else if (mid < 200000) {
+      breadthPercent = 28;
+      label = "Narrow";
+      labelColor = "#f97316";
+    } else if (mid < 1000000) {
+      breadthPercent = 50;
+      label = "Balanced";
+      labelColor = "#f59e0b";
+    } else if (mid < 10000000) {
+      breadthPercent = 72;
+      label = "Broad";
+      labelColor = "#22c55e";
+    } else {
+      breadthPercent = 92;
+      label = "Very Broad";
+      labelColor = "#16a34a";
+    }
+  }
+
+  // --- Format số lớn ---
+  const fmtNum = (n) => {
+    if (!n && n !== 0) return "?";
+    if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + "M";
+    if (n >= 1_000) return (n / 1_000).toFixed(0) + "K";
+    return n.toLocaleString();
+  };
+
+  const sizeText = (lower != null && upper != null)
+    ? `${fmtNum(lower)} – ${fmtNum(upper)}`
+    : "Unavailable";
+
+  wrap.innerHTML = `
+    <div style="margin-top:0.6rem;">
+      <!-- 3-segment bar -->
+      <div style="position:relative; height:0.9rem; border-radius:999px; overflow:hidden; display:flex; gap:2px; margin-bottom:0.5rem;">
+        <div style="flex:1; background:#fca5a5; border-radius:999px 0 0 999px;"></div>
+        <div style="flex:1; background:#fde68a;"></div>
+        <div style="flex:1; background:#86efac; border-radius:0 999px 999px 0;"></div>
+      </div>
+      <!-- Marker -->
+      <div style="position:relative; height:1.4rem; margin-bottom:0.4rem;">
+        <div style="position:absolute; left:calc(${breadthPercent}% - 6px); top:0; width:0; height:0;
+          border-left: 6px solid transparent; border-right: 6px solid transparent;
+          border-bottom: 10px solid ${labelColor};"></div>
+      </div>
+      <!-- Labels dưới thanh -->
+      <div style="display:flex; justify-content:space-between; font-size:1rem; color:#94a3b8; font-weight:500; margin-bottom:0.8rem;">
+        <span>Narrow</span>
+        <span style="color:${labelColor}; font-weight:700;">${label}</span>
+        <span>Broad</span>
+      </div>
+      <!-- Audience size -->
+      <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; padding:0.7rem 1rem; display:flex; align-items:center; gap:0.8rem;">
+        <i class="fa-solid fa-users" style="color:#64748b; font-size:1.1rem;"></i>
+        <div>
+          <div style="font-size:0.95rem; color:#94a3b8; font-weight:500; line-height:1;">Est. audience size</div>
+          <div style="font-size:1.25rem; font-weight:700; color:#1e293b; line-height:1.4;">${sizeText}</div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+
 function renderInteraction(byDate) {
   // Original was byDevice, changed to byDate as it seems more logical
   const wrap = document.querySelector(".interaction");
@@ -3775,7 +5960,7 @@ function renderInteraction(byDate) {
       icon: "fa-solid fa-video", // Icon was fa-video, assuming typo, kept as-is
     },
     {
-      key: "onsite_conversion.total_messaging_connection",
+      key: "onsite_conversion.messaging_conversation_started_7d",
       label: "Messages",
       icon: "fa-solid fa-message",
     },
@@ -3806,6 +5991,434 @@ function renderInteraction(byDate) {
   `;
 
   wrap.innerHTML = html;
+
+  // ✅ Update video funnel if adsetObj is available
+  if (window.__lastAdsetObj) {
+    renderVideoFunnel(window.__lastAdsetObj);
+    // This call is now handled by renderFullActionsDetail
+    // if (window.__lastAdsetObj) {
+    //   renderVideoFunnel(window.__lastAdsetObj);
+    // }
+  }
+}
+
+/**
+ * Render CSS-only Video Funnel chart (không dùng Chart.js)
+ * Dững dữ liệu từ adsetObj.actions (giống Full Actions Detail)
+ * Pipeline: 3s View → 25% → 50% → 75% → 95% → ThruPlay → p100
+ */
+function renderVideoFunnel(adsetObj) {
+  const content = document.getElementById("video_funnel_content");
+  if (!content) return;
+
+  // actions[] array (action_type lookup)
+  const actionsArr = Array.isArray(adsetObj?.actions) ? adsetObj.actions : [];
+
+  const getVal = (key) => {
+    // Nguồn 1: actions[] array (giống Full Actions Detail actionsSource loop)
+    const entry = actionsArr.find(a => a.action_type === key);
+    if (entry) return parseInt(entry.value || 0);
+    // Nguồn 2: top-level field trên adsetObj (giống Full Actions Detail vfs fallback)
+    const topLevel = adsetObj?.[key];
+    if (topLevel) {
+      return parseInt(Array.isArray(topLevel) ? (topLevel[0]?.value || 0) : (topLevel?.value || topLevel) || 0);
+    }
+    return 0;
+  };
+
+  // Các bước của funnel video
+  const steps = [
+    { key: "video_view", label: "Video View (3s)", color: "gold" },
+    { key: "video_p25_watched_actions", label: "Video 25%", color: "gold" },
+    { key: "video_p50_watched_actions", label: "Video 50%", color: "amber" },
+    { key: "video_p75_watched_actions", label: "Video 75%", color: "amber" },
+    { key: "video_p95_watched_actions", label: "Video 95%", color: "orange" },
+    { key: "video_thruplay_watched_actions", label: "ThruPlay", color: "orange" },
+    { key: "video_p100_watched_actions", label: "Video 100%", color: "gray" },
+  ];
+
+  const values = steps.map(s => getVal(s.key));
+  const maxVal = Math.max(...values) || 1;
+  const hasVideo = values.some(v => v > 0);
+  window._videoFunnelHasData = hasVideo;
+
+  // ✅ Hiện / ẩn nút + tự động switch sang Video Funnel nếu có data
+  const toggleBtn = document.getElementById("video_funnel_toggle_btn");
+  const funnelPanel = document.getElementById("video_funnel_panel");
+  if (toggleBtn) toggleBtn.style.display = hasVideo ? "inline-flex" : "none";
+  if (funnelPanel) {
+    if (hasVideo) funnelPanel.classList.add("active");
+    else funnelPanel.classList.remove("active");
+  }
+
+  if (!hasVideo) {
+    content.innerHTML = `<p style="text-align:center;padding:2rem;color:#94a3b8;font-size:1.3rem;">
+      <i class="fa-solid fa-circle-info"></i> Không có dữ liệu video.
+    </p>`;
+    return;
+  }
+
+  // ✅ Gắn value vào step và sort giảm dần theo giá trị
+  const stepsWithVal = steps
+    .map((s, i) => ({ ...s, val: values[i] }))
+    .filter(s => s.val > 0)
+    .sort((a, b) => b.val - a.val);
+
+  const fmt = (n) => n >= 1000 ? (n / 1000).toFixed(1).replace(/\.0$/, "") + "k" : String(n);
+  const pct = (n) => maxVal > 0 ? ((n / maxVal) * 100).toFixed(1) + "%" : "–";
+  const dropHtml = (cur, prev) => {
+    if (!prev) return "";
+    const d = ((prev - cur) / prev * 100).toFixed(0);
+    return `<span class="vf_drop"><i class="fa-solid fa-arrow-down"></i> -${d}%</span>`;
+  };
+
+  let html = "";
+  stepsWithVal.forEach((step, i) => {
+    const val = step.val;
+    const widthPct = Math.max(8, Math.round((val / maxVal) * 100));
+    const retentionPct = i === 0 ? "100%" : pct(val);
+    const prevVal = i > 0 ? stepsWithVal[i - 1].val : 0;
+    const drop = i > 0 ? dropHtml(val, prevVal) : "";
+
+    html += `
+      ${i > 0 ? '<div class="vf_connector"></div>' : ""}
+      <div class="vf_step">
+        <div class="vf_meta">
+          <div class="vf_name">${step.label}</div>
+          ${drop}
+        </div>
+        <div class="vf_bar_wrap">
+          <div class="vf_bar ${step.color}" style="width:${widthPct}%;">
+            <span>${retentionPct}</span>
+          </div>
+        </div>
+        <div class="vf_count">${fmt(val)}</div>
+      </div>`;
+  });
+
+  content.innerHTML = html;
+}
+
+/**
+ * Toggle Video Funnel panel (giống pattern Spent Platform / Details)
+ * Nếu không có data video → show toast
+ */
+window.toggleVideoFunnel = function () {
+  const panel = document.getElementById("video_funnel_panel");
+  if (!panel) return;
+
+  // Chỉ show toast khi đã load xong API mà vẫn không có video
+  if (window._videoFunnelLoaded && !window._videoFunnelHasData) {
+    const existing = document.getElementById("_vf_toast");
+    if (existing) existing.remove();
+    const toast = document.createElement("div");
+    toast.id = "_vf_toast";
+    toast.style.cssText = `
+      position: fixed; bottom: 3rem; left: 50%; transform: translateX(-50%);
+      background: #1e293b; color: #fff; padding: 1.2rem 2.4rem;
+      border-radius: 12px; font-size: 1.3rem; font-weight: 600;
+      z-index: 99999; display: flex; align-items: center; gap: 1rem;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.25);
+    `;
+    toast.innerHTML = `<i class="fa-solid fa-circle-xmark" style="color:#f87171;"></i> Không có định dạng video.`;
+    document.body.appendChild(toast);
+    setTimeout(() => toast.remove(), 3000);
+    return;
+  }
+
+  // Mở panel luôn (nếu chưa load xong thì hiện nội dung hiện tại)
+  panel.classList.toggle("active");
+};
+
+/**
+ * Render all available actions in a scrollable list from the item's existing data
+ */
+let lastFullActionsData = null; // Store data for filtering
+
+function renderFullActionsDetail(manualTotals, filterQuery = "") {
+  if (!manualTotals && !lastFullActionsData) return;
+  if (manualTotals) lastFullActionsData = manualTotals;
+  else manualTotals = lastFullActionsData;
+
+  const listWrap = document.getElementById("detail_full_actions_list");
+  if (!listWrap) return;
+
+  const query = filterQuery.toLowerCase().trim();
+
+  // 1. Grouping rules (Deduplication)
+  const aliasGroupMap = {
+    // Engagement
+    "page_engagement": "Engagement",
+    "post_engagement": "Engagement",
+    "post_interaction_gross": "Engagement",
+    // Messages
+    "onsite_conversion.messaging_conversation_started_7d": "Messenger Conversations",
+    "messaging_conversation_started_7d": "Messenger Conversations",
+    "onsite_conversion.total_messaging_connection": "Messenger Conversations",
+    "total_messaging_connection": "Messenger Conversations",
+    // Leads (Normalizing multiple Meta/Pixel aliases)
+    "onsite_conversion.lead_grouped": "Leads",
+    "lead_grouped": "Leads",
+    "lead": "Leads",
+    "Leads": "Leads",
+    "onsite_web_lead": "Leads",
+    "offsite_conversion.fb_pixel_lead": "Leads",
+    "offsite_conversion.fb_pixel_complete_registration": "Leads",
+    "offsite_conversion.fb_pixel_search": "Leads",
+    "offsite_conversion.fb_pixel_view_content": "Leads",
+    "complete_registration": "Leads",
+    // Saves
+    "onsite_conversion.post_save": "Saves",
+    "post_save": "Saves",
+    "onsite_conversion.post_net_save": "Saves",
+    // Follows
+    "page_like": "Follows",
+    "onsite_conversion.page_like": "Follows",
+    "instagram_profile_follow": "Follows",
+    "post_reaction": "Reactions/Likes",
+    "post_net_like": "Reactions/Likes",
+    // Video Metrics
+    "video_view": "Video View (3s)",
+    "video_play": "Video Plays",
+    "video_play_actions": "Video Plays",
+    "video_thruplay_watched_actions": "ThruPlays",
+    "video_p25_watched_actions": "Video 25%",
+    "video_p50_watched_actions": "Video 50%",
+    "video_p75_watched_actions": "Video 75%",
+    "video_p95_watched_actions": "Video 95%",
+    "video_p100_watched_actions": "Video 100%"
+  };
+
+  const aggregated = {};
+  let totalSpend = manualTotals.spend || 0;
+  let totalReach = manualTotals.reach || 0;
+  let totalImp = manualTotals.impressions || 0;
+  let totalClicks = 0;
+
+  // 1. Aggregating from an item's data (campaign/adset/ad)
+  const actionsSource = manualTotals.actions || [];
+  if (Array.isArray(actionsSource)) {
+    actionsSource.forEach(a => {
+      const type = a.action_type;
+      const val = parseInt(a.value || 0);
+      if (type === 'link_click') totalClicks += val;
+
+      let label = aliasGroupMap[type] || null;
+
+      // Fallback to Registry
+      if (!label) {
+        for (const key in METRIC_REGISTRY) {
+          if (METRIC_REGISTRY[key].action_type === type) {
+            label = METRIC_REGISTRY[key].label;
+            break;
+          }
+        }
+      }
+
+      // Final Prettify fallback
+      if (!label) {
+        label = type.replace("onsite_conversion.", "").replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+      }
+
+      // Use Max for engagement/plays to avoid duplicate counting
+      if (label === "Engagement" || label === "Video Plays" || label === "Video View (3s)") {
+        aggregated[label] = Math.max(aggregated[label] || 0, val);
+      } else {
+        aggregated[label] = (aggregated[label] || 0) + val;
+      }
+    });
+  }
+
+  // Direct video performance fields as fallback
+  const vfs = {
+    "video_play_actions": "Video Plays",
+    "video_thruplay_watched_actions": "ThruPlays",
+    "video_p25_watched_actions": "Video 25%",
+    "video_p50_watched_actions": "Video 50%",
+    "video_p75_watched_actions": "Video 75%",
+    "video_p95_watched_actions": "Video 95%",
+    "video_p100_watched_actions": "Video 100%"
+  };
+
+  Object.entries(vfs).forEach(([vf, label]) => {
+    if (!aggregated[label]) {
+      const data = manualTotals[vf];
+      if (data) {
+        const val = parseInt(Array.isArray(data) ? (data[0]?.value || 0) : (data?.value || data) || 0);
+        aggregated[label] = val;
+      }
+    }
+  });
+
+  // --- ⭐ Include Custom Metrics from Registry/Memory ---
+  if (window.CUSTOM_METRICS) {
+    window.CUSTOM_METRICS.forEach(cm => {
+      const val = window.evaluateFormula ? window.evaluateFormula(manualTotals, cm.formula) : 0;
+      if (val > 0) {
+        aggregated[cm.label] = (aggregated[cm.label] || 0) + val;
+      }
+    });
+  }
+
+  // 2. Common logic for both branches
+  const coreMetrics = [
+    { label: "Cost Per Click (CPC)", val: totalClicks ? (totalSpend / totalClicks) : 0, key: "cpc", icon: "fa-arrow-pointer", format: formatMoney },
+    { label: "Click-Through Rate (CTR)", val: totalImp ? (totalClicks / totalImp) * 100 : 0, key: "ctr", icon: "fa-percent", format: v => v.toFixed(2) + '%' }
+  ];
+
+  const METRIC_DESCRIPTIONS = {
+    "Cost Per Click (CPC)": "Average cost for each click on your ad.",
+    "Click-Through Rate (CTR)": "Percentage of times people saw your ad and performed a click.",
+    "Engagement": "Total number of actions people take involving your ads (views, comments, shares, etc).",
+    "Messenger Conversations": "Number of times people started a chat with your business after seeing the ad.",
+    "Leads": "Number of people who submitted a lead form or completed a registration.",
+    "Saves": "Number of times people saved your ad for later.",
+    "Follows": "Total number of Page Likes or Profile Follows generated.",
+    "Reactions/Likes": "Total number of reactions (Like, Love, Haha, Wow...) on the ad post.",
+    "Video View (3s)": "Number of times your video was played for at least 3 seconds, or for nearly its total length if it's shorter than 3 seconds.",
+    "Video Plays": "Number of times your video started playing.",
+    "ThruPlays": "Number of times your video was played for at least 15 seconds (or completion).",
+    "Video 25%": "Video watched to 25% of its total duration.",
+    "Video 50%": "Video watched to 50% of its total video duration.",
+    "Video 75%": "Video watched to 75% of its total video duration.",
+    "Video 95%": "Video watched to 95% of its total video duration.",
+    "Video 100%": "Video watched to full completion (100%)."
+  };
+
+  // Helper for filtering
+  const matchesQuery = (label) => !query || label.toLowerCase().includes(query);
+
+  const actionEntries = Object.entries(aggregated)
+    .filter(([label, v]) => v > 0 && matchesQuery(label))
+    .sort((a, b) => b[1] - a[1]);
+
+  const filteredCore = coreMetrics.filter(m => matchesQuery(m.label));
+
+  if (!actionEntries.length && !filteredCore.length) {
+    listWrap.innerHTML = `<div style='grid-column: 1/-1; padding: 4rem 2rem; text-align: center; opacity: 0.5; color: #718096; font-size: 1.3rem;'>
+      <i class="fa-solid fa-magnifying-glass" style="display: block; font-size: 2.5rem; margin-bottom: 1rem; opacity: 0.2;"></i>
+      Không tìm thấy chỉ số nào khớp với "${query}"
+    </div>`;
+    return;
+  }
+
+  // ⭐ TỐI ƯU: Xây dựng reverse lookup map 1 lần, tránh iterate aliasGroupMap mỗi action entry
+  const labelToAliasKey = Object.create(null);
+  for (const [key, grpLabel] of Object.entries(aliasGroupMap)) {
+    if (!labelToAliasKey[grpLabel]) labelToAliasKey[grpLabel] = key;
+  }
+  const registryLabelToKey = Object.create(null);
+  for (const k in METRIC_REGISTRY) {
+    const m = METRIC_REGISTRY[k];
+    if (m.label && !registryLabelToKey[m.label]) registryLabelToKey[m.label] = m.action_type || k;
+  }
+
+  // ===== NHÓM CÁC METRICS =====
+  const GROUP_DEFS = [
+    {
+      key: "performance", label: "Performance", icon: "fa-gauge-high",
+      match: (label) => ["Cost Per Click (CPC)", "Click-Through Rate (CTR)", "Engagement", "Video Plays"].includes(label)
+    },
+    {
+      key: "video", label: "Video", icon: "fa-film",
+      match: (label) => label.includes("Video") || label.includes("ThruPlay")
+    },
+    {
+      key: "social", label: "Social Interaction", icon: "fa-thumbs-up",
+      match: (label) => ["Reactions/Likes", "Saves", "Shares", "Comments", "Post Net Like", "Link Clicks", "Follows", "Media Views"].some(k => label.includes(k))
+    },
+    {
+      key: "messaging", label: "Messaging", icon: "fa-comment-dots",
+      match: (label) => label.includes("Message") || label.includes("Messenger") || label.includes("Messaging")
+    },
+    {
+      key: "leads", label: "Leads & Conversion", icon: "fa-bullseye",
+      match: (label) => label.includes("Lead") || label.includes("Registration") || label.includes("Pixel") || label.includes("Offsite") || label.includes("Conversion")
+    },
+  ];
+
+  const renderCard = (label, valStr, icon, titleAttr, isMoney = false, formatFn = null) => {
+    const displayVal = formatFn ? formatFn(parseFloat(valStr)) : formatNumber(parseInt(valStr));
+    return `
+      <div class="action_detail_card" title="${titleAttr}">
+        <div style="display: flex; align-items: center; gap: 0.8rem;">
+          <div class="icon_box">
+            <i class="fa-solid ${icon}" style="font-size: 1.3rem; color: #475569;"></i>
+          </div>
+          <span class="label_text">${label}</span>
+        </div>
+        <div class="value_text">${displayVal}</div>
+      </div>`;
+  };
+
+  const renderCoreCard = (m) => `
+    <div class="action_detail_card core" title="${m.key}">
+      <div style="display: flex; align-items: center; gap: 0.8rem;">
+        <div class="icon_box">
+          <i class="fa-solid ${m.icon}" style="font-size: 1.3rem; color: var(--mainClr);"></i>
+        </div>
+        <span class="label_text">${m.label}</span>
+      </div>
+      <div class="value_text">${m.format(m.val)}</div>
+    </div>`;
+
+  const renderSectionHeader = (group) => `
+    <div class="fad_section_header" style="grid-column:1/-1;">
+      <i class="fa-solid ${group.icon}"></i> ${group.label}
+    </div>`;
+
+  // Phân loại action entries vào từng nhóm
+  const grouped = {};
+  GROUP_DEFS.forEach(g => grouped[g.key] = []);
+  const others = [];
+
+  actionEntries.forEach(([label, val]) => {
+    const grp = GROUP_DEFS.find(g => g.match(label));
+    if (grp) grouped[grp.key].push([label, val]);
+    else others.push([label, val]);
+  });
+
+  // Core metrics luôn vào Performance
+  const coreHtml = filteredCore.map(renderCoreCard).join("");
+
+  const getIcon = (label) => {
+    if (label.includes("Lead") || label.includes("Conversion") || label.includes("Offsite")) return "fa-bullseye";
+    if (label.includes("Message") || label.includes("Messenger") || label.includes("Messaging")) return "fa-comment-dots";
+    if (label.includes("Save")) return "fa-bookmark";
+    if (label.includes("Engagement")) return "fa-fingerprint";
+    if (label.includes("Video") || label.includes("ThruPlay") || label.includes("View")) return "fa-play-circle";
+    if (label.includes("Click")) return "fa-mouse-pointer";
+    if (label.includes("Reaction") || label.includes("Like")) return "fa-heart";
+    if (label.includes("Share")) return "fa-share-nodes";
+    if (label.includes("Comment")) return "fa-comment";
+    if (label.includes("Follow")) return "fa-user-plus";
+    return "fa-chart-simple";
+  };
+
+  let html = "";
+
+  GROUP_DEFS.forEach(grp => {
+    const items = grouped[grp.key];
+    const isCoreGroup = grp.key === "performance";
+    if (!items.length && (isCoreGroup ? !filteredCore.length : true)) return;
+
+    html += renderSectionHeader(grp);
+    if (isCoreGroup) html += coreHtml;
+    items.forEach(([label, val]) => {
+      const technicalKey = labelToAliasKey[label] || registryLabelToKey[label] || label.toLowerCase().replace(/\s+/g, "_");
+      html += renderCard(label, val, getIcon(label), technicalKey);
+    });
+  });
+
+  if (others.length) {
+    html += `<div class="fad_section_header" style="grid-column:1/-1;"><i class="fa-solid fa-ellipsis"></i> Other</div>`;
+    others.forEach(([label, val]) => {
+      const technicalKey = labelToAliasKey[label] || registryLabelToKey[label] || label.toLowerCase().replace(/\s+/g, "_");
+      html += renderCard(label, val, getIcon(label), technicalKey);
+    });
+  }
+
+  listWrap.innerHTML = html;
 }
 
 function formatMoneyShort(v) {
@@ -3909,8 +6522,9 @@ function renderDetailDailyChart(dataByDate, type = currentDetailDailyType) {
     if (type === "spend") return item.spend || 0;
     if (type === "lead") return getResults(item);
     if (type === "reach") return item.reach || 0;
+    if (type === "impression") return item.impressions || 0;
     if (type === "message")
-      return item.actions["onsite_conversion.total_messaging_connection"] || 0;
+      return item.actions["onsite_conversion.messaging_conversation_started_7d"] || 0;
     return 0;
   });
 
@@ -3921,6 +6535,9 @@ function renderDetailDailyChart(dataByDate, type = currentDetailDailyType) {
   // 🎨 Gradient
   const gLine = c2d.createLinearGradient(0, 0, 0, 400);
   if (type === "spend") {
+    gLine.addColorStop(0, "rgba(255,169,0,0.2)");
+    gLine.addColorStop(1, "rgba(255,171,0,0.05)");
+  } else if (type === "impression") {
     gLine.addColorStop(0, "rgba(255,169,0,0.2)");
     gLine.addColorStop(1, "rgba(255,171,0,0.05)");
   } else {
@@ -4316,127 +6933,202 @@ function renderChartByHour(dataByHour) {
   });
 }
 
+// ================== Schedule Intelligence ==================
+function renderScheduleIntelligence(dataByHour) {
+  const wrap = document.getElementById("schedule_intelligence");
+  if (!wrap || !dataByHour) return;
+
+  const hourKeys = Object.keys(dataByHour);
+  if (!hourKeys.length) { wrap.innerHTML = ""; return; }
+
+  const hourStats = hourKeys.map(hk => {
+    const d = dataByHour[hk];
+    const spend = d.spend || 0;
+    const result = getResults(d) || 0;
+    const hour = parseInt(hk.slice(0, 2), 10);
+    const cpr = result > 0 ? spend / result : null;
+    return { hour, spend, result, cpr };
+  }).filter(s => s.spend > 0);
+
+  if (!hourStats.length) { wrap.innerHTML = ""; return; }
+
+  const hasResults = hourStats.some(s => s.result > 0);
+
+  const sorted = [...hourStats].sort((a, b) => {
+    if (hasResults) {
+      if (a.cpr !== null && b.cpr === null) return -1;
+      if (a.cpr === null && b.cpr !== null) return 1;
+      if (a.cpr !== null && b.cpr !== null) return a.cpr - b.cpr;
+    }
+    return b.spend - a.spend;
+  });
+
+  // FA icons cho top 3 (thay emoji)
+  const medalIcons = [
+    `<i class="fa-solid fa-trophy" style="color:#f59e0b;font-size:1rem;"></i>`,
+    `<i class="fa-solid fa-medal" style="color:#94a3b8;font-size:1rem;"></i>`,
+    `<i class="fa-solid fa-award" style="color:#cd7c2f;font-size:1rem;"></i>`,
+  ];
+
+  const best = sorted.slice(0, 3).map((s, i) => {
+    return `<span style="display:inline-flex;align-items:center;gap:0.4rem;background:#fff;
+      border:1.5px solid ${i === 0 ? '#f59e0b' : '#fcd34d'};border-radius:6px;
+      padding:0.2rem 0.8rem;font-weight:700;color:${i === 0 ? '#92400e' : '#b45309'};white-space:nowrap;">
+      ${medalIcons[i]} ${s.hour}h–${s.hour + 1}h${s.cpr ? `<span style="font-weight:400;opacity:0.6;font-size:0.9em;">(${(s.cpr / 1000).toFixed(1)}k CPR)</span>` : ''}
+    </span>`;
+  }).join("");
+
+  const withResult = hourStats.filter(s => s.cpr !== null);
+  let worstHtml = "";
+  if (withResult.length > 3) {
+    const worst = [...withResult].sort((a, b) => b.cpr - a.cpr)[0];
+    worstHtml = `<span style="display:inline-flex;align-items:center;gap:0.3rem;color:#ef4444;font-size:1rem;margin-left:0.2rem;">
+      <i class="fa-solid fa-triangle-exclamation"></i> Tránh ${worst.hour}h</span>`;
+  }
+
+  const metricLabel = hasResults ? "CPR thấp nhất" : "Spend cao nhất";
+
+  wrap.innerHTML = `
+    <div style="display:flex;align-items:center;gap:0.8rem;flex-wrap:wrap;padding:0.8rem 1.2rem;margin-top:0.8rem;
+      background:linear-gradient(135deg,#fffbeb,#fef9ec);border:1px solid #fde68a;
+      border-radius:10px;font-size:1.25rem;">
+      <span style="display:flex;align-items:center;gap:0.4rem;font-weight:700;color:#92400e;white-space:nowrap;">
+        <i class="fa-solid fa-clock" style="color:#f59e0b;"></i> Best hours
+        <span style="font-weight:400;opacity:0.6;font-size:0.9em;">(${metricLabel})</span>
+      </span>
+      ${best}
+      ${worstHtml}
+    </div>
+  `;
+}
+
 function renderChartByDevice(dataByDevice) {
   if (!dataByDevice) return;
 
   const ctx = document.getElementById("chart_by_device");
   if (!ctx) return;
-  const c2d = ctx.getContext("2d");
 
-  const prettyName = (key) => {
-    return key
-      .replace(/_/g, " ") // chuyển _ thành space
-      .replace(
-        /\w\S*/g,
-        (w) => w[0].toUpperCase() + w.substring(1).toLowerCase()
-      );
-  };
-
-  const validEntries = Object.entries(dataByDevice)
-    .map(([k, v]) => [prettyName(k), getResults(v) || 0])
-    .filter(([_, val]) => val > 0);
-
+  // Destroy old chart
   if (window.chart_by_device_instance) {
     window.chart_by_device_instance.destroy();
-    window.chart_by_device_instance = null; // Gán null
+    window.chart_by_device_instance = null;
   }
 
-  if (!validEntries.length) {
-    return; // Không có data, không vẽ chart
-  }
+  const prettyName = (key) =>
+    key.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
 
-  validEntries.sort((a, b) => b[1] - a[1]);
-  const labels = validEntries.map(([k]) => k);
-  const resultData = validEntries.map(([_, v]) => v);
+  // Dùng spend (không phải result) để thống nhất với extra_details
+  const validEntries = Object.entries(dataByDevice)
+    .map(([k, v]) => {
+      const spend = typeof v === 'object' ? (v.spend || 0) : 0;
+      const result = typeof v === 'object' ? (getResults(v) || 0) : 0;
+      return { key: k, label: prettyName(k), spend, result };
+    })
+    .filter(e => e.spend > 0 || e.result > 0)
+    .sort((a, b) => (b.spend || b.result) - (a.spend || a.result));
 
-  const highlightColors = [
-    "rgba(255,171,0,0.9)", // vàng
+  if (!validEntries.length) return;
 
-    "rgba(156,163,175,0.7)",
-  ];
-  const fallbackColors = [
-    "rgba(38,42,83,0.9)", // xanh đậm
-    "rgba(0, 59, 59, 0.7)",
-    "rgba(0, 71, 26, 0.7)",
-    "rgba(153, 0, 0, 0.7)",
-  ];
-  const colors = resultData.map((_, i) =>
-    i < 2 ? highlightColors[i] : fallbackColors[i - 2] || "#ccc"
-  );
+  const useSpend = validEntries.some(e => e.spend > 0);
+  const values = validEntries.map(e => useSpend ? e.spend : e.result);
+  const labels = validEntries.map(e => e.label);
+  const total = values.reduce((a, b) => a + b, 0);
 
-  const total = resultData.reduce((a, b) => a + b, 0);
-  const maxIndex = resultData.indexOf(Math.max(...resultData));
-  const maxLabel = labels[maxIndex];
-  const maxPercent = ((resultData[maxIndex] / total) * 100).toFixed(1);
+  const topLabel = labels[0];
+  const topPercent = total > 0 ? ((values[0] / total) * 100).toFixed(1) : '0';
 
-  // 🎯 Plugin custom: show % giữa lỗ — dùng chartArea để tính tâm chính xác
-  const centerTextPlugin = {
-    id: "centerText",
-    afterDraw(chart) {
-      const { width, ctx } = chart;
-      const { top, bottom } = chart.chartArea;
-      const centerX = width / 2;
-      const centerY = (top + bottom) / 2; // ← tâm thực sự của vùng chart
-
-      ctx.save();
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.fillStyle = "#333";
-
-      ctx.font = "bold 18px sans-serif";
-      ctx.fillText(`${maxPercent}%`, centerX, centerY - 11);
-
-      ctx.font = "12px sans-serif";
-      ctx.fillText(maxLabel, centerX, centerY + 11);
-      ctx.restore();
-    },
+  // Icon map theo device type
+  const getIcon = (key) => {
+    const k = key.toLowerCase();
+    if (k.includes('desktop')) return 'fa-desktop';
+    if (k.includes('tablet') || k.includes('ipad')) return 'fa-tablet-screen-button';
+    return 'fa-mobile-screen';
   };
 
-  // 🎨 Render chart
-  window.chart_by_device_instance = new Chart(c2d, {
-    type: "doughnut",
+  // Icon color map
+  const iconColors = ['#4267B2', '#E1306C', '#f59e0b', '#10b981', '#6366f1'];
+
+  // Rebuild container HTML — layout: list card trái + donut phải
+  const container = ctx.closest(".chart_device_wrap") || ctx.parentElement;
+  container.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:2rem;padding:4px 0;flex-wrap:wrap;">
+      <div id="_dev_list_left" style="flex:1;min-width:160px;display:flex;flex-direction:column;gap:1rem;"></div>
+      <div style="flex:1;min-width:140px;max-width:200px;position:relative;display:flex;justify-content:center;align-items:center;">
+        <div style="position:relative;width:100%;">
+          <canvas id="_dev_canvas_inner"></canvas>
+          <div style="position:absolute;text-align:center;pointer-events:none;top:50%;left:50%;transform:translate(-50%,-50%);width:80%;">
+            <p style="font-size:1.8rem;font-weight:800;color:#333;margin:0;line-height:1.2;">${topPercent}%</p>
+            <p style="font-size:1rem;color:#666;margin:0.3rem 0 0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${topLabel}</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+
+  // Render list items
+  const listEl = container.querySelector('#_dev_list_left');
+  validEntries.slice(0, 5).forEach((entry, i) => {
+    const val = values[i];
+    const displayVal = useSpend
+      ? parseInt(val).toLocaleString('vi-VN') + '₫'
+      : formatNumber(val) + ' results';
+
+    const item = document.createElement('div');
+    item.style.cssText = `
+      display:flex;flex-direction:column;gap:0.4rem;
+      padding:0.9rem 1.2rem;border-radius:12px;
+      border:1px solid #f0f0f0;background:#fff;
+      box-shadow:0 2px 5px rgba(0,0,0,0.045);
+    `;
+    item.innerHTML = `
+      <p style="display:flex;align-items:center;gap:0.8rem;font-weight:600;color:#555;font-size:1rem;margin:0;">
+        <i class="fa-solid ${getIcon(entry.key)}" style="color:${iconColors[i] || '#94a3b8'};font-size:1.2rem;"></i>
+        <span>${entry.label}</span>
+      </p>
+      <p style="font-weight:700;font-size:1.4rem;color:#333;margin:0;padding-left:2rem;">${displayVal}</p>
+    `;
+    listEl.appendChild(item);
+  });
+
+  // Donut chart
+  const newCanvas = container.querySelector('#_dev_canvas_inner');
+  window.chart_by_device_instance = new Chart(newCanvas.getContext('2d'), {
+    type: 'doughnut',
     data: {
       labels,
-      datasets: [
-        {
-          label: "Results",
-          data: resultData,
-          backgroundColor: colors,
-          borderColor: "#fff",
-          borderWidth: 2,
-        },
-      ],
+      datasets: [{
+        data: values,
+        backgroundColor: values.map((_, i) => i === 0 ? '#FFA900' : '#E0E0E0'),
+        borderWidth: 2,
+        borderColor: '#fff',
+        hoverBackgroundColor: values.map((_, i) => i === 0 ? '#FFB700' : '#D0D0D0'),
+      }]
     },
     options: {
       responsive: true,
       maintainAspectRatio: true,
-      aspectRatio: 1, // Fix hình tròn không bị méo
-      cutout: "70%", // 💫 tạo lỗ tròn
+      cutout: '70%',
       plugins: {
-        legend: {
-          position: "bottom",
-          labels: {
-            color: "#333",
-            boxWidth: 14,
-            padding: 10,
-          },
-        },
+        legend: { display: false },
         tooltip: {
           callbacks: {
-            label: (ctx) =>
-              `${ctx.label}: ${formatNumber(ctx.raw)} (${(
-                (ctx.raw / total) *
-                100
-              ).toFixed(1)}%)`,
-          },
+            label: (c) => {
+              const pct = ((c.raw / total) * 100).toFixed(1);
+              const val = useSpend
+                ? parseInt(c.raw).toLocaleString('vi-VN') + '₫'
+                : formatNumber(c.raw);
+              return `${c.label}: ${val} (${pct}%)`;
+            }
+          }
         },
         datalabels: { display: false },
       },
-      hoverOffset: 8,
-    },
-    plugins: [centerTextPlugin],
+      hoverOffset: 6,
+    }
   });
 }
+
+
 
 function renderChartByRegion(dataByRegion) {
   if (!dataByRegion) return;
@@ -4451,10 +7143,51 @@ function renderChartByRegion(dataByRegion) {
       .trim()
       .replace(/^\w/, (c) => c.toUpperCase());
 
+  // ✅ Helper mạnh hơn getResults() cho breakdown data (object format)
+  // Meta API breakdown đôi khi trả về "messaging_conversation_started_7d"
+  // thay vì "onsite_conversion.messaging_conversation_started_7d"
+  const getBreakdownResult = (v) => {
+    const acts = v.actions || {};
+    if (!Object.keys(acts).length) return 0;
+
+    // ✅ Mess campaign region dùng key này
+    if (acts["onsite_conversion.total_messaging_connection"] > 0)
+      return +acts["onsite_conversion.total_messaging_connection"];
+
+    // 1. Thử getResults() bình thường trước
+    const normal = getResults(v);
+    if (normal > 0) return normal;
+
+    // 2. Thử tất cả values trong resultMapping (kể cả phiên bản ngắn không có tiền tố)
+    const goal = VIEW_GOAL || "";
+    const goalKey = GOAL_GROUP_LOOKUP[goal] || "";
+    const triedTypes = new Set();
+
+    const main = resultMapping[goal];
+    if (main) triedTypes.add(main);
+
+    if (goalKey && goalMapping[goalKey]) {
+      for (const g of goalMapping[goalKey]) {
+        const t = resultMapping[g];
+        if (t) triedTypes.add(t);
+      }
+    }
+
+    for (const fullType of triedTypes) {
+      if (acts[fullType] > 0) return +acts[fullType];
+      const shortType = fullType.replace(/^onsite_conversion\./, "");
+      if (shortType !== fullType && acts[shortType] > 0) return +acts[shortType];
+    }
+
+    // 3. Fallback: lấy action value lớn nhất trong object
+    const vals = Object.values(acts).map(Number).filter(n => n > 0);
+    return vals.length ? Math.max(...vals) : 0;
+  };
+
   const entries = Object.entries(dataByRegion).map(([k, v]) => ({
     name: prettyName(k),
     spend: v.spend || 0,
-    result: getResults(v) || 0,
+    result: getBreakdownResult(v),
   }));
 
   const totalSpend = entries.reduce((acc, e) => acc + e.spend, 0);
@@ -4488,63 +7221,79 @@ function renderChartByRegion(dataByRegion) {
   const spentData = top5.map((e) => e.spend);
   const resultData = top5.map((e) => e.result);
 
-  // 🎯 Highlight theo Result
-  const maxResultIndex = resultData.indexOf(Math.max(...resultData));
+  // ✅ Kiểm tra có result thực không
+  const hasResult = resultData.some((v) => v > 0);
 
-  // ✨ Gradient vàng quyền lực
+  // ✅ Bar hẹp khi ít region (giống goal_chart)
+  const isFew = top5.length < 3;
+
+  // 🎨 Màu theo style goal_chart
+  const maxSpendIndex = spentData.indexOf(Math.max(...spentData));
+
+  // 🎯 Highlight bar spend cao nhất = vàng, còn lại = xám (style goal_chart)
   const gradientGold = c2d.createLinearGradient(0, 0, 0, 300);
   gradientGold.addColorStop(0, "rgba(255,169,0,1)");
   gradientGold.addColorStop(1, "rgba(255,169,0,0.4)");
 
-  // 🌫 Gradient xám thanh lịch
   const gradientGray = c2d.createLinearGradient(0, 0, 0, 300);
   gradientGray.addColorStop(0, "rgba(210,210,210,0.9)");
   gradientGray.addColorStop(1, "rgba(160,160,160,0.4)");
 
-  // ✅ Apply màu theo chỉ số maxResultIndex
-  const spentColors = labels.map((_, i) =>
-    i === maxResultIndex ? gradientGold : gradientGray
+  const gradientNavy = c2d.createLinearGradient(0, 0, 0, 300);
+  gradientNavy.addColorStop(0, "rgba(38,42,83,0.95)");
+  gradientNavy.addColorStop(1, "rgba(38,42,83,0.45)");
+
+  // Spend: bar cao nhất = gold, còn lại = gray (giống goal_chart)
+  const spentColors = spentData.map((_, i) =>
+    i === maxSpendIndex ? gradientGold : gradientGray
   );
 
-  const resultColors = labels.map((_, i) =>
-    i === maxResultIndex ? gradientGold : gradientGray
-  );
+  // Datasets
+  const datasets = [
+    {
+      label: "Spend",
+      data: spentData,
+      backgroundColor: spentColors,
+      borderWidth: 0,
+      borderRadius: 8,
+      yAxisID: "ySpend",
+      ...(isFew && { barPercentage: 0.35, categoryPercentage: 0.65 }),
+    },
+  ];
+
+  if (hasResult) {
+    const maxResultIndex = resultData.indexOf(Math.max(...resultData));
+    datasets.push({
+      label: "Result",
+      data: resultData,
+      backgroundColor: resultData.map((_, i) =>
+        i === maxResultIndex ? gradientGray : "rgba(200,200,200,0.5)"
+      ),
+      borderWidth: 0,
+      borderRadius: 6,
+      yAxisID: "yResult",
+      // ✅ Bar nhỏ hơn Spend — giống cột xám trong AgeGender chart
+      barPercentage: 0.45,
+      categoryPercentage: 0.6,
+    });
+  }
 
   window.chart_by_region_instance = new Chart(c2d, {
     type: "bar",
-    data: {
-      labels,
-      datasets: [
-        {
-          label: "Spent",
-          data: spentData,
-          backgroundColor: spentColors,
-          borderWidth: 0,
-          borderRadius: 6,
-          yAxisID: "ySpend",
-        },
-        {
-          label: "Result",
-          data: resultData,
-          backgroundColor: resultColors,
-          borderWidth: 0,
-          borderRadius: 6,
-          yAxisID: "yResult",
-        },
-      ],
-    },
+    data: { labels, datasets },
     options: {
       responsive: true,
       maintainAspectRatio: false,
       interaction: { mode: "index", intersect: false },
-      layout: { padding: { left: 10, right: 10 } },
+      layout: { padding: { left: 10, right: 10, bottom: 20 } },
+      animation: { duration: 600, easing: "easeOutQuart" },
       plugins: {
         legend: { display: false },
         tooltip: {
           callbacks: {
             title: (ctx) => fullNamesDetail[ctx[0].dataIndex] || ctx[0].label,
             label: (ctx) =>
-              `${ctx.dataset.label}: ${ctx.dataset.label === "Spent"
+              `${ctx.dataset.label}: ${ctx.dataset.label === "Spend"
                 ? formatMoneyShort(ctx.raw)
                 : ctx.raw
               }`,
@@ -4554,14 +7303,10 @@ function renderChartByRegion(dataByRegion) {
           anchor: "end",
           align: "end",
           offset: 2,
-          font: { weight: "600", size: 11 },
+          font: { size: 11, weight: "600" },
           color: "#555",
           formatter: (value, ctx) =>
-            ctx.dataset.label === "Spent"
-              ? formatMoneyShort(value)
-              : value > 0
-                ? value
-                : "",
+            value > 0 ? formatMoneyShort(value) : "",
         },
       },
       scales: {
@@ -4569,33 +7314,34 @@ function renderChartByRegion(dataByRegion) {
           grid: {
             color: "rgba(0,0,0,0.03)",
             drawBorder: true,
+            borderColor: "rgba(0,0,0,0.05)",
           },
           ticks: {
-            color: "#444",
-            font: { weight: "600", size: 11 },
-            maxRotation: 0,
-            minRotation: 0,
+            color: "#666",
+            font: { weight: "600", size: 8.5 },
             autoSkip: false,
+            maxRotation: 45,
+            minRotation: 0,
           },
         },
         ySpend: {
           type: "linear",
           position: "left",
-          grid: { color: "rgba(0,0,0,0.03)" },
           beginAtZero: true,
+          grid: { color: "rgba(0,0,0,0.03)", drawBorder: true, borderColor: "rgba(0,0,0,0.05)" },
           ticks: { display: false },
-          suggestedMax: Math.max(...spentData) * 1.1,
+          suggestedMax: Math.max(...spentData) * 1.2,
         },
         yResult: {
           type: "linear",
           position: "right",
-          grid: { drawOnChartArea: false },
+          display: hasResult,
           beginAtZero: true,
+          grid: { drawOnChartArea: false },
           ticks: { display: false },
-          suggestedMax: Math.max(...resultData) * 1.1,
+          suggestedMax: hasResult ? Math.max(...resultData) * 1.5 : 1,
         },
       },
-      animation: { duration: 600, easing: "easeOutQuart" },
     },
     plugins: [ChartDataLabels],
   });
@@ -4749,6 +7495,8 @@ const getLogo = (key, groupKey = "") => {
     return "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRemnhxz7XnQ1BiDuwUlmdQoYO9Wyko5-uOGQ&s";
   if (k.includes("instagram"))
     return "https://upload.wikimedia.org/wikipedia/commons/e/e7/Instagram_logo_2016.svg";
+  if (k.includes("threads"))
+    return "https://assets.streamlinehq.com/image/private/w_300,h_300,ar_1/f_auto/v1/icons/social-medias/thread-block-logo-1-i73pfbwpt6bmcgvlcae3sc.png/thread-block-logo-1-14s5twxzakpdzka2bufeir.png";
 
   return "https://raw.githubusercontent.com/DEV-trongphuc/DOM_MISA_IDEAS_CRM/refs/heads/main/DOM_MKT%20(2).png";
 };
@@ -4785,7 +7533,8 @@ function renderChartByPlatform(allData) {
 
       let cpr = 0;
       if (result && spend) {
-        cpr = goal === "REACH" ? (spend / result) * 1000 : spend / result;
+        const isThousandMetric = (goal === "REACH" || goal === "IMPRESSIONS");
+        cpr = isThousandMetric ? (spend / result) * 1000 : spend / result;
       }
 
       if (spend > 0) items.push({ key, spend, result: result || 0, cpr, goal });
@@ -4865,8 +7614,9 @@ function renderDeepCPR(allData) {
       const spend = +val.spend || 0;
       const result = getResults(val);
       if (!spend || !result) continue;
-      const goal = VIEW_GOAL;
-      const cpr = goal === "REACH" ? (spend / result) * 1000 : spend / result;
+      const goal = (val.optimization_goal || VIEW_GOAL || "").toUpperCase();
+      const isThousandMetric = (goal === "REACH" || goal === "IMPRESSIONS");
+      const cpr = isThousandMetric ? (spend / result) * 1000 : spend / result;
       groupItems.push({ key, spend, result, cpr, goal });
     }
 
@@ -4893,7 +7643,7 @@ function renderDeepCPR(allData) {
       li.innerHTML = `
         <p><b>${formatDeepName(p.key)}</b></p>
         <p class="toplist_percent" style="color:${color};background:${bg}">
-          ${formatMoney(p.cpr)} ${p.goal === "REACH" ? "" : ""}
+          ${formatMoney(p.cpr)} ${(p.goal === "REACH" || p.goal === "IMPRESSIONS") ? " / 1000" : ""}
         </p>
       `;
       fragment.appendChild(li);
@@ -4930,6 +7680,7 @@ function renderCharts({
 }) {
   renderDetailDailyChart(byDate, "spend");
   renderChartByHour(byHour);
+  renderScheduleIntelligence(byHour);
   renderChartByAgeGender(byAgeGender);
   renderChartByRegion(byRegion);
   renderChartByDevice(byDevice);
@@ -4944,10 +7695,11 @@ function getChartValue(item, type) {
 
   const typeMap = {
     lead: ["lead", "onsite_conversion.lead_grouped"],
-    message: ["onsite_conversion.total_messaging_connection"],
+    message: ["onsite_conversion.messaging_conversation_started_7d"],
     like: ["like"],
     spend: ["spend"],
     reach: ["reach"],
+    impression: ["impressions"],
   };
 
   const keys = Array.isArray(typeMap[type]) ? typeMap[type] : [typeMap[type]];
@@ -4955,6 +7707,7 @@ function getChartValue(item, type) {
   for (const k of keys) {
     if (k === "spend" && item.spend !== undefined) return +item.spend;
     if (k === "reach" && item.reach !== undefined) return +item.reach;
+    if (k === "impressions" && item.impressions !== undefined) return +item.impressions;
 
     // Tối ưu: dùng for loop thay vì find()
     for (let i = 0; i < actions.length; i++) {
@@ -5157,41 +7910,129 @@ function setupDetailDailyFilter() {
 /**
  * Cập nhật UI tóm tắt tổng quan, bao gồm so sánh với kỳ trước.
  */
-function updatePlatformSummaryUI(currentData, previousData = []) {
+function updatePlatformSummaryUI(currentData, previousData = [], customDates = null) {
   // Thêm previousData và giá trị mặc định
   // --- Helper function để xử lý một object/array data ---
 
   const processData = (data) => {
-    // Đảm bảo data là object, lấy phần tử đầu nếu là array
     const insights = Array.isArray(data) ? data[0] || {} : data || {};
+    const acts = {};
+    (insights.actions || []).forEach(a => acts[a.action_type] = (acts[a.action_type] || 0) + (+a.value || 0));
 
-    // Chuyển actions array thành object để dễ truy cập
-    const actionsObj = {};
-    (insights.actions || []).forEach(({ action_type, value }) => {
-      actionsObj[action_type] = (actionsObj[action_type] || 0) + (+value || 0);
+    // Bổ sung từ các trường action chuyên biệt (video, engagement, v.v.)
+    const parseSpecial = (field) => {
+      if (!insights[field]) return;
+      if (Array.isArray(insights[field])) {
+        insights[field].forEach(({ action_type, value }) => {
+          acts[action_type] = (acts[action_type] || 0) + (+value || 0);
+        });
+      } else if (typeof insights[field] === "number" || typeof insights[field] === "string") {
+        const base = field.replace("_actions", "");
+        acts[base] = (acts[base] || 0) + (+insights[field] || 0);
+      }
+    };
+    ["video_play_actions", "video_thruplay_watched_actions", "video_p25_watched_actions", "video_p50_watched_actions", "video_p75_watched_actions", "video_p95_watched_actions", "video_p100_watched_actions"].forEach(parseSpecial);
+
+    const getAct = (types) => {
+      let s = 0;
+      const doneBase = new Set();
+      types.forEach(t => {
+        const base = t.startsWith("onsite_conversion.") ? t.replace("onsite_conversion.", "") : t;
+        if (doneBase.has(base)) return;
+        doneBase.add(base);
+
+        const onsite = "onsite_conversion." + base;
+        if (acts[onsite]) {
+          s += acts[onsite];
+        } else if (acts[base]) {
+          s += acts[base];
+        }
+      });
+      return s;
+    };
+
+    const sumArr = (arr) => {
+      if (!arr) return 0;
+      if (Array.isArray(arr)) {
+        return arr.reduce((acc, a) => acc + (+a.value || 0), 0);
+      }
+      return +arr.value || 0;
+    };
+
+    const res = { spend: +insights.spend || 0 };
+    SUMMARY_METRICS.forEach(mid => {
+      const meta = METRIC_REGISTRY[mid];
+      if (!meta) return;
+      if (meta.type === "field") {
+        res[mid] = +insights[meta.field_name || mid] || 0;
+      } else if (meta.type === "action") {
+        res[mid] = getAct([meta.action_type]);
+      } else if (meta.type === "special") {
+        if (mid === "result") {
+          res[mid] = getAct(["onsite_conversion.messaging_conversation_started_7d", "onsite_conversion.lead_grouped"]);
+        }
+      }
     });
 
-    // Trích xuất các chỉ số chính
-    return {
-      spend: +insights.spend || 0,
-      reach: +insights.reach || 0,
-      message: actionsObj["onsite_conversion.total_messaging_connection"] || 0,
-      lead: actionsObj["onsite_conversion.lead_grouped"] || 0,
-      // Các chỉ số phụ (nếu cần tính toán so sánh sau này)
-      like:
-        (actionsObj["like"] || 0) +
-        (actionsObj["page_follow"] || 0) +
-        (actionsObj["page_like"] || 0),
-      reaction: actionsObj["post_reaction"] || 0,
-      comment: actionsObj["comment"] || 0,
-      share: (actionsObj["post"] || 0) + (actionsObj["share"] || 0),
-      click: actionsObj["link_click"] || 0,
-      view: (actionsObj["video_view"] || 0) + (actionsObj["photo_view"] || 0),
-    };
+    res.reach = +insights.reach || 0;
+    res.impressions = +insights.impressions || 0;
+    res.video_play = sumArr(insights.video_play_actions) || getAct(["video_play", "video_view"]);
+    res.thruplay = sumArr(insights.video_thruplay_watched_actions) || getAct(["thruplay", "video_thruplay_watched_actions"]);
+    res.link_click = getAct(["link_click", "inline_link_clicks", "outbound_click"]) || +insights.clicks || 0;
+    res.post_engagement = getAct(["post_engagement", "page_engagement", "post_interaction"]);
+    res.reaction = getAct(["post_reaction", "reaction", "like"]);
+    res.follow = getAct(["page_like", "page_follow", "instagram_profile_follow", "onsite_conversion.page_like", "onsite_conversion.instagram_profile_follow", "like"]);
+
+    return res;
   };
 
-  // --- Xử lý dữ liệu cho kỳ hiện tại và kỳ trước ---
-  const currentMetrics = processData(currentData);
+  const aggregateAll = (campArray) => {
+    const res = { spend: 0 };
+    SUMMARY_METRICS.forEach(mid => res[mid] = 0);
+
+    // Add base metrics
+    ["reach", "impressions", "video_play", "thruplay", "link_click", "post_engagement", "reaction", "follow"].forEach(m => res[m] = 0);
+
+    campArray.forEach(c => {
+      c.adsets?.forEach(as => {
+        const acts = as.actions || [];
+        res.spend += (as.spend || 0);
+        res.reach += (as.reach || 0);
+        res.impressions += (as.impressions || 0);
+
+        SUMMARY_METRICS.forEach(mid => {
+          const meta = METRIC_REGISTRY[mid];
+          if (!meta) return;
+          if (meta.type === "field") {
+            res[mid] += (+as[meta.field_name || mid] || 0);
+          } else if (meta.type === "action") {
+            res[mid] += (window.safeGetActionValue(acts, meta.action_type) || window.safeGetActionValue(acts, "onsite_conversion." + meta.action_type) || 0);
+          } else if (mid === "result") {
+            res[mid] += (window.safeGetActionValue(acts, "onsite_conversion.messaging_conversation_started_7d") || window.safeGetActionValue(acts, "onsite_conversion.lead_grouped") || 0);
+          }
+        });
+
+        // Base actions
+        res.video_play += (window.safeGetActionValue(acts, "video_play") || 0);
+        res.thruplay += (window.safeGetActionValue(acts, "video_thruplay_watched_actions") || 0);
+        res.link_click += (window.safeGetActionValue(acts, "link_click") || as.inline_link_clicks || 0);
+        res.post_engagement += (window.safeGetActionValue(acts, "post_engagement") || window.safeGetActionValue(acts, "page_engagement") || 0);
+        res.reaction += (window.safeGetActionValue(acts, "post_reaction") || window.safeGetActionValue(acts, "reaction") || 0);
+        res.follow += (as.follow || window.safeGetActionValue(acts, "page_like") || window.safeGetActionValue(acts, "onsite_conversion.page_like") || 0);
+      });
+    });
+    return res;
+  };
+
+  // Ưu tiên dùng currentData từ API (Results của fetchDashboardInsightsBatch)
+  // Chỉ fallback aggregateAll nếu currentData rỗng/lỗi
+  const currentMetrics = (currentData && (Array.isArray(currentData) ? currentData.length > 0 : !!currentData.spend))
+    ? processData(currentData)
+    : (window._ALL_CAMPAIGNS && window._ALL_CAMPAIGNS.length > 0
+      ? aggregateAll(window._FILTERED_CAMPAIGNS || window._ALL_CAMPAIGNS)
+      : processData(currentData)
+    );
+
   const previousMetrics = processData(previousData);
   console.log(previousMetrics);
 
@@ -5235,7 +8076,17 @@ function updatePlatformSummaryUI(currentData, previousData = []) {
     const e = new Date(endDate + "T00:00:00");
     const durationDays = Math.round((e - s) / 86400000) + 1;
 
-    let titleText = `Kỳ trước: ${isCurrency ? formatMoney(previousValue) : previousValue.toLocaleString("vi-VN")} (${fmtDate(previousData?.[0]?.date_start)} - ${fmtDate(previousData?.[0]?.date_stop)}) • ${durationDays} ngày trước đó`;
+    let dFrom = customDates ? customDates.start : previousData?.[0]?.date_start;
+    let dTo = customDates ? customDates.end : previousData?.[0]?.date_stop;
+
+    let compDuration = durationDays;
+    if (dFrom && dTo) {
+      const cs = new Date(dFrom + "T00:00:00");
+      const ce = new Date(dTo + "T00:00:00");
+      compDuration = Math.round((ce - cs) / 86400000) + 1;
+    }
+
+    let titleText = `${customDates ? 'Kỳ so sánh' : 'Kỳ trước'}: ${isCurrency ? formatMoney(previousValue) : previousValue.toLocaleString("vi-VN")} (${fmtDate(dFrom)} - ${fmtDate(dTo)}) • ${compDuration} ngày`;
     const valueEl = document.querySelector(`#${id} span:first-child`);
     const changeEl = document.querySelector(`#${id} span:last-child`);
 
@@ -5275,29 +8126,26 @@ function updatePlatformSummaryUI(currentData, previousData = []) {
   };
 
   // --- Render các chỉ số chính với so sánh ---
-  renderMetric("spent", currentMetrics.spend, previousMetrics.spend, true); // true vì là tiền tệ
-  renderMetric("reach", currentMetrics.reach, previousMetrics.reach);
-  renderMetric("message", currentMetrics.message, previousMetrics.message);
-  renderMetric("lead", currentMetrics.lead, previousMetrics.lead);
+  renderMetric("spent", currentMetrics.spend, previousMetrics.spend, true);
+
+  SUMMARY_METRICS.forEach(mid => {
+    const valCur = currentMetrics[mid] || currentMetrics.actionsObj?.[mid] || 0;
+    const valPrev = previousMetrics[mid] || previousMetrics.actionsObj?.[mid] || 0;
+    renderMetric(mid, valCur, valPrev, METRIC_REGISTRY[mid]?.format === "money");
+  });
 
   // --- Render các chỉ số phụ (không cần so sánh theo UI mới) ---
-  document.querySelector(".dom_interaction_reaction").textContent =
-    formatNumber(currentMetrics.reaction);
-  document.querySelector(".dom_interaction_like").textContent = formatNumber(
-    currentMetrics.like
-  ); // Đã gộp like+follow trong processData
-  document.querySelector(".dom_interaction_comment").textContent = formatNumber(
-    currentMetrics.comment
-  );
-  document.querySelector(".dom_interaction_share").textContent = formatNumber(
-    currentMetrics.share
-  );
-  document.querySelector(".dom_interaction_click").textContent = formatNumber(
-    currentMetrics.click
-  );
-  document.querySelector(".dom_interaction_view").textContent = formatNumber(
-    currentMetrics.view
-  );
+  const updateText = (cls, val) => {
+    const el = document.querySelector(cls);
+    if (el) el.textContent = formatNumber(val);
+  };
+
+  updateText(".dom_interaction_video_play", currentMetrics.video_play);
+  updateText(".dom_interaction_thruplay", currentMetrics.thruplay);
+  updateText(".dom_interaction_link_click", currentMetrics.link_click);
+  updateText(".dom_interaction_post_engagement", currentMetrics.post_engagement);
+  updateText(".dom_interaction_reaction", currentMetrics.reaction);
+  updateText(".dom_interaction_follow", currentMetrics.follow);
 }
 
 // --- Các hàm format cũ (giữ nguyên hoặc đảm bảo chúng tồn tại) ---
@@ -5312,7 +8160,7 @@ async function fetchPlatformStats(campaignIds = []) {
         ])
       )}`
       : "";
-    const url = `${BASE_URL}/act_${ACCOUNT_ID}/insights?fields=spend,impressions,reach,actions&time_range={"since":"${startDate}","until":"${endDate}"}${filtering}&access_token=${META_TOKEN}`;
+    const url = `${BASE_URL}/act_${ACCOUNT_ID}/insights?fields=spend,impressions,reach,actions,video_play_actions,video_thruplay_watched_actions,video_p25_watched_actions,video_p50_watched_actions,video_p75_watched_actions,video_p95_watched_actions,video_p100_watched_actions&time_range={"since":"${startDate}","until":"${endDate}"}${filtering}&access_token=${META_TOKEN}`;
 
     const data = await fetchJSON(url);
 
@@ -5463,7 +8311,7 @@ async function fetchDashboardInsightsBatch(campaignIds = []) {
     {
       method: "GET",
       name: "platformStats",
-      relative_url: `${commonEndpoint}?fields=spend,impressions,reach,actions${currentTimeRange}${filtering}`,
+      relative_url: `${commonEndpoint}?fields=spend,impressions,reach,actions,inline_link_clicks,purchase_roas,video_play_actions,video_thruplay_watched_actions,video_p25_watched_actions,video_p50_watched_actions,video_p75_watched_actions,video_p95_watched_actions,video_p100_watched_actions${currentTimeRange}${filtering}`,
     },
     {
       method: "GET",
@@ -5482,6 +8330,11 @@ async function fetchDashboardInsightsBatch(campaignIds = []) {
     },
     {
       method: "GET",
+      name: "spendByDevice",
+      relative_url: `${commonEndpoint}?fields=spend,impressions&breakdowns=impression_device${currentTimeRange}${filtering}`,
+    },
+    {
+      method: "GET",
       name: "dailySpend",
       relative_url: `${commonEndpoint}?fields=spend,impressions,reach,actions,campaign_name,campaign_id&time_increment=1${currentTimeRange}${filtering}`,
     },
@@ -5490,7 +8343,7 @@ async function fetchDashboardInsightsBatch(campaignIds = []) {
     {
       method: "GET",
       name: "platformStats_previous",
-      relative_url: `${commonEndpoint}?fields=spend,impressions,reach,actions${previousTimeRange}${filtering}`,
+      relative_url: `${commonEndpoint}?fields=spend,impressions,reach,actions,inline_link_clicks,purchase_roas,video_play_actions,video_thruplay_watched_actions,video_p25_watched_actions,video_p50_watched_actions,video_p75_watched_actions,video_p95_watched_actions,video_p100_watched_actions${previousTimeRange}${filtering}`,
     }, // <<< CHỈ THÊM CÁI NÀY
   ];
   // --- KẾT THÚC BƯỚC 2 ---
@@ -5551,6 +8404,7 @@ async function fetchDashboardInsightsBatch(campaignIds = []) {
       spendByPlatform: [],
       spendByAgeGender: [],
       spendByRegion: [],
+      spendByDevice: [],
       dailySpend: [],
       platformStats_previous: [], // << Thêm key rỗng cho trường hợp lỗi
     };
@@ -5568,6 +8422,7 @@ async function loadAllDashboardCharts(campaignIds = []) {
 
   try {
     // 2. Gọi HÀM BATCH MỚI (1 request duy nhất)
+    window._LAST_CAMPAIGN_IDS = campaignIds;
     const results = await fetchDashboardInsightsBatch(campaignIds);
 
     // 🚩 CHECK EMPTY STATE: Nếu tổng spend = 0, hiện Empty Card
@@ -5585,6 +8440,9 @@ async function loadAllDashboardCharts(campaignIds = []) {
 
     // 3. Phân phối data đến các hàm RENDER/UPDATE UI (không fetch nữa)
     // 3.1. Platform Stats (Summary)
+    // 🚩 QUAN TRỌNG: Phải đợi settingsTask xong để đảm bảo updateSummaryCardHTML không xóa đè dữ liệu
+    if (window._SETTINGS_PROMISE) await window._SETTINGS_PROMISE;
+
     updatePlatformSummaryUI(
       results.platformStats,
       results.platformStats_previous
@@ -5602,9 +8460,10 @@ async function loadAllDashboardCharts(campaignIds = []) {
     renderRegionChart(results.spendByRegion);
 
     // 3.5. Daily Spend
-    // Lưu ý: hàm fetchDailySpendByAccount của bạn giờ cũng được thay thế
-    // bằng results.dailySpend (khi campaignIds rỗng)
-    renderDetailDailyChart2(results.dailySpend, "spend"); // "spend" là default
+    renderDetailDailyChart2(results.dailySpend, "spend");
+
+    // 3.6. Store for extra_details usage to avoid re-fetch
+    window._DASHBOARD_BATCH_RESULTS = results;
   } catch (err) {
     console.error("❌ Lỗi khi tải dữ liệu charts dashboard:", err);
   } finally {
@@ -5919,14 +8778,14 @@ function initDateSelector() {
       const end = endInput.value;
 
       if (!start || !end) {
-        alert("⛔ Vui lòng chọn đầy đủ ngày!");
+        domAlert("⛔ Vui lòng chọn đầy đủ ngày!");
         return;
       }
 
       const s = new Date(start);
       const eD = new Date(end);
       if (eD < s) {
-        alert("⚠️ Ngày kết thúc phải sau ngày bắt đầu!");
+        domAlert("⚠️ Ngày kết thúc phải sau ngày bắt đầu!");
         return;
       }
 
@@ -6148,6 +9007,11 @@ function reloadDashboard() {
     }
     if (loading) loading.classList.remove("active");
   });
+
+  // 🔹 Refresh Google Ads with FORCE fetch because dates changed
+  if (typeof fetchGoogleAdsData === 'function') {
+    fetchGoogleAdsData(true);
+  }
 }
 
 // =================== MAIN INIT ===================
@@ -6427,7 +9291,7 @@ function renderRegionChart(data = []) {
             borderColor: "rgba(0,0,0,0.05)",
           },
           ticks: { display: false },
-          suggestedMax: Math.max(...values) * 1.1,
+          suggestedMax: Math.max(...values) * 1.2,
         },
       },
     },
@@ -6478,13 +9342,21 @@ if (quickFilterBox) {
         renderCampaignView(activeCampaigns);
       }
 
+      // --- 🔹 Campaigns with Spend ---
+      else if (view === "spent_ads") {
+        const spentCampaigns = window._ALL_CAMPAIGNS.filter((c) => {
+          const spend = +c.spend || 0;
+          return spend > 0;
+        });
+        renderCampaignView(spentCampaigns);
+      }
+
       // --- 🔹 Lead Ads (Optimization Goal) ---
       else if (view === "lead_ads_goal") {
         const leadAdsCampaigns = window._ALL_CAMPAIGNS.filter((c) =>
           c.adsets?.some(
             (adset) =>
-              adset.optimization_goal &&
-              adset.optimization_goal.toLowerCase().includes("lead")
+              adset.optimization_goal?.toLowerCase().includes("lead")
           )
         );
 
@@ -6496,8 +9368,8 @@ if (quickFilterBox) {
         const messageAdsCampaigns = window._ALL_CAMPAIGNS.filter((c) =>
           c.adsets?.some(
             (adset) =>
-              adset.optimization_goal &&
-              adset.optimization_goal.toLowerCase() === "replies"
+              adset.optimization_goal?.toLowerCase() === "replies" ||
+              adset.optimization_goal?.toLowerCase() === "messaging_conversation_started_7d"
           )
         );
 
@@ -6510,14 +9382,91 @@ if (quickFilterBox) {
           c.adsets?.some((adset) =>
             [
               "post_engagement",
-              "thruplay",
               "event_responses",
               "page_likes",
-            ].includes(adset.optimization_goal.toLowerCase())
+            ].includes(adset.optimization_goal?.toLowerCase())
           )
         );
 
         renderCampaignView(engageAdsCampaigns);
+      }
+
+      // --- 🔹 Traffic Ads ---
+      else if (view === "traffic_ads_goal") {
+        const trafficAdsCampaigns = window._ALL_CAMPAIGNS.filter((c) =>
+          c.adsets?.some((adset) =>
+            [
+              "link_clicks",
+              "landing_page_views",
+            ].includes(adset.optimization_goal?.toLowerCase())
+          )
+        );
+        renderCampaignView(trafficAdsCampaigns);
+      }
+
+      // --- 🔹 Sales/Conversions Ads ---
+      else if (view === "sales_ads_goal") {
+        const salesAdsCampaigns = window._ALL_CAMPAIGNS.filter((c) =>
+          c.adsets?.some((adset) =>
+            [
+              "offsite_conversions",
+              "value",
+              "conversions",
+            ].includes(adset.optimization_goal?.toLowerCase())
+          )
+        );
+        renderCampaignView(salesAdsCampaigns);
+      }
+
+      // --- 🔹 Video Views Ads ---
+      else if (view === "video_ads_goal") {
+        const videoAdsCampaigns = window._ALL_CAMPAIGNS.filter((c) =>
+          c.adsets?.some((adset) =>
+            [
+              "thruplay",
+              "video_views",
+            ].includes(adset.optimization_goal?.toLowerCase())
+          )
+        );
+        renderCampaignView(videoAdsCampaigns);
+      }
+
+      // --- 🔹 App Promotion Ads ---
+      else if (view === "app_ads_goal") {
+        const appAdsCampaigns = window._ALL_CAMPAIGNS.filter((c) =>
+          c.adsets?.some((adset) =>
+            [
+              "app_installs",
+              "app_events",
+            ].includes(adset.optimization_goal?.toLowerCase())
+          )
+        );
+        renderCampaignView(appAdsCampaigns);
+      }
+
+      // --- 🔹 High CTR (> 1%) ---
+      else if (view === "high_ctr") {
+        const highCtrCampaigns = window._ALL_CAMPAIGNS.filter((c) => {
+          const clicks = +c.inline_link_clicks || +c.clicks || 0;
+          const imps = +c.impressions || 0;
+          if (imps === 0) return false;
+          return (clicks / imps) * 100 >= 1;
+        });
+        renderCampaignView(highCtrCampaigns);
+      }
+
+      // --- 🔹 High ROAS (> 2) ---
+      else if (view === "high_roas") {
+        const highRoasCampaigns = window._ALL_CAMPAIGNS.filter((c) => {
+          const roasArr = c.purchase_roas || [];
+          const roasVal = roasArr.find(a =>
+            a.action_type === "purchase" || a.action_type === "omni_purchase" ||
+            a.action_type === "omni_purchase_roas" || a.action_type === "purchase_roas"
+          );
+          const val = roasVal ? +roasVal.value : 0;
+          return val >= 2;
+        });
+        renderCampaignView(highRoasCampaigns);
       }
 
       // --- 🔹 Brand Awareness (Optimization Goal) ---
@@ -6525,7 +9474,7 @@ if (quickFilterBox) {
         const awarenessAdsCampaigns = window._ALL_CAMPAIGNS.filter((c) =>
           c.adsets?.some((adset) =>
             ["reach", "ad_recall_lift", "impressions"].includes(
-              adset.optimization_goal.toLowerCase()
+              adset.optimization_goal?.toLowerCase()
             )
           )
         );
@@ -6553,14 +9502,84 @@ if (quickFilterBox) {
       quickFilterBox.classList.toggle("active");
     }
   });
+}
 
-  // 🧠 Click ra ngoài dropdown → tự đóng luôn
+// ⏳ Status Filter Logic (Ending soon / Ended)
+const statusFilterBox = document.querySelector(".status_filter");
+if (statusFilterBox) {
+  const selectedText = statusFilterBox.querySelector(".dom_selected");
+  const listItems = statusFilterBox.querySelectorAll(".dom_select_show li");
+  const dropdown = statusFilterBox.querySelector(".dom_select_show");
+
+  listItems.forEach((li) => {
+    li.addEventListener("click", (e) => {
+      e.stopPropagation();
+
+      // Xóa highlight cũ
+      listItems.forEach((x) => x.classList.remove("active"));
+      li.classList.add("active");
+
+      const label = li.querySelector("span:last-child")?.innerHTML || "";
+      const view = li.querySelector(".view_status")?.dataset.view || "";
+
+      selectedText.innerHTML = label;
+
+      if (view === "reset_status") {
+        selectedText.textContent = "Sắp kết thúc";
+        renderCampaignView(window._ALL_CAMPAIGNS);
+      } else {
+        const now = new Date();
+        const oneDayMs = 24 * 60 * 60 * 1000;
+
+        const filtered = window._ALL_CAMPAIGNS.filter(c => {
+          // Lấy end_time gần nhất từ adsets của campaign
+          const endTimes = (c.adsets || [])
+            .map(as => as.end_time ? new Date(as.end_time) : null)
+            .filter(d => d !== null);
+
+          if (!endTimes.length) return false;
+
+          // Đối với "Đã kết thúc", check xem có cái nào đã qua ngày hiện tại chưa
+          if (view === "ended_ads") {
+            return endTimes.some(d => d < now);
+          }
+
+          // Đối với "Sắp kết thúc x ngày"
+          const days = view === "ending_1d" ? 1 : 3;
+          return endTimes.some(d => {
+            const diff = d - now;
+            return diff > 0 && diff <= (days * oneDayMs);
+          });
+        });
+
+        renderCampaignView(filtered);
+      }
+
+      statusFilterBox.classList.remove("active");
+    });
+  });
+
+  statusFilterBox.addEventListener("click", (e) => {
+    // Chỉ toggle khi click vào nút chứ không phải click vào li bên trong
+    if (e.target.closest("li")) return;
+    statusFilterBox.classList.toggle("active");
+  });
+
+  // Đóng khi click ngoài
   document.addEventListener("click", (e) => {
-    if (!quickFilterBox.contains(e.target)) {
-      quickFilterBox.classList.remove("active");
+    if (!statusFilterBox.contains(e.target)) {
+      statusFilterBox.classList.remove("active");
     }
   });
 }
+
+// 🧠 Click ra ngoài dropdown → tự đóng luôn
+document.addEventListener("click", (e) => {
+  if (quickFilterBox && !quickFilterBox.contains(e.target)) {
+    quickFilterBox.classList.remove("active");
+  }
+});
+
 document.addEventListener("DOMContentLoaded", () => {
   // --- 📅 Initialize Date Selector ---
   const defaultRange = getDateRange("last_7days");
@@ -6581,6 +9600,8 @@ document.addEventListener("DOMContentLoaded", () => {
       }
     });
   }
+  // if (typeof fetchGoogleAdsData === 'function') fetchGoogleAdsData(false); // Đã chuyển vào main() khởi tạo song song
+
   const menuItems = document.querySelectorAll(".dom_menu li");
   const container = document.querySelector(".dom_container");
   const mobileMenu = document.querySelector("#mobile_menu");
@@ -6605,6 +9626,13 @@ document.addEventListener("DOMContentLoaded", () => {
       });
     });
   }
+
+  // Global toggle function used by inline onclick on region buttons
+  window.toggleRegionView = function () {
+    const regionCard = document.getElementById("region_inner_card") || document.querySelector(".dom_region_inner");
+    if (regionCard) regionCard.classList.toggle("active");
+  };
+
   // Toggle Sidebar on mobile menu click
   mobileMenu.addEventListener("click", () => {
     domSidebar.classList.toggle("active");
@@ -6613,6 +9641,9 @@ document.addEventListener("DOMContentLoaded", () => {
   // Handle menu item click to switch views
   menuItems.forEach((li) => {
     li.addEventListener("click", () => {
+      const view = li.getAttribute("data-view");
+      if (!view) return; // 💡 Only switch views if data-view is present (ignores Settings button)
+
       // Remove active class from all items
       menuItems.forEach((item) => item.classList.remove("active"));
 
@@ -6621,14 +9652,28 @@ document.addEventListener("DOMContentLoaded", () => {
 
       // Remove old view classes from container
       container.classList.forEach((cls) => {
-        if (["dashboard", "ad_detail", "account"].includes(cls)) {
+        if (["dashboard", "ad_detail", "account", "google_ads"].includes(cls)) {
           container.classList.remove(cls);
         }
       });
 
       // Add new view class based on the clicked item
-      const view = li.getAttribute("data-view");
       container.classList.add(view);
+
+      // Clear any leftover inline style on the Google Ads container so CSS rule takes over
+      const gAdsEl = document.getElementById("google_ads_container");
+      if (gAdsEl) gAdsEl.style.removeProperty('display');
+
+      if (view === "google_ads") {
+        // Nếu data đã được load ngầm từ trước và date range không đổi → chỉ render lại, không fetch
+        const currentRange = `${startDate}_${endDate}`;
+        const dataAlreadyLoaded = Array.isArray(window.googleAdsRawData) && window.googleAdsRawData.length > 0;
+        if (dataAlreadyLoaded && window._lastGAdsRange === currentRange) {
+          if (typeof window.renderGoogleAdsView === 'function') window.renderGoogleAdsView();
+        } else {
+          if (typeof window.fetchGoogleAdsData === 'function') window.fetchGoogleAdsData(false);
+        }
+      }
 
       // 👉 Nếu là nút account thì mới fetch
       if (view === "account") {
@@ -6702,29 +9747,76 @@ document.addEventListener("DOMContentLoaded", () => {
 
       const imgEl = option.querySelector("img");
       const nameEl = option.querySelector("span");
-      // data-filter="" = Ampersand (all), không undefined
       const filterValue = option.dataset?.filter ?? null;
       const isReset = filterValue === null ? false : filterValue.trim() === "";
 
       if (!imgEl || !nameEl) return;
 
-      const imgSrc = imgEl.src;
-      const name = nameEl.textContent.trim();
       const filter = isReset ? "" : filterValue.trim().toLowerCase();
 
-      // Update UI
-      const parentImg = parent.querySelector("img");
-      const parentText = parent.querySelector(".dom_selected");
-      if (parentImg) parentImg.src = imgSrc;
-      if (parentText) parentText.textContent = name;
-
+      // Close dropdown
       parent.classList.remove("active");
-      parent.querySelectorAll("li").forEach((li) => li.classList.remove("active"));
-      option.classList.add("active");
 
       // Apply brand/campaign filter
       if (typeof applyCampaignFilter === "function") {
         applyCampaignFilter(isReset ? "RESET" : filter);
+      }
+    } else {
+      // Click outside closes it
+      const selector = document.querySelector(".quick_filter_detail");
+      if (selector && !selector.contains(e.target)) {
+        selector.classList.remove("active");
+      }
+    }
+  });
+
+  // Handle BRAND selector in performance modal
+  document.addEventListener("click", async (e) => {
+    const select = e.target.closest("#perf_brand_selector");
+    const option = e.target.closest("#perf_brand_list li");
+
+    if (select && !option) {
+      select.classList.toggle("active");
+      const ul = select.querySelector("ul");
+      if (ul) ul.classList.toggle("show");
+      return;
+    }
+
+    if (option) {
+      const parent = option.closest("#perf_brand_selector");
+      if (!parent) return;
+
+      const nameEl = option.querySelector("span");
+      const filterValue = option.dataset?.filter ?? null;
+      const isReset = filterValue === null ? false : filterValue.trim() === "";
+
+      if (!nameEl) return;
+
+      const name = nameEl.textContent.trim();
+      const filter = isReset ? "RESET" : filterValue.trim().toLowerCase();
+
+      parent.classList.remove("active");
+      const ul = parent.querySelector("ul");
+      if (ul) ul.classList.remove("show");
+
+      // Apply filter
+      if (typeof applyCampaignFilter === "function") {
+        await applyCampaignFilter(filter);
+
+        // Refresh the performance table
+        if (typeof refreshPerformanceComparison === "function") {
+          refreshPerformanceComparison();
+        }
+      }
+    } else {
+      // Click outside closes it
+      const selector = document.getElementById("perf_brand_selector");
+      if (selector && !selector.contains(e.target)) {
+        if (selector) {
+          selector.classList.remove("active");
+          const ul = selector.querySelector("ul");
+          if (ul) ul.classList.remove("show");
+        }
       }
     }
   });
@@ -6915,7 +10007,7 @@ function processMonthlyData(data) {
           case "onsite_conversion.lead_grouped":
             monthsData[month].lead += value;
             break;
-          case "onsite_conversion.total_messaging_connection":
+          case "onsite_conversion.messaging_conversation_started_7d":
             monthsData[month].message += value;
             break;
           case "like":
@@ -7591,47 +10683,69 @@ async function generateDeepReportDetailed({
 
   const formatPercent = (n) => `${(safeNumber(n) * 100).toFixed(2)}%`;
 
-  // Hàm getResultsSafe (từ code của bạn, đã tốt)
+  // Hàm getResultsSafe — hỗ trợ cả array actions (raw) và object actions (processBreakdown)
   const getResultsSafe = (dataSegment) => {
-    if (window.getResults)
-      return safeNumber(window.getResults(dataSegment, VIEW_GOAL));
-    const actions = dataSegment?.actions || {};
-    const g = (VIEW_GOAL || goal || "").toUpperCase();
-    if (g === "REACH") return safeNumber(dataSegment.reach || 0);
-    if (g === "LEAD_GENERATION" || g === "QUALITY_LEAD") {
-      const leadKeys = ["onsite_conversion.lead_grouped"];
-      let leadSum = 0;
-      for (const k of leadKeys) {
-        if (actions[k]) leadSum += safeNumber(actions[k]);
+    if (!dataSegment) return 0;
+    const actions = dataSegment.actions || {};
+    const g = (goal || VIEW_GOAL || "").toUpperCase();
+
+    // 1. Thử window.getResults trước (đã handle resultMapping chi tiết)
+    if (window.getResults) {
+      const r = safeNumber(window.getResults(dataSegment, goal || VIEW_GOAL));
+      if (r > 0) return r;
+    }
+
+    // 2. Nếu getResults trả 0 → Meta breakdown không có action chính
+    //    → Fallback thứ tự ưu tiên phổ biến trong breakdown data
+    //    Xử lý cả 2 format: actions là object {...} hoặc array [{action_type, value}]
+    const getAction = (key) => {
+      if (Array.isArray(actions)) {
+        const found = actions.find(a => a.action_type === key);
+        return found ? safeNumber(found.value) : 0;
       }
-      if (leadSum > 0) return leadSum;
-    }
-    if (g === "REPLIES" || g === "MESSAGE") {
-      if (actions["onsite_conversion.total_messaging_connection"])
-        return safeNumber(
-          actions["onsite_conversion.total_messaging_connection"]
-        );
-    }
-    const preferred = [
-      "offsite_conversion.purchase",
-      "purchase",
+      return safeNumber(actions[key] || 0);
+    };
+
+    // Goal-specific overrides
+    if (g === "REACH") return safeNumber(dataSegment.reach || 0);
+    if (g === "IMPRESSIONS") return safeNumber(dataSegment.impressions || 0);
+
+    // Ordered fallback chain — từ chuyển đổi cao đến thấp nhất
+    const fallbackChain = [
+      "onsite_conversion.total_messaging_connection", // ← key mess trong region breakdown
+      "onsite_conversion.messaging_conversation_started_7d",
       "onsite_conversion.lead_grouped",
-      "onsite_conversion.total_messaging_connection",
+      "offsite_conversion.fb_pixel_lead",
+      "offsite_conversion.purchase",
       "landing_page_view",
+      "onsite_conversion.post_save",
+      "post_reaction",
+      "comment",
       "link_click",
       "post_engagement",
     ];
-    for (const k of preferred) {
-      if (actions[k]) return safeNumber(actions[k]);
+
+    for (const k of fallbackChain) {
+      const v = getAction(k);
+      if (v > 0) return v;
     }
+
+    // Last resort: lấy tổng tất cả action values (nếu có)
+    if (!Array.isArray(actions)) {
+      const total = Object.values(actions).reduce((s, v) => s + safeNumber(v), 0);
+      if (total > 0) return total;
+    }
+
     return 0;
   };
+
 
   const calculateCPR = (spend, result, VIEW_GOAL = "") => {
     spend = safeNumber(spend);
     result = safeNumber(result);
     if (spend <= 0 || result <= 0) return 0;
-    if ((VIEW_GOAL || goal).toUpperCase() === "REACH")
+    const currentGoal = (VIEW_GOAL || goal || "").toUpperCase();
+    if (currentGoal === "REACH" || currentGoal === "IMPRESSIONS")
       return (spend / result) * 1000;
     return spend / result;
   };
@@ -7639,8 +10753,9 @@ async function generateDeepReportDetailed({
   const formatCPR = (cprValue, VIEW_GOAL = "") => {
     if (!cprValue || cprValue === 0) return "N/A";
     const formatted = formatMoney(Math.round(cprValue));
-    return (VIEW_GOAL || goal).toUpperCase() === "REACH"
-      ? `${formatted} / 1000 reach`
+    const currentGoal = (VIEW_GOAL || goal || "").toUpperCase();
+    return (currentGoal === "REACH" || currentGoal === "IMPRESSIONS")
+      ? `${formatted} / 1000 ${currentGoal.toLowerCase()}`
       : formatted;
   };
 
@@ -7688,7 +10803,7 @@ async function generateDeepReportDetailed({
       const spend = safeNumber(item.spend);
       const impressions = safeNumber(item.impressions);
       const reach = safeNumber(item.reach);
-      const result = getResults(item);
+      const result = getResultsSafe(item);
       const linkClicks = safeNumber(
         item.actions?.link_click || item.actions?.link_clicks || 0
       );
@@ -7717,14 +10832,25 @@ async function generateDeepReportDetailed({
     totalImpressions = 0,
     totalReach = 0,
     totalResults = 0,
-    totalLinkClicks = 0;
+    totalLinkClicks = 0,
+    totalPostEngagement = 0;
   byDateArr.forEach((d) => {
     totalSpend += d.spend;
     totalImpressions += d.impressions;
     totalReach += d.reach;
     totalResults += d.result;
     totalLinkClicks += d.linkClicks;
+    // Post engagement từ actions object
+    totalPostEngagement += safeNumber(d.postEngagement);
   });
+
+  // Bổ sung postEngagement vào computeBreakdownMetrics nếu chưa có
+  // Tính tổng post_engagement từ byDate raw nếu byDateArr không có
+  if (totalPostEngagement === 0 && byDate) {
+    Object.values(byDate).forEach(d => {
+      totalPostEngagement += safeNumber((d.actions || {}).post_engagement || 0);
+    });
+  }
 
   const overallCPR = calculateCPR(totalSpend, totalResults, goal);
   const overallCPM =
@@ -7742,6 +10868,7 @@ async function generateDeepReportDetailed({
     totalReach,
     totalResults,
     totalLinkClicks,
+    totalPostEngagement,
     overallCPR,
     overallCPM,
     overallFreq,
@@ -8363,7 +11490,6 @@ function createKpiGrid(summary, delayStart = 1) {
   if (!summary || !summary.formatted) return "";
   const { formatted, goal } = summary;
 
-  // Thêm CTR và CVR vào lưới KPI
   return `
     <h5 class="fade_in_item delay-${delayStart}"><i class="fa-solid fa-chart-pie"></i> Tóm tắt Phễu Hiệu suất</h5>
     <div class="ai_kpi_grid fade_in_item delay-${delayStart + 1}">
@@ -8389,17 +11515,21 @@ function createKpiGrid(summary, delayStart = 1) {
     }">${formatted.overallCTR || "N/A"}</b>
         </div>
         <div class="kpi_item">
-            <span>CVR (Click -> Kết quả)</span>
+            <span>CVR (Click → Kết quả)</span>
              <b class="${summary.overallCVRProxy < 0.02 ? "metric-bad" : "metric-good"
     }">${formatted.overallCVRProxy || "N/A"}</b>
         </div>
         <div class="kpi_item">
             <span>Tiếp cận (Reach)</span>
-            <b>${summary.totalReach || "N/A"}</b>
+            <b>${summary.totalReach ? summary.totalReach.toLocaleString('vi-VN') : "N/A"}</b>
         </div>
         <div class="kpi_item">
             <span>Tần suất (Freq)</span>
             <b>${formatted.overallFreq || "N/A"}</b>
+        </div>
+        <div class="kpi_item">
+            <span>Post Engagement</span>
+            <b>${summary.totalPostEngagement ? summary.totalPostEngagement.toLocaleString('vi-VN') : "N/A"}</b>
         </div>
     </div>
   `;
@@ -8604,63 +11734,154 @@ function formatKeyName(key, type) {
 }
 
 function setupAIReportModal() {
-  // 1. Tìm các phần tử DOM cần thiết
   const openButton = document.querySelector(".ai_report_compare");
   const reportContainer = document.querySelector(".dom_ai_report");
-  const closeButton = reportContainer.querySelector(".dom_ai_report_close");
-  const reportTitle = reportContainer.querySelector("h3");
-
-  // 2. Kiểm tra xem các phần tử có tồn tại không
-  if (!openButton || !reportContainer || !closeButton || !reportTitle) {
-    console.warn(
-      "Không tìm thấy các phần tử AI Report (nút mở, container, nút đóng hoặc tiêu đề)."
-    );
+  if (!openButton || !reportContainer) {
+    console.warn("Không tìm thấy các phần tử AI Report.");
     return;
   }
 
-  // 3. Gán sự kiện Click cho nút MỞ report
-  openButton.addEventListener("click", (e) => {
-    e.preventDefault(); // Ngăn hành vi mặc định (nếu là thẻ <a>)
-
-    // Lấy ngày tháng từ .dom_date
-    const dateEl = document.querySelector(".dom_date");
-    const dateText = dateEl ? dateEl.textContent.trim() : "N/A";
-
-    // Cập nhật tiêu đề
-    reportTitle.innerHTML = `
-    
-    <p><img src="https://dev-trongphuc.github.io/DOM_MISA_IDEAS_CRM/logotarget.png">
-      <span>DOM AI REPORT </span></p>
-    <p class="report_time">${dateText}</p>
-   `;
-
-    // Hiển thị modal
-    reportContainer.classList.add("active");
-
-    // Gọi hàm chạy phân tích
-    if (typeof runDeepReport === "function") {
-      runDeepReport(); // Gọi hàm của bạn
-    } else {
-      console.error("Hàm runDeepReport() không được định nghĩa.");
-      // Hiển thị lỗi trên UI nếu cần
+  // ── Close: hỗ trợ cả nút mới (ai_report_btn_close) và cũ (dom_ai_report_close)
+  const closeHandler = () => {
+    reportContainer.classList.add("closing");
+    setTimeout(() => {
+      reportContainer.classList.remove("active", "closing");
       const contentEl = reportContainer.querySelector(".dom_ai_report_content");
-      if (contentEl) {
-        contentEl.innerHTML =
-          '<p style="color:red; padding: 20px;">Lỗi: Không tìm thấy hàm runDeepReport().</p>';
-      }
+      if (contentEl) contentEl.innerHTML = "";
+    }, 400);
+  };
+
+  const newCloseBtn = document.getElementById("ai_report_close_btn");
+  const oldCloseBtn = reportContainer.querySelector(".dom_ai_report_close");
+  if (newCloseBtn) newCloseBtn.addEventListener("click", closeHandler);
+  if (oldCloseBtn) oldCloseBtn.addEventListener("click", closeHandler);
+
+  // ── Open
+  openButton.addEventListener("click", (e) => {
+    e.preventDefault();
+
+    // Cập nhật subtitle
+    const adNameEl = document.querySelector(".dom_detail_id > span:first-child");
+    const adName = adNameEl ? adNameEl.textContent.trim() : "";
+    const dateEl = document.querySelector(".dom_date");
+    const dateText = dateEl ? dateEl.textContent.trim() : "";
+    const subtitleEl = document.getElementById("ai_report_subtitle");
+    if (subtitleEl) {
+      subtitleEl.textContent = adName ? `${adName} · ${dateText}` : dateText;
     }
+
+    // ① Kích hoạt animation màu NGAY LẬP TỨC
+    const overlay = document.querySelector(".dom_overlay_ai");
+    if (overlay) {
+      overlay.classList.remove("ai_scanning"); // reset nếu đang chạy
+      void overlay.offsetWidth;               // force reflow để restart animation
+      overlay.classList.add("ai_scanning");
+    }
+
+    // ② Chạy phân tích data ngầm (không cần chờ)
+    if (typeof runDeepReport === "function") {
+      runDeepReport();
+    } else {
+      const contentEl = reportContainer.querySelector(".dom_ai_report_content");
+      if (contentEl) contentEl.innerHTML = '<p style="color:#e17055;padding:20px;">Lỗi: Không tìm thấy hàm runDeepReport().</p>';
+    }
+
+    // ③ Sau đúng 3s (animation màu xong) → trượt panel ra
+    reportContainer.classList.remove("closing");
+    setTimeout(() => {
+      if (overlay) overlay.classList.remove("ai_scanning");
+      reportContainer.classList.add("active");
+    }, 2800);
   });
 
-  // 4. Gán sự kiện Click cho nút ĐÓNG report
-  closeButton.addEventListener("click", () => {
-    reportContainer.classList.remove("active");
+  // ── DOCX Export
+  const exportBtn = document.getElementById("btn_export_docx");
+  if (exportBtn) {
+    exportBtn.addEventListener("click", exportAIReportToDocx);
+  }
+}
 
-    // Tùy chọn: Xóa nội dung report cũ khi đóng
-    const contentEl = reportContainer.querySelector(".dom_ai_report_content");
-    if (contentEl) {
-      contentEl.innerHTML = ""; // Xóa nội dung để lần sau load lại
-    }
-  });
+// ── Export AI Report → DOCX (dùng html-docx-js CDN)
+function exportAIReportToDocx() {
+  const contentEl = document.querySelector(".dom_ai_report_content");
+  if (!contentEl || !contentEl.innerHTML.trim()) {
+    if (typeof domAlert === 'function') domAlert("Chưa có nội dung báo cáo để xuất!");
+    return;
+  }
+
+  // Lấy tên ad + date
+  const subtitleEl = document.getElementById("ai_report_subtitle");
+  const fileName = `DOM_AI_Report_${(subtitleEl?.textContent || 'report').replace(/[·\/\s:]/g, '_')}.docx`;
+
+  // Nếu html-docx-js đã load → dùng luôn
+  if (window.htmlDocx) {
+    _doDocxExport(contentEl.innerHTML, fileName);
+    return;
+  }
+
+  // Lazy load html-docx-js từ CDN
+  const exportBtn = document.getElementById("btn_export_docx");
+  if (exportBtn) { exportBtn.disabled = true; exportBtn.querySelector("span").textContent = "Đang chuẩn bị..."; }
+
+  const script = document.createElement("script");
+  script.src = "https://cdn.jsdelivr.net/npm/html-docx-js/dist/html-docx.js";
+  script.onload = () => {
+    if (exportBtn) { exportBtn.disabled = false; exportBtn.querySelector("span").textContent = "Xuất DOCX"; }
+    _doDocxExport(contentEl.innerHTML, fileName);
+  };
+  script.onerror = () => {
+    if (exportBtn) { exportBtn.disabled = false; exportBtn.querySelector("span").textContent = "Xuất DOCX"; }
+    if (typeof domAlert === 'function') domAlert("❌ Không thể tải thư viện DOCX. Kiểm tra kết nối mạng.");
+  };
+  document.head.appendChild(script);
+}
+
+function _doDocxExport(innerHtml, fileName) {
+  try {
+    const adName = document.getElementById("ai_report_subtitle")?.textContent || '';
+    const dateStr = new Date().toLocaleDateString('vi-VN');
+    const fullHtml = `
+      <!DOCTYPE html><html><head>
+        <meta charset="UTF-8">
+        <style>
+          body { font-family: Arial, sans-serif; font-size: 11pt; color: #222; line-height: 1.6; margin: 24px; }
+          h2 { font-size: 16pt; color: #222; border-bottom: 1px solid #999; padding-bottom: 8px; margin: 0 0 6px; }
+          p.meta { font-size: 9pt; color: #777; margin: 0 0 20px; }
+          h4 { font-size: 13pt; color: #333; border-bottom: 1px solid #ddd; padding-bottom: 6px; margin: 20px 0 10px; }
+          h5 { font-size: 11pt; color: #333; border-left: 3px solid #999; padding-left: 8px; margin: 14px 0 6px; background: none; }
+          h6 { font-size: 9pt; color: #777; text-transform: uppercase; margin: 10px 0 4px; }
+          table { width: 100%; border-collapse: collapse; margin-bottom: 14px; font-size: 10pt; }
+          th { background-color: #444; color: #fff; padding: 7px 9px; text-align: left; }
+          td { border: 1px solid #ddd; padding: 6px 9px; color: #333; }
+          tr:nth-child(even) td { background-color: #f5f5f5; }
+          .kpi_item { display: inline-block; border: 1px solid #ddd; padding: 6px 12px; margin: 3px; font-size: 10pt; }
+          li { margin-bottom: 6px; }
+          .recommendation-action { color: #555; font-style: italic; }
+          .timestamp { color: #aaa; font-size: 8pt; }
+          .no-result-note { color: #aaa; font-style: italic; }
+          /* Ẩn các element không cần */
+          .fade_in_item:not(.show) { opacity: 1 !important; transform: none !important; }
+          i.fa-solid, i.fa-regular { display: none; }
+        </style>
+      </head><body>
+        <h2>DOM AI REPORT</h2>
+        <p class="meta">${adName} · Xuất ngày ${dateStr}</p>
+        ${innerHtml}
+      </body></html>`;
+
+    const blob = window.htmlDocx.asBlob(fullHtml, { orientation: 'portrait', margins: { top: 720, right: 720, bottom: 720, left: 720 } });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = fileName;
+    a.click();
+    URL.revokeObjectURL(url);
+
+    if (typeof showToast === 'function') showToast(`✅ Đã xuất: ${fileName}`);
+  } catch (err) {
+    console.error("DOCX export error:", err);
+    if (typeof domAlert === 'function') domAlert("❌ Lỗi khi xuất DOCX: " + err.message);
+  }
 }
 
 /**
@@ -8670,7 +11891,7 @@ function setupAIReportModal() {
 function exportAdsToCSV() {
   const data = window._ALL_CAMPAIGNS;
   if (!data || !Array.isArray(data) || data.length === 0) {
-    alert("Không có dữ liệu để xuất!");
+    domAlert("Không có dữ liệu để xuất!");
     return;
   }
 
@@ -8764,10 +11985,10 @@ function exportAdsToCSV() {
 const BRAND_SETTINGS_KEY = "dom_brand_filters";
 const DEFAULT_BRANDS = [
   { filter: "TRB", img: "./adset/ampersand/TRB.jpg", name: "The Running Bean" },
-  { filter: "Haagen Dazs", img: "./adset/ampersand/HD.jpg", name: "Häagen-Dazs" },
-  { filter: "BEAN", img: "./adset/ampersand/BEAN.jpg", name: "Be An Vegetarian" },
+  { filter: "HGD", img: "./adset/ampersand/HD.jpg", name: "Häagen-Dazs" },
+  { filter: "BeAn", img: "./adset/ampersand/BEAN.jpg", name: "Be An Vegetarian" },
   { filter: "Esta", img: "./adset/ampersand/Esta.jpg", name: "Esta Saigon" },
-  { filter: "Le Petit", img: "./adset/ampersand/LPT.jpg", name: "Le Petit" },
+  { filter: "LP", img: "./adset/ampersand/LPT.jpg", name: "Le Petit" },
   { filter: "SNOWEE", img: "./adset/ampersand/SNOWEE.jpg", name: "SNOWEE" },
   { filter: "", img: "./adset/ampersand/ampersand_img.jpg", name: "Ampersand" }
 ];
@@ -8785,15 +12006,20 @@ function updateBrandDropdownUI() {
   const dropdownUl = document.querySelector(".quick_filter_detail .dom_select_show");
   if (!dropdownUl) return;
 
-  dropdownUl.innerHTML = brands.map(b => `
-    <li data-filter="${b.filter}" class="">
+  const current = (CURRENT_CAMPAIGN_FILTER || "").toUpperCase() === "RESET" ? "" : (CURRENT_CAMPAIGN_FILTER || "").toLowerCase();
+
+  dropdownUl.innerHTML = brands.map(b => {
+    const bFilter = (b.filter || "").toLowerCase();
+    const isActive = bFilter === current;
+    return `
+    <li data-filter="${b.filter}" class="${isActive ? 'active' : ''}">
       <img src="${b.img}" />
       <span>${b.name}</span>
     </li>
-  `).join('');
+  `}).join('');
 
   // Update currently selected if it exists
-  const selectedBrand = brands.find(b => b.filter === CURRENT_CAMPAIGN_FILTER) || brands[brands.length - 1];
+  const selectedBrand = brands.find(b => (b.filter || "").toLowerCase() === current) || brands[brands.length - 1];
   if (selectedBrand) {
     const parent = dropdownUl.closest(".quick_filter_detail");
     if (parent) {
@@ -8805,15 +12031,118 @@ function updateBrandDropdownUI() {
   }
 }
 
+function updatePerfBrandDropdownUI() {
+  const brands = loadBrandSettings();
+  const dropdownUl = document.getElementById("perf_brand_list");
+  if (!dropdownUl) return;
+
+  const current = (CURRENT_CAMPAIGN_FILTER || "").toUpperCase() === "RESET" ? "" : (CURRENT_CAMPAIGN_FILTER || "").toLowerCase();
+
+  dropdownUl.innerHTML = brands.map(b => {
+    const bFilter = (b.filter || "").toLowerCase();
+    const isActive = bFilter === current;
+    return `
+    <li data-filter="${b.filter}" class="${isActive ? 'active' : ''}">
+      <img src="${b.img}" />
+      <span>${b.name}</span>
+    </li>
+  `}).join('');
+
+  // Update currently selected if it exists
+  const selectedBrand = brands.find(b => (b.filter || "").toLowerCase() === current) || brands[brands.length - 1];
+  if (selectedBrand) {
+    const parentText = document.getElementById("perf_selected_brand");
+    const parentImg = document.getElementById("perf_selected_brand_img");
+    if (parentText) parentText.textContent = selectedBrand.name;
+    if (parentImg) {
+      if (selectedBrand.img && !selectedBrand.img.includes("ampersand_img.jpg")) {
+        parentImg.src = selectedBrand.img;
+        parentImg.style.display = "block";
+      } else {
+        parentImg.style.display = "none";
+      }
+    }
+  }
+}
+
+
 function openFilterSettings() {
   const modal = document.getElementById("filter_settings_modal");
-  if (modal) modal.style.display = "flex";
+  if (modal) {
+    modal.style.display = "flex";
+    setTimeout(() => modal.classList.add("active"), 10);
+  }
   renderBrandSettingsToModal();
 }
 
+window.setGoalChartMode = function (mode) {
+  GOAL_CHART_MODE = mode;
+  const kwBtn = document.getElementById("mode_kw_btn");
+  const brBtn = document.getElementById("mode_br_btn");
+  const kwCont = document.getElementById("keyword_settings_container");
+  const brNote = document.getElementById("brand_settings_note");
+
+  if (kwBtn) {
+    kwBtn.style.borderColor = mode === 'keyword' ? '#f59e0b' : '#e2e8f0';
+    kwBtn.style.background = mode === 'keyword' ? '#fffaf0' : '#fff';
+    kwBtn.style.color = mode === 'keyword' ? '#f59e0b' : '#64748b';
+  }
+  if (brBtn) {
+    brBtn.style.borderColor = mode === 'brand' ? '#f59e0b' : '#e2e8f0';
+    brBtn.style.background = mode === 'brand' ? '#fffaf0' : '#fff';
+    brBtn.style.color = mode === 'brand' ? '#f59e0b' : '#64748b';
+  }
+  if (kwCont) kwCont.style.display = mode === 'brand' ? 'none' : '';
+  if (brNote) brNote.style.display = mode === 'keyword' ? 'none' : '';
+
+  // Sync quick-toggle button label + active state
+  // Label shows TARGET mode (where you'll switch TO), not current mode
+  const toggleBtn = document.getElementById("goal_chart_mode_toggle");
+  const modeLabel = document.getElementById("goal_mode_label");
+  if (modeLabel) modeLabel.textContent = mode === 'brand' ? 'Keyword' : 'Brand';
+  if (toggleBtn) {
+    if (mode === 'brand') {
+      toggleBtn.classList.add('dom_title_button_active');
+    } else {
+      toggleBtn.classList.remove('dom_title_button_active');
+    }
+  }
+};
+
+// Quick toggle without opening modal — flips mode & re-renders instantly
+window.quickToggleGoalChartMode = function () {
+  const newMode = GOAL_CHART_MODE === 'brand' ? 'keyword' : 'brand';
+  window.setGoalChartMode(newMode);
+  localStorage.setItem("goal_chart_mode", newMode);
+
+  // Re-render chart immediately
+  if (window._ALL_CAMPAIGNS) {
+    const campaigns = window._FILTERED_CAMPAIGNS || window._ALL_CAMPAIGNS;
+    const allAds = campaigns.flatMap((c) =>
+      c.adsets.flatMap((as) =>
+        (as.ads || []).map((ad) => ({
+          campaign_name: c.name,
+          optimization_goal: as.optimization_goal,
+          insights: { spend: ad.spend || 0 },
+        }))
+      )
+    );
+    renderGoalChart(allAds);
+  }
+  showToast(`📊 Switched to ${newMode === 'brand' ? 'Brand Groups' : 'Keyword Goal'} chart`);
+};
+
+
+
+
 function closeFilterSettings() {
   const modal = document.getElementById("filter_settings_modal");
-  if (modal) modal.style.display = "none";
+  if (modal) {
+    modal.classList.remove("active");
+    setTimeout(() => {
+      modal.style.display = "none";
+    }, 300);
+  }
 }
 
 function renderBrandSettingsToModal() {
@@ -8922,7 +12251,7 @@ function removeBrandSetting(index) {
   if (items[index]) items[index].remove();
 }
 
-function saveBrandSettings() {
+async function saveBrandSettings() {
   const items = document.querySelectorAll("#brand_settings_list .brand_setting_item");
   const brands = Array.from(items).map(item => ({
     name: item.querySelector(".brand_name").value,
@@ -8930,9 +12259,19 @@ function saveBrandSettings() {
     filter: item.querySelector(".brand_filter").value
   }));
 
+  // 1. Cập nhật UI + đóng modal ngay lập tức
   localStorage.setItem(BRAND_SETTINGS_KEY, JSON.stringify(brands));
   updateBrandDropdownUI();
   closeFilterSettings();
+  showToast("Đã đồng bộ cấu hình thiết lập");
+
+  // 2. Lưu lên sheet ngầm (non-blocking)
+  if (typeof saveBrandSettingsSync === "function") {
+    saveBrandSettingsSync(brands).catch(err => {
+      console.warn("Settings sync failed:", err);
+      showToast("⚠️ Không thể đồng bộ cấu hình, vui lòng thử lại");
+    });
+  }
 }
 
 // Expose functions to global scope for onclick attributes
@@ -9633,8 +12972,135 @@ if (_origLoadDashboardData) {
   };
 }
 
+
 // Wire up Share button
 document.getElementById("share_url_btn")?.addEventListener("click", shareCurrentView);
+// ── Goal Settings Modal Logic ────────────────────────────────
+function openGoalSettings() {
+  const modal = document.getElementById("goal_settings_modal");
+  if (!modal) return;
+  modal.style.display = "flex";
+  setTimeout(() => modal.classList.add("active"), 10);
+
+  modal.innerHTML = `
+    <div style="background:#fff; width:48rem; border-radius:18px; box-shadow:0 20px 50px rgba(0,0,0,0.15); display:flex; flex-direction:column; overflow:hidden;">
+      <div style="padding:1.6rem 2rem; background:linear-gradient(135deg,#f8fafc,#f1f5f9); border-bottom:1px solid #e2e8f0; display:flex; align-items:center; justify-content:space-between;">
+        <h3 style="margin:0; font-size:1.6rem; color:#1e293b;"><i class="fa-solid fa-gear" style="margin-right:0.6rem; color:#f59e0b;"></i> Cài đặt Dashboard</h3>
+        <i class="fa-solid fa-xmark" onclick="closeGoalSettings()" style="cursor:pointer; color:#94a3b8; font-size:1.6rem;"></i>
+      </div>
+      <div style="padding:2.4rem; overflow-y:auto; max-height:60vh;">
+        <!-- Toggle Mode -->
+        <div style="margin-bottom:2.4rem; padding-bottom:1.6rem; border-bottom:1px dashed #e2e8f0;">
+           <label style="display:block; font-size:1.2rem; font-weight:700; color:#475569; margin-bottom:1rem;">Chế độ hiển thị Custom Bar</label>
+           <div style="display:flex; gap:1rem;">
+             <button onclick="window.setGoalChartMode('keyword')" id="mode_kw_btn" style="flex:1; padding:0.8rem; border-radius:8px; border:1.5px solid ${GOAL_CHART_MODE === 'keyword' ? '#f59e0b' : '#e2e8f0'}; background:${GOAL_CHART_MODE === 'keyword' ? '#fffaf0' : '#fff'}; color:${GOAL_CHART_MODE === 'keyword' ? '#f59e0b' : '#64748b'}; font-weight:600; cursor:pointer;">
+               <i class="fa-solid fa-tags"></i> Keyword Goal
+             </button>
+             <button onclick="window.setGoalChartMode('brand')" id="mode_br_btn" style="flex:1; padding:0.8rem; border-radius:8px; border:1.5px solid ${GOAL_CHART_MODE === 'brand' ? '#f59e0b' : '#e2e8f0'}; background:${GOAL_CHART_MODE === 'brand' ? '#fffaf0' : '#fff'}; color:${GOAL_CHART_MODE === 'brand' ? '#f59e0b' : '#64748b'}; font-weight:600; cursor:pointer;">
+               <i class="fa-solid fa-building"></i> Brand Groups
+             </button>
+           </div>
+        </div>
+        <!-- Keyword list -->
+        <div id="keyword_settings_container" style="${GOAL_CHART_MODE === 'brand' ? 'display:none' : ''}">
+          <label style="display:block; font-size:1.2rem; font-weight:700; color:#475569; margin-bottom:1rem;">Danh sách từ khóa Goal</label>
+          <div id="goal_keyword_list" style="display:flex; flex-wrap:wrap; gap:0.8rem; margin-bottom:1.6rem;"></div>
+          <div style="display:flex; gap:0.8rem;">
+            <input type="text" id="new_goal_kw" placeholder="Thêm từ khóa mới..." style="flex:1; padding:0.7rem 1.2rem; border-radius:8px; border:1.5px solid #e2e8f0; outline:none; font-size:1.25rem;">
+            <button onclick="addNewGoalKeyword()" style="background:#f59e0b; color:#fff; border:none; padding:0 1.6rem; border-radius:8px; cursor:pointer; font-weight:700;">Thêm</button>
+          </div>
+        </div>
+        <div id="brand_settings_note" style="${GOAL_CHART_MODE === 'keyword' ? 'display:none' : ''}">
+          <p style="font-size:1.2rem; color:#64748b; line-height:1.5; margin:0;">
+            <i class="fa-solid fa-circle-info"></i> Ở chế độ <b>Brand Groups</b>, biểu đồ sẽ hiển thị tổng Spend dựa trên các filter của từng Brand được cấu hình trong <b>Brand Settings</b>.
+          </p>
+        </div>
+      </div>
+      <div style="padding:1.6rem 2.4rem; background:#f8fafc; border-top:1px solid #e2e8f0; display:flex; justify-content:flex-end; gap:1.2rem;">
+        <button onclick="closeGoalSettings()" style="padding:0.8rem 2rem; border-radius:8px; border:1.5px solid #e2e8f0; background:#fff; color:#64748b; font-weight:600; cursor:pointer;">Hủy</button>
+        <button onclick="saveGoalSettings()" style="padding:0.8rem 2rem; border-radius:8px; border:none; background:#1e293b; color:#fff; font-weight:600; cursor:pointer;">Lưu thay đổi</button>
+      </div>
+    </div>
+  `;
+
+  renderGoalKeywordsInModal();
+}
+window.openGoalSettings = openGoalSettings;
+
+function closeGoalSettings() {
+  const modal = document.getElementById("goal_settings_modal");
+  if (modal) {
+    modal.classList.remove("active");
+    setTimeout(() => { modal.style.display = "none"; }, 300);
+  }
+}
+window.closeGoalSettings = closeGoalSettings;
+
+function renderGoalKeywordsInModal() {
+  const list = document.getElementById("goal_keyword_list");
+  if (!list) return;
+
+  list.innerHTML = GOAL_KEYWORDS.map((kw, idx) => `
+      <div style="display:flex; gap:0.8rem; align-items:center;">
+        <input type="text" value="${kw}" class="goal_keyword_input" style="flex:1; padding:0.8rem 1.2rem; border-radius:8px; border:1px solid #ddd; font-size:1.3rem;">
+        <button onclick="removeGoalKeyword(${idx})" style="background:#fee2e2; color:#ef4444; border:none; padding:0.8rem; border-radius:8px; cursor:pointer;"><i class="fa-solid fa-trash"></i></button>
+      </div>
+    `).join("");
+}
+
+window.removeGoalKeyword = function (idx) {
+  GOAL_KEYWORDS.splice(idx, 1);
+  renderGoalKeywordsInModal();
+};
+
+window.addNewGoalKeyword = function () {
+  const input = document.getElementById("new_goal_kw");
+  if (!input || !input.value.trim()) return;
+
+  GOAL_KEYWORDS.push(input.value.trim());
+  input.value = "";
+  renderGoalKeywordsInModal();
+};
+
+
+window.saveGoalSettings = async function () {
+  const inputs = document.querySelectorAll(".goal_keyword_input");
+  const newKeywords = Array.from(inputs).map(i => i.value.trim()).filter(Boolean);
+
+  if (GOAL_CHART_MODE === 'keyword' && !newKeywords.length) {
+    showToast("Vui lòng nhập ít nhất 1 từ khóa");
+    return;
+  }
+
+  GOAL_KEYWORDS = newKeywords;
+
+  // 1. Lưu local + đóng modal + re-render ngay
+  localStorage.setItem("goal_keywords", JSON.stringify(GOAL_KEYWORDS));
+  localStorage.setItem("goal_chart_mode", GOAL_CHART_MODE);
+  closeGoalSettings();
+  showToast("Đã đồng bộ cấu hình thiết lập");
+
+  if (window._ALL_CAMPAIGNS) {
+    const campaigns = window._FILTERED_CAMPAIGNS || window._ALL_CAMPAIGNS;
+    const allAds = campaigns.flatMap((c) =>
+      c.adsets.flatMap((as) =>
+        (as.ads || []).map((ad) => ({
+          campaign_name: c.name,
+          insights: { spend: ad.spend || 0 },
+        }))
+      )
+    );
+    renderGoalChart(allAds);
+  }
+
+  // 2. Lưu lên sheet ngầm (non-blocking)
+  if (typeof saveGoalSettingsSync === "function") {
+    saveGoalSettingsSync(GOAL_KEYWORDS, GOAL_CHART_MODE).catch(err => {
+      console.warn("Settings sync failed:", err);
+      showToast("⚠️ Không thể đồng bộ cấu hình, vui lòng thử lại");
+    });
+  }
+};
 
 // ── Toast notification utility ────────────────────────────────
 function showToast(msg, duration = 2500) {
@@ -9649,4 +13115,481 @@ function showToast(msg, duration = 2500) {
   clearTimeout(toast._timer);
   toast._timer = setTimeout(() => toast.classList.remove("show"), duration);
 }
+
+
+// ── 📊 Detailed Performance Report & Comparison ────────────────────
+
+let perfCalendarMonth = new Date().getMonth();
+let perfCalendarYear = new Date().getFullYear();
+let perfCompareMode = 'auto'; // 'auto', 'last_year', 'custom'
+let perfSelectedStartDate = null;
+let perfSelectedEndDate = null;
+let perfCustomCompareDates = null; // Lưu trữ kỳ so sánh đã chọn để dùng cho tooltip Dashboard
+
+const fmtPerfDate = (d) => {
+  if (!d) return "??/??";
+  const p = d.split("-");
+  return `${p[2]}/${p[1]}`;
+};
+
+window.openPerformanceDetail = function () {
+  const modal = document.getElementById("performance_modal");
+  if (!modal) return;
+
+  modal.style.display = "flex";
+  // Thêm class active để chạy animation popup
+  setTimeout(() => modal.classList.add("active"), 10);
+  document.body.style.overflow = "hidden";
+
+  // Chỉ reset state nếu chưa có kỳ so sánh nào được chọn (hoặc muốn reset mới hoàn toàn)
+  // 🚩 Giữ lại kỳ so sánh đang active để user không phải chọn lại
+  if (!perfSelectedStartDate && perfCompareMode === 'auto') {
+    perfCompareMode = 'auto';
+    perfSelectedStartDate = null;
+    perfSelectedEndDate = null;
+  }
+
+  const pnlReset = document.getElementById("perf_date_picker_panel");
+  if (pnlReset) pnlReset.style.display = "none";
+
+  const labelCurrent = document.getElementById("perf_current_date_range");
+  if (labelCurrent) labelCurrent.textContent = `${fmtPerfDate(startDate)} - ${fmtPerfDate(endDate)}`;
+
+  // Cập nhật text label cho kỳ so sánh hiện tại
+  const compareLabel = document.getElementById("perf_compare_label");
+  if (compareLabel) {
+    if (perfCompareMode === 'auto') compareLabel.textContent = "Tự động (Kỳ trước)";
+    else if (perfCompareMode === 'last_year') compareLabel.textContent = "Cùng kỳ năm ngoái";
+    else if (perfCompareMode === 'custom') {
+      const start = fmtPerfDate(perfSelectedStartDate);
+      const end = perfSelectedEndDate ? fmtPerfDate(perfSelectedEndDate) : "...";
+      compareLabel.textContent = `Tùy chỉnh (${start} - ${end})`;
+    }
+  }
+
+  // Active đúng nút trong list
+  const modeList = document.querySelector(".perf_compare_modes");
+  if (modeList) {
+    const lis = modeList.querySelectorAll("li");
+    lis.forEach(li => {
+      li.classList.toggle("active", li.getAttribute("onclick")?.includes(`'${perfCompareMode}'`));
+    });
+  }
+  updatePerfBrandDropdownUI();
+  renderPerformanceTable();
+};
+
+window.togglePerfDatePicker = function () {
+  const panel = document.getElementById("perf_date_picker_panel");
+  if (!panel) return;
+  panel.style.display = panel.style.display === "none" ? "flex" : "none";
+  if (panel.style.display === "flex") {
+    renderPerfCalendar();
+  }
+};
+
+window.setPerfCompareType = function (type, el) {
+  perfCompareMode = type;
+  const lis = el.parentElement.querySelectorAll("li");
+  lis.forEach(li => li.classList.remove("active"));
+  el.classList.add("active");
+
+  if (type === 'auto') {
+    perfSelectedStartDate = null;
+    perfSelectedEndDate = null;
+    document.getElementById("perf_compare_label").textContent = "Tự động (Kỳ trước)";
+    togglePerfDatePicker();
+    refreshPerformanceComparison();
+  } else if (type === 'last_year') {
+    const s = new Date(startDate + "T00:00:00");
+    const e = new Date(endDate + "T00:00:00");
+    s.setFullYear(s.getFullYear() - 1);
+    e.setFullYear(e.getFullYear() - 1);
+    perfSelectedStartDate = s.toISOString().slice(0, 10);
+    perfSelectedEndDate = e.toISOString().slice(0, 10);
+    document.getElementById("perf_compare_label").textContent = "Cùng kỳ năm ngoái";
+    togglePerfDatePicker();
+    refreshPerformanceComparison();
+  }
+};
+
+window.renderPerfCalendar = function () {
+  const container = document.getElementById("perf_calendar");
+  if (!container) return;
+  const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+  const firstDay = new Date(perfCalendarYear, perfCalendarMonth, 1).getDay();
+  const daysInMonth = new Date(perfCalendarYear, perfCalendarMonth + 1, 0).getDate();
+  let html = `
+      <div class="calendar_nav">
+        <button onclick="changePerfMonth(-1)"><i class="fa-solid fa-chevron-left"></i></button>
+        <span>${monthNames[perfCalendarMonth]} ${perfCalendarYear}</span>
+        <button onclick="changePerfMonth(1)"><i class="fa-solid fa-chevron-right"></i></button>
+      </div>
+      <div class="calendar_grid">
+        <div class="calendar_day_name">S</div><div class="calendar_day_name">M</div><div class="calendar_day_name">T</div>
+        <div class="calendar_day_name">W</div><div class="calendar_day_name">T</div><div class="calendar_day_name">F</div>
+        <div class="calendar_day_name">S</div>
+   `;
+  for (let i = 0; i < firstDay; i++) html += `<div class="calendar_day empty"></div>`;
+  for (let d = 1; d <= daysInMonth; d++) {
+    const dateStr = `${perfCalendarYear}-${String(perfCalendarMonth + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    let cls = "calendar_day";
+    if (perfSelectedStartDate && dateStr === perfSelectedStartDate) cls += " selected start";
+    if (perfSelectedEndDate && dateStr === perfSelectedEndDate) cls += " selected end";
+    if (perfSelectedStartDate && perfSelectedEndDate && dateStr > perfSelectedStartDate && dateStr < perfSelectedEndDate) {
+      cls += " in_range";
+    }
+    html += `<div class="${cls}" onclick="selectPerfDate('${dateStr}')">${d}</div>`;
+  }
+  html += `</div>`;
+  container.innerHTML = html;
+};
+
+window.changePerfMonth = (dir) => {
+  perfCalendarMonth += dir;
+  if (perfCalendarMonth < 0) { perfCalendarMonth = 11; perfCalendarYear--; }
+  else if (perfCalendarMonth > 11) { perfCalendarMonth = 0; perfCalendarYear++; }
+  renderPerfCalendar();
+};
+
+window.selectPerfDate = (dateStr) => {
+  if (!perfSelectedStartDate || (perfSelectedStartDate && perfSelectedEndDate)) {
+    perfSelectedStartDate = dateStr;
+    perfSelectedEndDate = null;
+  } else {
+    if (dateStr < perfSelectedStartDate) {
+      perfSelectedEndDate = perfSelectedStartDate;
+      perfSelectedStartDate = dateStr;
+    } else {
+      perfSelectedEndDate = dateStr;
+    }
+  }
+
+  perfCompareMode = 'custom';
+  const sInp = document.getElementById("perf_start_date_input");
+  const eInp = document.getElementById("perf_end_date_input");
+  if (sInp) sInp.value = perfSelectedStartDate || "";
+  if (eInp) eInp.value = perfSelectedEndDate || "";
+
+  renderPerfCalendar();
+};
+
+window.applyPerfCompareDate = function () {
+  if (perfCompareMode === 'custom' && (!perfSelectedStartDate || !perfSelectedEndDate)) {
+    alert("Vui lòng chọn khoảng ngày so sánh (Ngày bắt đầu và kết thúc).");
+    return;
+  }
+  togglePerfDatePicker();
+  refreshPerformanceComparison();
+};
+
+window.closePerformanceDetail = function () {
+  const modal = document.getElementById("performance_modal");
+  if (modal) {
+    modal.classList.remove("active");
+    setTimeout(() => {
+      modal.style.display = "none";
+    }, 300);
+  }
+  document.body.style.overflow = "auto";
+};
+
+window.refreshPerformanceComparison = async function () {
+  const loading = document.querySelector(".perf_loading");
+  const content = document.getElementById("performance_detail_content");
+
+  if (!perfSelectedStartDate) {
+    document.getElementById("perf_compare_label").textContent = "Tự động (Kỳ trước)";
+    renderPerformanceTable();
+    return;
+  }
+
+  if (loading) loading.style.display = "block";
+  const table = content.querySelector(".perf_table");
+  if (table) table.style.opacity = "0.5";
+
+  try {
+    let compareStart = perfSelectedStartDate;
+    let compareEnd = perfSelectedEndDate;
+
+    // Nếu chỉ có start (thường là auto/last_year), tự tính end
+    if (!compareEnd) {
+      const s = new Date(startDate + "T00:00:00");
+      const e = new Date(endDate + "T00:00:00");
+      const durationDays = Math.round((e - s) / 86400000);
+      const cs = new Date(compareStart + "T00:00:00");
+      const ce = new Date(cs);
+      ce.setDate(ce.getDate() + durationDays);
+      compareEnd = ce.toISOString().slice(0, 10);
+    }
+
+    const campaignIds = window._LAST_CAMPAIGN_IDS || [];
+    const filtering = campaignIds.length
+      ? `&filtering=${encodeURIComponent(JSON.stringify([{ field: "campaign.id", operator: "IN", value: campaignIds }]))}`
+      : "";
+
+    const endpoint = `${BASE_URL}/act_${ACCOUNT_ID}/insights?fields=spend,impressions,reach,actions,inline_link_clicks,purchase_roas,video_play_actions,video_thruplay_watched_actions,video_p25_watched_actions,video_p50_watched_actions,video_p75_watched_actions,video_p95_watched_actions,video_p100_watched_actions${filtering}&time_range={"since":"${compareStart}","until":"${compareEnd}"}&access_token=${META_TOKEN}`;
+
+    const resp = await fetchJSON(endpoint);
+    const manualData = resp.data?.[0] || {};
+    renderPerformanceTable(manualData);
+
+    // 🚩 Lưu lại kỳ so sánh custom để dashboard dùng
+    perfCustomCompareDates = { start: compareStart, end: compareEnd, data: manualData };
+
+    // Cập nhật thẻ tóm tắt ở ngoài Dashboard
+    updatePlatformSummaryUI(
+      window._DASHBOARD_BATCH_RESULTS?.platformStats,
+      [manualData],
+      perfCustomCompareDates
+    );
+  } catch (err) {
+    console.error("❌ Lỗi load so sánh:", err);
+  } finally {
+    if (loading) loading.style.display = "none";
+  }
+};
+
+
+
+function renderPerformanceTable(manualCompareData = null) {
+  const content = document.getElementById("performance_detail_content");
+  if (!content) return;
+
+  const results = window._DASHBOARD_BATCH_RESULTS || {};
+
+  // Helper xử lý data insights thành metrics object
+  const process = (data) => {
+    const insights = Array.isArray(data) ? data[0] || {} : data || {};
+    const acts = {};
+    (insights.actions || []).forEach(a => acts[a.action_type] = (acts[a.action_type] || 0) + (+a.value || 0));
+
+    const getAct = (types) => {
+      let s = 0;
+      const doneBase = new Set();
+      types.forEach(t => {
+        const base = t.startsWith("onsite_conversion.") ? t.replace("onsite_conversion.", "") : t;
+        if (doneBase.has(base)) return;
+        doneBase.add(base);
+
+        const onsite = "onsite_conversion." + base;
+        // Ưu tiên onsite nếu có, ko thì lấy base (ko cộng cả 2 vì Meta thường log duplicate)
+        if (acts[onsite]) {
+          s += acts[onsite];
+        } else if (acts[base]) {
+          s += acts[base];
+        }
+      });
+      return s;
+    };
+
+    const sumArr = (arr) => {
+      if (!arr) return 0;
+      if (Array.isArray(arr)) {
+        return arr.reduce((acc, a) => acc + (+a.value || 0), 0);
+      }
+      return +arr.value || 0;
+    };
+
+    const spend = +insights.spend || 0;
+    const impressions = +insights.impressions || 0;
+    const links = getAct(["link_click", "inline_link_clicks", "outbound_click"]) || +insights.clicks || 0;
+    const message_started = getAct(["onsite_conversion.messaging_conversation_started_7d", "messaging_conversation_started_7d"]);
+    const message_connection = getAct(["onsite_conversion.total_messaging_connection", "total_messaging_connection"]);
+    const lead = getAct(["onsite_conversion.lead_grouped", "lead", "onsite_web_lead"]);
+    const purchase = getAct(["purchase", "onsite_conversion.purchase"]);
+    const roas = +insights.purchase_roas || (Array.isArray(insights.purchase_roas) ? +insights.purchase_roas[0]?.value : 0) || 0;
+    const reach = +insights.reach || 0;
+
+    return {
+      spend, impressions, reach, message_started, message_connection, lead, purchase, roas,
+      link_click: links,
+      ctr: impressions > 0 ? (links / impressions) * 100 : 0,
+      cpc: links > 0 ? spend / links : 0,
+      cpm: impressions > 0 ? (spend / impressions) * 1000 : 0,
+      frequency: reach > 0 ? impressions / reach : 0,
+      video_play: sumArr(insights.video_play_actions) || getAct(["video_play", "video_view"]),
+      thruplay: sumArr(insights.video_thruplay_watched_actions) || getAct(["thruplay", "video_thruplay_watched_actions"]),
+      video_p25: sumArr(insights.video_p25_watched_actions) || 0,
+      video_p50: sumArr(insights.video_p50_watched_actions) || 0,
+      video_p75: sumArr(insights.video_p75_watched_actions) || 0,
+      video_p95: sumArr(insights.video_p95_watched_actions) || 0,
+      video_p100: sumArr(insights.video_p100_watched_actions) || 0,
+      photo_view: getAct(["photo_view"]),
+      page_engagement: getAct(["page_engagement"]),
+      post_engagement: getAct(["post_engagement"]),
+      engagement: getAct(["post_engagement", "page_engagement", "post_interaction"]),
+      reaction: getAct(["post_reaction", "reaction", "like"]),
+      comment: getAct(["comment", "post_comment"]),
+      share: getAct(["post", "share"]),
+      follow: getAct(["page_like", "page_follow", "instagram_profile_follow", "onsite_conversion.page_like", "onsite_conversion.instagram_profile_follow", "like"]),
+    };
+  };
+
+  const cur = process(results.platformStats);
+  let prev = manualCompareData ? process(manualCompareData) : process(results.platformStats_previous);
+
+  // 🚩 Nếu dashboard gọi render mà đang có kỳ custom được chọn, dùng kỳ đó luôn
+  if (!manualCompareData && perfCustomCompareDates && perfCompareMode !== 'auto') {
+    prev = process(perfCustomCompareDates.data);
+    // Cập nhật lại Card ở Dashboard với kỳ custom đang có
+    updatePlatformSummaryUI(results.platformStats, [perfCustomCompareDates.data], perfCustomCompareDates);
+  } else if (!manualCompareData) {
+    // Reset về Auto
+    perfCustomCompareDates = null;
+    updatePlatformSummaryUI(results.platformStats, results.platformStats_previous);
+  }
+
+  const rows = [
+    { section: "Tổng quan tài chính" },
+    { id: "spend", label: "Chi tiêu (Spent)", icon: "fa-solid fa-coins", val: cur.spend, old: prev.spend, type: "money" },
+    { id: "cpm", label: "CPM (Mỗi 1000 lượt hiển thị)", icon: "fa-solid fa-gauge-high", val: cur.cpm, old: prev.cpm, type: "money" },
+    { id: "cpc", label: "CPC (Mỗi lượt click)", icon: "fa-solid fa-mouse-pointer", val: cur.cpc, old: prev.cpc, type: "money" },
+
+    { section: "Hiển thị & Tiếp cận" },
+    { id: "impressions", label: "Lượt hiển thị (Impressions)", icon: "fa-solid fa-eye", val: cur.impressions, old: prev.impressions, type: "num" },
+    { id: "reach", label: "Lượt tiếp cận (Reach)", icon: "fa-solid fa-street-view", val: cur.reach, old: prev.reach, type: "num" },
+    { id: "frequency", label: "Tần suất (Frequency)", icon: "fa-solid fa-repeat", val: cur.frequency, old: prev.frequency, type: "float" },
+    { id: "ctr", label: "Tỷ lệ click (CTR)", icon: "fa-solid fa-chart-line", val: cur.ctr, old: prev.ctr, type: "percent" },
+
+    { section: "Kết quả mục tiêu" },
+    { id: "message_started", label: "Mới nhắn tin (Started)", icon: "fa-brands fa-facebook-messenger", val: cur.message_started, old: prev.message_started, type: "num" },
+    { id: "message_connection", label: "Tin nhắn kết nối (Connection)", icon: "fa-solid fa-comments", val: cur.message_connection, old: prev.message_connection, type: "num" },
+    { id: "lead", label: "Khách hàng tiềm năng (Leads)", icon: "fa-solid fa-bullseye", val: cur.lead, old: prev.lead, type: "num" },
+    { id: "purchase", label: "Mua hàng (Purchase)", icon: "fa-solid fa-cart-shopping", val: cur.purchase, old: prev.purchase, type: "num" },
+    { id: "roas", label: "ROAS (Mua hàng)", icon: "fa-solid fa-money-bill-trend-up", val: cur.roas, old: prev.roas, type: "float" },
+
+    { section: "Tương tác nội dung" },
+    { id: "engage", label: "Tương tác bài viết", icon: "fa-solid fa-thumbs-up", val: cur.engagement, old: prev.engagement, type: "num" },
+    { id: "react", label: "Cảm xúc (Reactions)", icon: "fa-solid fa-heart", val: cur.reaction, old: prev.reaction, type: "num" },
+    { id: "comment", label: "Bình luận (Comments)", icon: "fa-solid fa-comment", val: cur.comment, old: prev.comment, type: "num" },
+    { id: "share", label: "Chia sẻ (Shares)", icon: "fa-solid fa-share", val: cur.share, old: prev.share, type: "num" },
+    { id: "follow", label: "Lượt thích Trang (Like Page)", icon: "fa-solid fa-thumbs-up", val: cur.follow, old: prev.follow, type: "num" },
+    { id: "photo", label: "Xem ảnh (Photo Views)", icon: "fa-solid fa-image", val: cur.photo_view, old: prev.photo_view, type: "num" },
+    { id: "link_click", label: "Link Clicks (Hành động)", icon: "fa-solid fa-link", val: cur.link_click, old: prev.link_click, type: "num" },
+
+    { section: "Phát Video & Thử thách" },
+    { id: "vplay", label: "Lượt xem Video", icon: "fa-solid fa-circle-play", val: cur.video_play, old: prev.video_play, type: "num" },
+    { id: "thru", label: "ThruPlays", icon: "fa-solid fa-forward-step", val: cur.thruplay, old: prev.thruplay, type: "num" },
+    { id: "video_p25", label: "Video xem 25%", icon: "fa-solid fa-hourglass-start", val: cur.video_p25, old: prev.video_p25, type: "num" },
+    { id: "video_p50", label: "Video xem 50%", icon: "fa-solid fa-hourglass-half", val: cur.video_p50, old: prev.video_p50, type: "num" },
+    { id: "video_p75", label: "Video xem 75%", icon: "fa-solid fa-hourglass-end", val: cur.video_p75, old: prev.video_p75, type: "num" },
+    { id: "video_p95", label: "Video xem 95%", icon: "fa-solid fa-hourglass", val: cur.video_p95, old: prev.video_p95, type: "num" },
+    { id: "video_p100", label: "Video xem 100%", icon: "fa-solid fa-clock", val: cur.video_p100, old: prev.video_p100, type: "num" },
+  ];
+
+  // --- 🧠 SMART INSIGHTS LOGIC ---
+  const getInsight = () => {
+    const calcDiff = (c, p) => (p > 0 ? ((c - p) / p) * 100 : 0);
+    const spendDiff = calcDiff(cur.spend, prev.spend);
+
+    const metricAnalysis = SUMMARY_METRICS.map(mid => {
+      const c = cur[mid] || 0;
+      const p = prev[mid] || 0;
+      const diff = calcDiff(c, p);
+      const label = METRIC_REGISTRY[mid]?.label || mid;
+      return { mid, label, diff };
+    });
+
+    // Pick the "most important" result to determine overall status
+    const mainResult = metricAnalysis.find(m => ["message", "lead", "link_click", "result"].includes(m.mid)) || metricAnalysis[metricAnalysis.length - 1];
+    const resDiff = mainResult.diff;
+
+    let evaluation = "";
+    let evalColor = "#64748b";
+
+    if (resDiff > spendDiff && spendDiff >= 0) {
+      evaluation = "CHI PHÍ TỐI ƯU RẤT TỐT";
+      evalColor = "#f59e0b"; // Golden Amber
+    } else if (resDiff >= 0 && spendDiff < 0) {
+      evaluation = "HIỆU QUẢ TĂNG DÙ GIẢM NGÂN SÁCH";
+      evalColor = "#f59e0b"; // Golden Amber
+    } else if (resDiff < spendDiff && spendDiff > 20) {
+      evaluation = "CẦN TỐI ƯU LẠI QUẢNG CÁO";
+      evalColor = "#f59e0b"; // Warning Orange
+    } else if (resDiff < 0) {
+      evaluation = "HIỆU QUẢ ĐANG GIẢM TRÚT";
+      evalColor = "#f59e0b"; // Warning Orange
+    } else {
+      evaluation = "HIỆU QUẢ ĐANG DUY TRÌ";
+      evalColor = "#f59e0b"; // Golden Amber
+    }
+
+    const getClr = (v) => v > 0 ? '#10b981' : (v < 0 ? '#ef4444' : '#64748b');
+
+    const details = metricAnalysis.map(m => `<b>${m.label}</b> ${m.diff >= 0 ? 'tăng' : 'giảm'} <span style="color:${getClr(m.diff)}; font-weight:800;">${Math.abs(m.diff).toFixed(1)}%</span>`).join(", ");
+
+    return `
+      <span style="color:${evalColor}; font-weight:800; font-size:1.45rem;">${evaluation}</span>. 
+      Ngân sách <b>${spendDiff >= 0 ? 'tăng' : 'giảm'} <span style="color:${getClr(spendDiff)}; font-weight:800;">${Math.abs(spendDiff).toFixed(1)}%</span></b>. 
+      ${details}.
+    `;
+  };
+
+  let html = `
+    <div class="perf_insight_banner" style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 1.6rem; margin-bottom: 2rem; display: flex; align-items: center; gap: 1.5rem;">
+      <div style="width: 4rem; height: 4rem; background: #fff; border-radius: 50%; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 10px rgba(0,0,0,0.05);">
+        <i class="fa-solid fa-wand-magic-sparkles" style="color: #ffa900; font-size: 1.8rem;"></i>
+      </div>
+      <div>
+        <p style="margin: 0; font-size: 1.1rem; color: #64748b; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em;">Nhận xét nhanh</p>
+        <p style="margin: 0.3rem 0 0; font-size: 1.4rem; color: #1e293b; font-weight: 500;">${getInsight()}</p>
+      </div>
+    </div>
+
+    <table class="perf_table">
+      <thead>
+        <tr>
+          <th style="width: 30%">Chỉ số (Metrics)</th>
+          <th style="width: 25%">Kỳ hiện tại</th>
+          <th style="width: 25%">Kỳ so sánh</th>
+          <th style="width: 20%">Thay đổi (%)</th>
+        </tr>
+      </thead>
+      <tbody>
+  `;
+
+  rows.forEach(r => {
+    if (r.section) {
+      html += `<tr><td colspan="4" class="perf_section_title">${r.section}</td></tr>`;
+      return;
+    }
+
+    const change = r.old > 0 ? ((r.val - r.old) / r.old) * 100 : (r.val > 0 ? 100 : 0);
+    const cls = change > 0 ? "increase" : (change < 0 ? "decrease" : "equal");
+    const icon = change > 0 ? "fa-caret-up" : (change < 0 ? "fa-caret-down" : "fa-equals");
+
+    const format = (v, t) => {
+      if (t === "money") return formatMoney(v);
+      if (t === "percent") return v.toFixed(2) + "%";
+      if (t === "float") return v.toFixed(2);
+      return formatNumber(v);
+    };
+
+    html += `
+      <tr>
+        <td>
+          <div class="perf_metric_label">
+            <i class="${r.icon}"></i>
+            <span>${r.label}</span>
+          </div>
+        </td>
+        <td><span class="perf_val_current">${format(r.val, r.type)}</span></td>
+        <td><span class="perf_val_compare">${format(r.old, r.type)}</span></td>
+        <td>
+          <div class="perf_change_badge ${cls}">
+            <i class="fa-solid ${icon}"></i>
+            ${change === 0 && r.val === 0 ? "0.0" : change.toFixed(1)}%
+          </div>
+        </td>
+      </tr>
+    `;
+  });
+
+  html += `</tbody></table>`;
+  content.innerHTML = html;
+}
+
+// Xóa listener cũ không còn sử dụng
+
 
