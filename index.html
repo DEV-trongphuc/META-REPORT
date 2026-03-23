@@ -1,18 +1,17 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>DOM META REPORTS</title>
-  <!-- <link rel="stylesheet" href="./main.css" /> -->
-  <link rel="stylesheet" href="./main.css?v=2" />
+  <!-- <link rel="stylesheet" href="css/main.css" /> -->
+  <link rel="stylesheet" href="./css/main.css?v=2" />
   <!-- <link rel="stylesheet" href="./phone.css" /> -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css"
     integrity="sha512-Evv84Mr4kqVGRNSgIGL/F/aIDqQb7xQ2vcrdIwxfjThSH8CSR7PBEakCr51Ck+w+/U6swU2Im1vVX0SVk9ABhg=="
     crossorigin="anonymous" referrerpolicy="no-referrer" />
   <link rel="icon" href="https://dom-marketing.netlify.app/domfavicon.png" type="image/png" />
-  <link rel="stylesheet" href="./show_all.css" />
   <!-- Chart.js -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
@@ -22,6 +21,103 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Roboto:ital,wght@0,100..900;1,100..900&display=swap"
     rel="stylesheet" />
+  <style>
+    /* ── Logo edit hover pencil ── */
+    .logo_edit_wrap {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.6rem;
+    }
+
+    .logo_edit_btn {
+      width: 1rem;
+      height: 1rem;
+      border-radius: 50%;
+      background: var(--mainClr);
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1rem;
+      cursor: pointer;
+      opacity: 0;
+      transition: opacity 0.18s ease;
+      box-shadow: 0 2px 6px rgba(255, 169, 0, 0.4);
+      border: none;
+      flex-shrink: 0;
+    }
+
+    .logo_edit_wrap:hover .logo_edit_btn {
+      opacity: 1;
+    }
+
+    /* popup nhập link — dùng fixed để thoát stacking context */
+    .logo_url_popup {
+      position: fixed;
+      background: #fff;
+      border: 1px solid #e2e8f0;
+      border-radius: 1.4rem;
+      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.15);
+      padding: 1.6rem;
+      width: 30rem;
+      z-index: 100000;
+      display: none;
+      flex-direction: column;
+      gap: 1rem;
+    }
+
+    .logo_url_popup.open {
+      display: flex;
+    }
+
+    .logo_url_popup label {
+      font-size: 1.2rem;
+      font-weight: 700;
+      color: #334155;
+    }
+
+    .logo_url_popup input {
+      padding: 0.9rem 1.1rem;
+      border: 1.5px solid #e2e8f0;
+      border-radius: 0.8rem;
+      font-size: 1.2rem;
+      outline: none;
+      transition: border 0.18s;
+      width: 100%;
+      box-sizing: border-box;
+    }
+
+    .logo_url_popup input:focus {
+      border-color: var(--mainClr);
+    }
+
+    .logo_url_popup .popup_actions {
+      display: flex;
+      gap: 0.8rem;
+      justify-content: flex-end;
+    }
+
+    .logo_url_popup .btn_apply {
+      padding: 0.7rem 1.8rem;
+      border-radius: 0.8rem;
+      border: none;
+      background: var(--mainClr);
+      color: #fff;
+      font-weight: 700;
+      font-size: 1.2rem;
+      cursor: pointer;
+    }
+
+    .logo_url_popup .btn_cancel_logo {
+      padding: 0.7rem 1.2rem;
+      border-radius: 0.8rem;
+      border: 1px solid #e2e8f0;
+      background: #f8fafc;
+      color: #64748b;
+      font-size: 1.2rem;
+      cursor: pointer;
+    }
+  </style>
 </head>
 
 <body>
@@ -123,7 +219,7 @@
         <div
           style="background: #fcfcfc; border: 1px solid #f0f0f0; border-radius: 1.5rem; padding: 2rem; display: flex; flex-direction: column; gap: 1.5rem;">
           <h3 style="font-size: 1.6rem; color: #333; font-weight: 700; display: flex; justify-content: space-between;">
-            Cột đang chọn (Tối đa 15 cột)
+            Cột đang chọn
             <small style="font-weight: 400; color: #999; font-size: 1.2rem;">Kéo thả để sắp xếp (sắp tới)</small>
           </h3>
           <div id="active_columns_list" style="display: flex; flex-direction: column; gap: 0.8rem;">
@@ -157,11 +253,20 @@
   <section id="dom" class="flex">
     <div class="dom_sidebar box_shadow flex">
       <div class="dom_logo">
-        <!-- <img
-            src="https://raw.githubusercontent.com/DEV-trongphuc/DOM_MISA_IDEAS_CRM/refs/heads/main/Coffee%20Talk%20AI%20LEARNING%20(9).png"
-            alt="DOM Report Logo"
-          /> -->
-        <img src="https://ampersand-reports-dom.netlify.app/DOM-img/DOM_LOGO.png" alt="DOM Report Logo" />
+        <div style="display:inline-flex; align-items:center; gap:0.7rem; position:relative; cursor:pointer;"
+          onmouseenter="this.querySelector('button').style.opacity='1'; this.querySelector('button').style.transform='scale(1.12)'"
+          onmouseleave="this.querySelector('button').style.opacity='0'; this.querySelector('button').style.transform='scale(1)'">
+          <img id="sidebar_logo" src="https://ampersand-reports-dom.netlify.app/DOM-img/DOM_LOGO.png"
+            alt="DOM Report Logo" />
+          <button onclick="toggleLogoPopup(event)" title="Đổi logo"
+            style="width:2.4rem;height:2.4rem;border-radius:50%;background:var(--mainClr);color:#fff;border:none;display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0;opacity:0;transition:opacity .2s,transform .2s;box-shadow:0 2px 6px rgba(255,169,0,.4);padding:0;">
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5"
+              stroke-linecap="round" stroke-linejoin="round">
+              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+              <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+            </svg>
+          </button>
+        </div>
         <i id="mobile_menu" class="fa-solid fa-square-caret-left"></i>
       </div>
       <p class="dom_text_menu">PROJECT VIEW</p>
@@ -169,7 +274,8 @@
         <div class="dom_account_view_block">
           <div class="account_item">
             <div>
-              <img class="account_item_avatar" src="./img/avatar.png" />
+              <img class="account_item_avatar" src="./assets/dom_avatar.jpg"
+                onerror="this.src='https://ui-avatars.com/api/?name=DOM&background=f5a623&color=fff&bold=true'" />
               <div class="account_item_info">
                 <p class="account_item_name">Đang tải...</p>
                 <p class="account_item_id">--</p>
@@ -194,9 +300,6 @@
         <li class="" data-view="account">
           <i class="fa-solid fa-money-check"></i>
           <span>Ad Account</span>
-        </li>
-        <li class="">
-          <a href="https://dev-trongphuc.github.io/DOM_MISA_IDEAS_CRM/">CRM MISA</a>
         </li>
         <p class="dom_text_menu" id="gads_menu_title">GOOGLE ADS</p>
         <li class="" data-view="google_ads" id="gads_menu_item">
@@ -317,38 +420,38 @@
           <!-- Bộ lọc Brand (được kéo dài) -->
           <div class="dom_filter">
             <div class="dom_select quick_filter_detail toolbar_select" style="padding-left: 0 !important;">
-              <img src="./adset/ampersand/ampersand_img.jpg" />
+              <img src="./assets/brand_logo/ampersand_img.jpg" />
               <div class="flex">
                 <p class="dom_selected">Ampersand Group</p>
               </div>
               <i class="fa-solid fa-angle-down"></i>
               <ul class="dom_select_show">
                 <li data-filter="TRB">
-                  <img src="./adset/ampersand/TRB.jpg" />
+                  <img src="./assets/brand_logo/TRB.jpg" />
                   <span>The Running Bean</span>
                 </li>
                 <li data-filter="Haagen Dazs">
-                  <img src="./adset/ampersand/HD.jpg" />
+                  <img src="./assets/brand_logo/HD.jpg" />
                   <span>Häagen-Dazs</span>
                 </li>
                 <li data-filter="BEAN">
-                  <img src="./adset/ampersand/BEAN.jpg" />
+                  <img src="./assets/brand_logo/BEAN.jpg" />
                   <span> Be An Vegetarian</span>
                 </li>
                 <li data-filter="Esta">
-                  <img src="./adset/ampersand/Esta.jpg" />
+                  <img src="./assets/brand_logo/Esta.jpg" />
                   <span> Esta Saigon</span>
                 </li>
                 <li data-filter="Le Petit">
-                  <img src="./adset/ampersand/LPT.jpg" />
+                  <img src="./assets/brand_logo/LPT.jpg" />
                   <span> Le Petit</span>
                 </li>
                 <li data-filter="SNOWEE">
-                  <img src="./adset/ampersand/SNOWEE.jpg" />
+                  <img src="./assets/brand_logo/SNOWEE.jpg" />
                   <span> SNOWEE</span>
                 </li>
                 <li data-filter="">
-                  <img src="./adset/ampersand/ampersand_img.jpg" />
+                  <img src="./assets/brand_logo/ampersand_img.jpg" />
                   <span> Ampersand Filter</span>
                 </li>
               </ul>
@@ -581,8 +684,13 @@
             id="region_inner_card">
             <h2 class="">
               <span><i class="fa-solid fa-chart-simple main_clr"></i> Age &amp; Gender</span>
-              <span class="dom_title_button region" onclick="toggleRegionView()"><i class="fa-solid fa-repeat"></i>
-                Region Chart</span>
+              <div style="display:flex;gap:0.6rem;align-items:center;">
+                <span class="dom_title_button" id="age_only_toggle_btn" onclick="toggleAgeOnlyView()" title="Gộp theo Age">
+                  <i class="fa-solid fa-venus-mars"></i> Age Only
+                </span>
+                <span class="dom_title_button region" onclick="toggleRegionView()"><i class="fa-solid fa-repeat"></i>
+                  Region Chart</span>
+              </div>
             </h2>
             <div>
               <canvas id="age_gender_total"></canvas>
@@ -1016,7 +1124,7 @@
             </div>
             <!-- Targeting -->
             <div class="detail_set" id="detail_targeting">
-              <div class="detail_gender">
+              <div class="detail_gender dom_inner box_shadow">
                 <div>
                   <h2>
                     <i class="fa-solid fa-user-tag main_clr"></i> Audiences
@@ -1047,7 +1155,7 @@
                   <p>Anvatage +</p>
                 </div>
               </div>
-              <div class="detail_gender">
+              <div class="detail_gender dom_inner box_shadow">
                 <p class="detail_text">Location</p>
                 <div class="detail_location_bar"></div>
                 <p class="detail_text">Targeting</p>
@@ -2136,16 +2244,183 @@
       </div>
     </div>
   </div>
+  <script>
+    // ══════════════════════════════════════════════════════
+    //  🎨 CONSOLE BANNER
+    // ══════════════════════════════════════════════════════
+    (function () {
+      const line = 'color:#f5a623;font-weight:bold;font-size:11px;font-family:monospace';
+      const title = 'color:#f5a623;font-weight:bold;font-size:18px;font-family:monospace;text-shadow:0 0 10px #f5a623';
+      const sub = 'color:#888;font-size:11px;font-family:monospace';
+      const tag = 'background:#f5a623;color:#000;font-weight:bold;padding:2px 8px;border-radius:4px;font-size:11px';
+      const link = 'color:#60a5fa;font-size:11px;font-family:monospace';
+      const warn = 'color:#ef4444;font-weight:bold;font-size:11px;font-family:monospace';
+      console.log('%c╔═══════════════════════════════════════╗\n║  ██████╗  ██████╗ ███╗   ███╗       ║\n║  ██╔══██╗██╔═══██╗████╗ ████║       ║\n║  ██║  ██║██║   ██║██╔████╔██║       ║\n║  ██║  ██║██║   ██║██║╚██╔╝██║       ║\n║  ██████╔╝╚██████╔╝██║ ╚═╝ ██║       ║\n║  ╚═════╝  ╚═════╝ ╚═╝     ╚═╝       ║\n╚═══════════════════════════════════════╝', line);
+      console.log('%c DOM MARKETING REPORT', title);
+      console.log('%c Meta Ads · Google Ads · AI Analysis', sub);
+      console.log(' ');
+      console.log('%c v2.0 %c  by Ampersand Agency', tag, sub);
+      console.log('%c🔗 https://ampersand-reports-dom.netlify.app', link);
+      console.log(' ');
+      console.log('%c⚠️  Đây là công cụ nội bộ.', warn);
+      console.log('%c   Không chia sẻ token hoặc dữ liệu từ console này.', sub);
+      console.log('%c───────────────────────────────────────', sub);
+      console.log('%c💡 Tip: resetLogo() → reset logo về mặc định', sub);
+    })();
+
+    // ── Logo URL handler ──────────────────────────────────
+    const _LOGO_KEY = 'dom_custom_logo';
+    const _LOGO_DEFAULT = 'https://ampersand-reports-dom.netlify.app/DOM-img/DOM_LOGO.png';
+
+    // Restore logo từ localStorage khi load
+    (function () {
+      const saved = localStorage.getItem(_LOGO_KEY);
+      if (saved) { const el = document.getElementById('sidebar_logo'); if (el) el.src = saved; }
+    })();
+
+    // Inject popup vào <body> (1 lần) để thoát stacking context của sidebar
+    function _ensureLogoPopup() {
+      if (document.getElementById('logo_url_popup')) return;
+      const el = document.createElement('div');
+      el.id = 'logo_url_popup';
+      el.className = 'logo_url_popup';
+      el.innerHTML = `
+        <label>🔗 Link ảnh logo mới</label>
+        <input type="text" id="logo_url_input" placeholder="https://example.com/logo.png" />
+        <div class="popup_actions">
+          <button class="btn_cancel_logo" onclick="closeLogoPopup()">Hủy</button>
+          <button class="btn_apply" onclick="applyLogoUrl()">Áp dụng</button>
+        </div>`;
+      document.body.appendChild(el);
+    }
+
+    function toggleLogoPopup(e) {
+      e.stopPropagation();
+      _ensureLogoPopup();
+      const popup = document.getElementById('logo_url_popup');
+      if (popup.classList.contains('open')) { closeLogoPopup(); return; }
+      // Pre-fill
+      const curr = document.getElementById('sidebar_logo')?.src || '';
+      const inp = document.getElementById('logo_url_input');
+      if (inp) inp.value = (curr === _LOGO_DEFAULT || curr.endsWith(_LOGO_DEFAULT)) ? '' : curr;
+      // Vị trí fixed theo button
+      const rect = e.currentTarget.getBoundingClientRect();
+      popup.style.top = (rect.bottom + 8) + 'px';
+      popup.style.left = rect.left + 'px';
+      popup.classList.add('open');
+      setTimeout(() => inp?.focus(), 50);
+      setTimeout(() => document.addEventListener('click', _outsideLogoClick), 10);
+    }
+
+    function _outsideLogoClick(e) {
+      const popup = document.getElementById('logo_url_popup');
+      if (popup && !popup.contains(e.target)) closeLogoPopup();
+    }
+
+    function closeLogoPopup() {
+      document.getElementById('logo_url_popup')?.classList.remove('open');
+      document.removeEventListener('click', _outsideLogoClick);
+    }
+
+    function applyLogoUrl() {
+      const url = document.getElementById('logo_url_input')?.value.trim();
+      if (!url) return;
+      const logoEl = document.getElementById('sidebar_logo');
+      if (logoEl) logoEl.src = url;
+      try { localStorage.setItem(_LOGO_KEY, url); } catch (_) { }
+      closeLogoPopup();
+      if (typeof showToast === 'function') showToast('✅ Logo đã được cập nhật!');
+    }
+
+    // Enter để áp dụng khi popup đang mở
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && document.getElementById('logo_url_popup')?.classList.contains('open')) {
+        applyLogoUrl();
+      }
+    });
+
+    window.resetLogo = function () {
+      localStorage.removeItem(_LOGO_KEY);
+      const logoEl = document.getElementById('sidebar_logo');
+      if (logoEl) logoEl.src = _LOGO_DEFAULT;
+    };
+  </script>
 </body>
-<script src="./token.js"></script>
-<script src="./settings.js"></script>
+<!-- Foundation: lib/ (token, auth, settings, setup) -->
+<script src="./lib/token.js"></script>
+<script src="./lib/settings.js"></script>
 <!-- Google Identity Services — cần cho auth.js -->
 <script src="https://accounts.google.com/gsi/client" async></script>
-<script src="./auth.js"></script>
-<script src="./setup.js"></script>
-<script src="./google_ads.js"></script>
-<script src="./main.js"></script>
-<script src="./extra_details.js"></script>
+<script src="./lib/auth.js"></script>
+<script src="./lib/setup.js"></script>
+<script src="./js/api/google_ads.js"></script>
 
+<!-- ═══════════════════════════════════════════════════
+     JS MODULES — Thứ tự load quan trọng (dependency order)
+     ═══════════════════════════════════════════════════ -->
+
+<!-- 1. Core: config, metrics, column, preset -->
+<script src="./js/core/config.js"></script>
+<script src="./js/core/metric_config.js"></script>
+<script src="./js/core/column_config.js"></script>
+<script src="./js/core/preset_view.js"></script>
+<script src="./js/core/utils.js"></script>
+<script src="./js/core/chart_theme.js"></script>
+
+<!-- 2. API layer -->
+<script src="./js/api/constants.js"></script>
+<script src="./js/api/fetch.js"></script>
+<script src="./js/api/account.js"></script>
+<script src="./js/api/meta_insights.js"></script>
+
+<!-- 3. Data helpers (phải load sớm vì toggleSkeletons, getResults được dùng ở nhiều nơi) -->
+<script src="./js/data/helpers.js"></script>
+
+<!-- 4. Data processing -->
+<script src="./js/data/group.js"></script>
+<script src="./js/data/year_data.js"></script>
+<script src="./js/data/year_filter.js"></script>
+
+<!-- 4. Charts -->
+<script src="./js/charts/goal_chart.js"></script>
+<script src="./js/charts/daily_filter.js"></script>
+<script src="./js/charts/detail_daily.js"></script>
+<script src="./js/charts/platform_chart.js"></script>
+<script src="./js/charts/platform_position.js"></script>
+<script src="./js/charts/dashboard_charts.js"></script>
+<script src="./js/charts/age_gender_chart.js"></script>
+<script src="./js/charts/render_age_gender.js"></script>
+<script src="./js/charts/region_chart.js"></script>
+<script src="./js/charts/monthly_chart.js"></script>
+
+<!-- 5. UI Components -->
+<script src="./js/ui/render_campaign.js"></script>
+<script src="./js/ui/platform_summary.js"></script>
+<script src="./js/ui/selection_bar.js"></script>
+<script src="./js/ui/adset_modal.js"></script>
+<script src="./js/ui/ad_detail_modal.js"></script>
+<script src="./js/ui/ai_report.js"></script>
+<script src="./js/ui/ai_modal_setup.js"></script>
+<script src="./js/ui/year_dropdown.js"></script>
+<script src="./js/ui/performance_detail.js"></script>
+<script src="./js/ui/extra_details.js"></script>
+
+<!-- 6. Filters -->
+<script src="./js/filters/campaign_filter.js"></script>
+<script src="./js/filters/quick_filter.js"></script>
+
+<!-- 7. Settings -->
+<script src="./js/settings/perf_brand_ui.js"></script>
+<script src="./js/settings/brand_settings.js"></script>
+<script src="./js/settings/goal_settings.js"></script>
+
+<!-- 8. Export & Share -->
+<script src="./js/export/export_csv.js"></script>
+<script src="./js/share/share.js"></script>
+
+<!-- 9. App wiring (dashboard trước → startup gọi main() cuối cùng) -->
+<script src="./js/core/listeners.js"></script>
+<script src="./js/core/dashboard.js"></script>
+<script src="./js/core/startup.js"></script>
 
 </html>
